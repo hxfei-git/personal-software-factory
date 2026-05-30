@@ -19,6 +19,18 @@ export interface ResourceWriteInput<T> {
   event: MissionEvent;
 }
 
+export interface PlannerResultWriteInput {
+  workerRun: WorkerRun;
+  artifacts: Artifact[];
+  events: MissionEvent[];
+}
+
+export interface PlannerResultWriteOutput {
+  workerRun: WorkerRun;
+  artifacts: Artifact[];
+  events: MissionEvent[];
+}
+
 export interface MissionStorage {
   listProjects(): Promise<Project[]>;
   getProject(id: string): Promise<Project | null>;
@@ -29,6 +41,7 @@ export interface MissionStorage {
   transitionMission(id: string, status: Mission["status"], event: MissionEvent): Promise<Mission>;
   appendMissionEvent(event: MissionEvent): Promise<MissionEvent>;
   listMissionEvents(missionId: string): Promise<MissionEvent[]>;
+  recordPlannerResult(input: PlannerResultWriteInput): Promise<PlannerResultWriteOutput>;
 
   createApproval(input: ResourceWriteInput<Approval>): Promise<Approval>;
   listMissionApprovals(missionId: string): Promise<Approval[]>;
@@ -121,6 +134,14 @@ export function createInMemoryMissionStorage(seed: InMemoryMissionStorageSeed = 
     },
     async listMissionEvents(missionId) {
       return events.filter((event) => event.mission_id === missionId);
+    },
+    async recordPlannerResult(input) {
+      workerRuns.set(input.workerRun.id, input.workerRun);
+      for (const artifact of input.artifacts) {
+        artifacts.set(artifact.id, artifact);
+      }
+      events.push(...input.events);
+      return input;
     },
 
     async createApproval(input) {
@@ -263,6 +284,25 @@ export function createPrismaMissionStorage(prisma: PrismaClient): MissionStorage
     async listMissionEvents(missionId) {
       const events = await prisma.missionEvent.findMany({ where: { missionId }, orderBy: { createdAt: "asc" } });
       return events.map(mapMissionEvent);
+    },
+    async recordPlannerResult(input) {
+      const result = await prisma.$transaction(async (tx) => {
+        const workerRun = await tx.workerRun.create({ data: toPrismaWorkerRunCreate(input.workerRun) });
+        const artifacts: PrismaArtifact[] = [];
+        for (const artifact of input.artifacts) {
+          artifacts.push(await tx.artifact.create({ data: toPrismaArtifactCreate(artifact) }));
+        }
+        const events: PrismaMissionEvent[] = [];
+        for (const event of input.events) {
+          events.push(await tx.missionEvent.create({ data: toPrismaMissionEventCreate(event) }));
+        }
+        return { workerRun, artifacts, events };
+      });
+      return {
+        workerRun: mapWorkerRun(result.workerRun),
+        artifacts: result.artifacts.map(mapArtifact),
+        events: result.events.map(mapMissionEvent),
+      };
     },
 
     async createApproval(input) {

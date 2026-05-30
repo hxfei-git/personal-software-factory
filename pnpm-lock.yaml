@@ -34,6 +34,9 @@ importers:
       '@psf/mission-core':
         specifier: workspace:*
         version: link:../../packages/mission-core
+      '@psf/mission-planner':
+        specifier: workspace:*
+        version: link:../../packages/mission-planner
       '@psf/mission-schema':
         specifier: workspace:*
         version: link:../../packages/mission-schema

@@ -1,0 +1,65 @@
+# Mission Planner API
+
+The Mission Planner API connects the Orchestrator API to the deterministic `@psf/mission-planner` package.
+
+## Endpoint
+
+`POST /missions/:id/plan`
+
+The endpoint plans an existing Mission. It does not create a new Mission and it does not write physical files to disk in this task.
+
+Request body fields are optional:
+
+```json
+{
+  "userRequirement": "增加章节审稿和自动修复流程",
+  "qaCharter": "# QA Charter\n- 打开首页\n- 导出小说",
+  "title": "章节审稿与修复闭环",
+  "priority": "P1"
+}
+```
+
+Fallbacks:
+
+- `userRequirement` defaults to the Mission `raw_request`.
+- `title` defaults to the Mission `title`.
+- `priority` defaults to the Mission `priority`.
+- `qaCharter` defaults to `qa-charter.md` next to the Project Passport when that file exists; otherwise it is an empty string.
+
+## Planning Flow
+
+The API service loads the Mission, verifies its Project exists in storage, then loads the Project Passport through the Project Registry code. Route handlers do not read registry files directly.
+
+The service calls `createDeterministicMissionPlan` with `missionId: mission.id`, so generated planner resources belong to the existing Mission.
+
+The API records the returned planner resources through storage:
+
+- one `WorkerRun` with `worker_type: planner`;
+- four inline `Artifact` records: `mission`, `acceptance`, `technical_notes`, and `risk_notes`;
+- planner `MissionEvent` records including `mission.planning.started` and `mission.planning.completed`.
+
+For the local MVP dry-run, these records are written as one planner result operation. Artifact `content` is stored inline in the database or in-memory storage; files under `missions/{missionId}/` are planned paths only until the later file-writing task.
+
+## Response
+
+The response is compact and omits artifact content:
+
+```json
+{
+  "missionId": "mission-123",
+  "title": "章节审稿与修复闭环",
+  "files": [
+    { "name": "mission.md", "path": "missions/mission-123/mission.md", "size": 1234 }
+  ],
+  "workerRun": { "worker_type": "planner", "status": "succeeded" },
+  "artifacts": [
+    { "type": "mission", "path": "missions/mission-123/mission.md" }
+  ],
+  "events": [
+    { "type": "mission.planning.started" },
+    { "type": "mission.planning.completed" }
+  ]
+}
+```
+
+Missing Missions, Projects, or Project Passports return `404 NOT_FOUND`. Invalid registry reads or invalid request bodies return stable validation errors.

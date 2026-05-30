@@ -51,6 +51,39 @@ describe("orchestrator api", () => {
     return root;
   }
 
+  async function createAiNovelistRegistryRoot() {
+    const root = await mkdtemp(join(tmpdir(), "psf-api-registry-"));
+    const projectDir = join(root, "ai-novelist");
+    await mkdir(projectDir);
+    await writeFile(join(projectDir, "project.passport.yaml"), [
+      "id: ai-novelist",
+      "name: AI 小说助手",
+      "description: Sample ai-novelist passport for API tests.",
+      "repo:",
+      "  url: https://github.com/hxfei-git/ai-novelist.git",
+      "  default_branch: main",
+      "runtime:",
+      "  kind: web",
+      "commands:",
+      "  install: pnpm install",
+      "  test: pnpm test",
+      "  build: pnpm build",
+      "  run_staging: pnpm dev",
+      "urls:",
+      "  production: \"\"",
+      "  staging: \"\"",
+      "quality_gates:",
+      "  require_build: true",
+      "core_flows:",
+      "  - id: review_chapter",
+      "    name: 自动审稿",
+      "    priority: P0",
+      "",
+    ].join("\n"));
+    await writeFile(join(projectDir, "qa-charter.md"), "# QA Charter\n- 打开首页\n- 导出小说\n");
+    return root;
+  }
+
   async function createMission(server: ReturnType<typeof buildServer>, title: string) {
     const response = await server.inject({
       method: "POST",
@@ -291,6 +324,43 @@ describe("orchestrator api", () => {
     const events = await server.inject({ method: "GET", url: "/missions/" + mission.id + "/events" });
     expect(events.statusCode).toBe(200);
     expect(events.json().at(-1)).toMatchObject({ type: "mission.note", message: "A manual note." });
+  });
+
+  it("plans a mission and records planner resources", async () => {
+    const root = await createAiNovelistRegistryRoot();
+    try {
+      const { server } = await createTestServer({ auth: { disabled: true }, registryRoot: root });
+      const mission = await createMission(server, "Plan ai-novelist chapter review");
+      const response = await server.inject({
+        method: "POST",
+        url: `/missions/${mission.id}/plan`,
+        payload: {
+          userRequirement: "增加章节审稿和自动修复流程",
+          qaCharter: "# QA Charter\n- 打开首页\n- 导出小说",
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().files).toHaveLength(4);
+      expect(response.json().workerRun.worker_type).toBe("planner");
+
+      const artifacts = await server.inject({ method: "GET", url: `/missions/${mission.id}/artifacts` });
+      expect(artifacts.json().map((artifact: { type: string }) => artifact.type)).toEqual([
+        "mission",
+        "acceptance",
+        "technical_notes",
+        "risk_notes",
+      ]);
+
+      const runs = await server.inject({ method: "GET", url: `/missions/${mission.id}/worker-runs` });
+      expect(runs.json().at(-1).worker_type).toBe("planner");
+
+      const events = await server.inject({ method: "GET", url: `/missions/${mission.id}/events` });
+      expect(events.json().map((event: { type: string }) => event.type)).toEqual(
+        expect.arrayContaining(["mission.planning.started", "mission.planning.completed"]),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
 

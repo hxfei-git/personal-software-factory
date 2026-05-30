@@ -45,6 +45,10 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   server.get("/missions", async () => services.listMissions());
   server.get<{ Params: { id: string } }>("/missions/:id", async (request) => services.getMission(request.params.id));
 
+  server.post<{ Params: { id: string } }>("/missions/:id/plan", async (request) => {
+    return services.planMission(request.params.id, request.body);
+  });
+
   server.post<{ Params: { id: string } }>("/missions/:id/transition", async (request) => {
     return services.transitionMission(request.params.id, request.body);
   });

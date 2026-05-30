@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import {
   MissionStatus,
   MissionStatusSchema,
@@ -11,6 +13,7 @@ import {
   type WorkerRun,
 } from "@psf/mission-schema";
 import { transitionMission as buildTransition } from "@psf/mission-core";
+import { createDeterministicMissionPlan } from "@psf/mission-planner";
 import { ProjectRegistryError, findProjectById, scanProjectRegistry } from "@psf/project-registry";
 import { z } from "zod";
 import { badRequest, invalidTransition, notFound } from "./errors.js";
@@ -28,6 +31,13 @@ const CreateMissionRequestSchema = z.object({
   acceptance_markdown: z.string().optional(),
   priority: z.enum(["P0", "P1", "P2", "P3"]).default("P2"),
   risk_level: z.enum(["low", "medium", "high"]).default("medium"),
+});
+
+const PlanMissionRequestSchema = z.object({
+  userRequirement: z.string().min(1).optional(),
+  qaCharter: z.string().optional(),
+  title: z.string().min(1).optional(),
+  priority: z.enum(["P0", "P1", "P2", "P3"]).optional(),
 });
 
 const TransitionRequestSchema = z.object({
@@ -187,6 +197,27 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     }
   }
 
+  async function getRegistryProject(projectId: string) {
+    const registryProjects = await scanRegistryOrValidationError(registryRoot);
+    const registryProject = findProjectById(registryProjects, projectId);
+    if (!registryProject) {
+      throw notFound("ProjectPassport", projectId);
+    }
+    return registryProject;
+  }
+
+  async function readQaCharterNextToPassport(passportPath: string) {
+    const qaCharterPath = join(dirname(passportPath), "qa-charter.md");
+    try {
+      return await readFile(qaCharterPath, "utf8");
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") {
+        return "";
+      }
+      throw badRequest("VALIDATION_ERROR", "Unable to read QA charter", { path: qaCharterPath, cause: errorMessage(error) });
+    }
+  }
+
   return {
     listProjects: () => storage.listProjects(),
     async getProject(id: string) {
@@ -206,12 +237,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       if (!project) {
         throw notFound("Project", projectId);
       }
-      const registryProjects = await scanRegistryOrValidationError(registryRoot);
-      const registryProject = findProjectById(registryProjects, projectId);
-      if (!registryProject) {
-        throw notFound("ProjectPassport", projectId);
-      }
-      return registryProject.passport;
+      return (await getRegistryProject(projectId)).passport;
     },
     listMissions: () => storage.listMissions(),
     getMission,
@@ -246,6 +272,43 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       const event = buildEvent(mission.id, "mission.created", "Mission created", { status: MissionStatus.received }, now);
 
       return storage.createMission({ mission, event });
+    },
+    async planMission(id: string, body: unknown) {
+      const input = parseRequest(PlanMissionRequestSchema, body ?? {});
+      const mission = await getMission(id);
+      const project = await storage.getProject(mission.project_id);
+      if (!project) {
+        throw notFound("Project", mission.project_id);
+      }
+      const registryProject = await getRegistryProject(project.id);
+      const qaCharter = input.qaCharter ?? await readQaCharterNextToPassport(registryProject.passportPath);
+      const plan = createDeterministicMissionPlan({
+        projectId: project.id,
+        userRequirement: input.userRequirement ?? mission.raw_request,
+        passport: registryProject.passport,
+        qaCharter,
+        title: input.title ?? mission.title,
+        priority: input.priority ?? mission.priority,
+        missionId: mission.id,
+      });
+      const persisted = await storage.recordPlannerResult({
+        workerRun: plan.workerRun,
+        artifacts: plan.artifacts,
+        events: plan.events,
+      });
+
+      return {
+        missionId: plan.missionId,
+        title: plan.title,
+        files: plan.files.map((file) => ({
+          name: file.name,
+          path: `missions/${plan.missionId}/${file.name}`,
+          size: Buffer.byteLength(file.content, "utf8"),
+        })),
+        workerRun: persisted.workerRun,
+        artifacts: persisted.artifacts.map(compactArtifact),
+        events: persisted.events,
+      };
     },
     async transitionMission(id: string, body: unknown) {
       const input = parseRequest(TransitionRequestSchema, body);
@@ -580,6 +643,28 @@ function buildEvent(missionId: string, type: string, message: string, payload: R
     payload,
     created_at: createdAt,
   };
+}
+
+function compactArtifact(artifact: Artifact) {
+  return {
+    id: artifact.id,
+    mission_id: artifact.mission_id,
+    type: artifact.type,
+    path: artifact.path,
+    ...(artifact.worker_run_id === undefined ? {} : { worker_run_id: artifact.worker_run_id }),
+    ...(artifact.mime_type === undefined ? {} : { mime_type: artifact.mime_type }),
+    size: artifact.size,
+    metadata: artifact.metadata,
+    created_at: artifact.created_at,
+  };
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function slugify(value: string): string {
