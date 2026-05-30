@@ -169,7 +169,7 @@ Updates a WorkerRun and appends `worker_run.updated`.
 
 ### POST /missions/:missionId/artifacts
 
-Creates an Artifact and appends `artifact.created`.
+Creates an Artifact and appends `artifact.created`. `name` is accepted as a display name and stored in `metadata.name` in this version.
 
 ```json
 {

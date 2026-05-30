@@ -68,6 +68,10 @@ export function createInMemoryMissionStorage(seed: InMemoryMissionStorageSeed = 
   const artifacts = new Map((seed.artifacts ?? []).map((artifact) => [artifact.id, artifact]));
   const bugs = new Map((seed.bugs ?? []).map((bug) => [bug.id, bug]));
   const qaRuns = new Map((seed.qaRuns ?? []).map((qaRun) => [qaRun.id, qaRun]));
+  const withQARunBugs = (qaRun: QAReport): QAReport => ({
+    ...qaRun,
+    bugs: [...bugs.values()].filter((bug) => bug.qa_run_id === qaRun.id),
+  });
 
   return {
     async listProjects() {
@@ -171,18 +175,19 @@ export function createInMemoryMissionStorage(seed: InMemoryMissionStorageSeed = 
     async createQARun(input) {
       qaRuns.set(input.resource.id, input.resource);
       events.push(input.event);
-      return input.resource;
+      return withQARunBugs(input.resource);
     },
     async listMissionQARuns(missionId) {
-      return [...qaRuns.values()].filter((qaRun) => qaRun.mission_id === missionId);
+      return [...qaRuns.values()].filter((qaRun) => qaRun.mission_id === missionId).map(withQARunBugs);
     },
     async getQARun(id) {
-      return qaRuns.get(id) ?? null;
+      const qaRun = qaRuns.get(id);
+      return qaRun ? withQARunBugs(qaRun) : null;
     },
     async updateQARun(input) {
       qaRuns.set(input.resource.id, input.resource);
       events.push(input.event);
-      return input.resource;
+      return withQARunBugs(input.resource);
     },
   };
 }
@@ -324,23 +329,23 @@ export function createPrismaMissionStorage(prisma: PrismaClient): MissionStorage
 
     async createQARun(input) {
       const qaRun = await prisma.$transaction(async (tx) => {
-        const created = await tx.qARun.create({ data: toPrismaQARunCreate(input.resource) });
+        const created = await tx.qARun.create({ data: toPrismaQARunCreate(input.resource), include: { bugs: { orderBy: { createdAt: "asc" } } } });
         await tx.missionEvent.create({ data: toPrismaMissionEventCreate(input.event) });
         return created;
       });
       return mapQARun(qaRun);
     },
     async listMissionQARuns(missionId) {
-      const qaRuns = await prisma.qARun.findMany({ where: { missionId }, orderBy: { createdAt: "asc" } });
+      const qaRuns = await prisma.qARun.findMany({ where: { missionId }, orderBy: { createdAt: "asc" }, include: { bugs: { orderBy: { createdAt: "asc" } } } });
       return qaRuns.map(mapQARun);
     },
     async getQARun(id) {
-      const qaRun = await prisma.qARun.findUnique({ where: { id } });
+      const qaRun = await prisma.qARun.findUnique({ where: { id }, include: { bugs: { orderBy: { createdAt: "asc" } } } });
       return qaRun ? mapQARun(qaRun) : null;
     },
     async updateQARun(input) {
       const qaRun = await prisma.$transaction(async (tx) => {
-        const updated = await tx.qARun.update({ where: { id: input.resource.id }, data: toPrismaQARunUpdate(input.resource) });
+        const updated = await tx.qARun.update({ where: { id: input.resource.id }, data: toPrismaQARunUpdate(input.resource), include: { bugs: { orderBy: { createdAt: "asc" } } } });
         await tx.missionEvent.create({ data: toPrismaMissionEventCreate(input.event) });
         return updated;
       });
@@ -358,6 +363,7 @@ type PrismaWorkerRun = Awaited<ReturnType<PrismaClient["workerRun"]["findMany"]>
 type PrismaArtifact = Awaited<ReturnType<PrismaClient["artifact"]["findMany"]>>[number];
 type PrismaBug = Awaited<ReturnType<PrismaClient["bug"]["findMany"]>>[number];
 type PrismaQARun = Awaited<ReturnType<PrismaClient["qARun"]["findMany"]>>[number];
+type PrismaQARunWithBugs = PrismaQARun & { bugs?: PrismaBug[] };
 
 function mapProject(project: PrismaProject): Project {
   return {
@@ -487,7 +493,7 @@ function mapBug(bug: PrismaBug): BugReport {
   };
 }
 
-function mapQARun(qaRun: PrismaQARun): QAReport {
+function mapQARun(qaRun: PrismaQARunWithBugs): QAReport {
   return {
     id: qaRun.id,
     mission_id: qaRun.missionId,
@@ -504,7 +510,7 @@ function mapQARun(qaRun: PrismaQARun): QAReport {
     failed: qaRun.failed,
     ...(qaRun.startedAt === null ? {} : { started_at: qaRun.startedAt.toISOString() }),
     ...(qaRun.finishedAt === null ? {} : { finished_at: qaRun.finishedAt.toISOString() }),
-    bugs: [],
+    bugs: (qaRun.bugs ?? []).map(mapBug),
     created_at: qaRun.createdAt.toISOString(),
     updated_at: qaRun.updatedAt.toISOString(),
   };

@@ -209,6 +209,38 @@ describe("orchestrator api", () => {
     expect(decision.json().status).toBe("approved");
   });
 
+
+
+  it("rejects repeated approval decisions without changing the approval", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "Repeated approval mission");
+    const approval = (await server.inject({
+      method: "POST",
+      url: `/missions/${mission.id}/approvals`,
+      payload: { type: "PRODUCTION_DEPLOY", requestedBy: "planner", reason: "Release requires approval." },
+    })).json();
+
+    const first = await server.inject({
+      method: "POST",
+      url: `/approvals/${approval.id}/decision`,
+      payload: { status: "approved", decidedBy: "local-user", decision: "Approved once." },
+    });
+    expect(first.statusCode).toBe(200);
+
+    const second = await server.inject({
+      method: "POST",
+      url: `/approvals/${approval.id}/decision`,
+      payload: { status: "rejected", decidedBy: "local-user", decision: "Reject after approval." },
+    });
+    expect(second.statusCode).toBe(400);
+    expect(second.json().code).toBe("VALIDATION_ERROR");
+
+    const detail = await server.inject({ method: "GET", url: `/approvals/${approval.id}` });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().status).toBe("approved");
+    expect(detail.json().decision).toBe("Approved once.");
+  });
+
   it("creates, lists, reads, and updates worker runs", async () => {
     const { server } = await createTestServer({ auth: { disabled: true } });
     const mission = await createMission(server, "WorkerRun mission");
@@ -238,11 +270,41 @@ describe("orchestrator api", () => {
     expect(created.statusCode).toBe(201);
     const artifact = created.json();
     expect(artifact.type).toBe("mission");
+    expect(artifact.metadata.name).toBe("mission.md");
     expect((await server.inject({ method: "GET", url: `/missions/${mission.id}/artifacts` })).json()).toHaveLength(1);
     expect((await server.inject({ method: "GET", url: `/artifacts/${artifact.id}` })).json().id).toBe(artifact.id);
 
     const events = await server.inject({ method: "GET", url: `/missions/${mission.id}/events` });
     expect(events.json().map((event: { type: string }) => event.type)).toContain("artifact.created");
+  });
+
+
+
+  it("validates artifact workerRunId references", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "Artifact reference mission");
+    const otherMission = await createMission(server, "Other worker mission");
+    const otherWorkerRun = (await server.inject({
+      method: "POST",
+      url: `/missions/${otherMission.id}/worker-runs`,
+      payload: { workerType: "planner", status: "queued", mode: "dry-run" },
+    })).json();
+
+    const missing = await server.inject({
+      method: "POST",
+      url: `/missions/${mission.id}/artifacts`,
+      payload: { type: "log", path: `missions/${mission.id}/missing-worker.log`, workerRunId: "worker-run-missing" },
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().code).toBe("NOT_FOUND");
+
+    const wrongMission = await server.inject({
+      method: "POST",
+      url: `/missions/${mission.id}/artifacts`,
+      payload: { type: "log", path: `missions/${mission.id}/wrong-worker.log`, workerRunId: otherWorkerRun.id },
+    });
+    expect(wrongMission.statusCode).toBe(400);
+    expect(wrongMission.json().code).toBe("VALIDATION_ERROR");
   });
 
   it("creates, lists, reads, and updates bugs", async () => {
@@ -272,6 +334,50 @@ describe("orchestrator api", () => {
     expect(updated.json().status).toBe("in_progress");
   });
 
+
+
+  it("validates bug qaRunId mission ownership on create and update", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "Bug reference mission");
+    const otherMission = await createMission(server, "Other QA mission");
+    const otherQaRun = (await server.inject({
+      method: "POST",
+      url: `/missions/${otherMission.id}/qa-runs`,
+      payload: { status: "queued", mode: "mock", stagingUrl: "http://127.0.0.1:8100", summary: "Other QA." },
+    })).json();
+
+    const create = await server.inject({
+      method: "POST",
+      url: `/missions/${mission.id}/bugs`,
+      payload: {
+        qaRunId: otherQaRun.id,
+        title: "Wrong QA run",
+        severity: "P2",
+        reproductionSteps: ["Open app"],
+        expectedResult: "QA run belongs to this mission.",
+        actualResult: "QA run belongs to another mission.",
+      },
+    });
+    expect(create.statusCode).toBe(400);
+    expect(create.json().code).toBe("VALIDATION_ERROR");
+
+    const bug = (await server.inject({
+      method: "POST",
+      url: `/missions/${mission.id}/bugs`,
+      payload: {
+        title: "Unlinked bug",
+        severity: "P2",
+        reproductionSteps: ["Open app"],
+        expectedResult: "One issue is reported.",
+        actualResult: "One issue is reported.",
+      },
+    })).json();
+
+    const update = await server.inject({ method: "PATCH", url: `/bugs/${bug.id}`, payload: { qaRunId: otherQaRun.id } });
+    expect(update.statusCode).toBe(400);
+    expect(update.json().code).toBe("VALIDATION_ERROR");
+  });
+
   it("creates, lists, reads, and updates QA runs", async () => {
     const { server } = await createTestServer({ auth: { disabled: true } });
     const mission = await createMission(server, "QA mission");
@@ -288,6 +394,51 @@ describe("orchestrator api", () => {
     const updated = await server.inject({ method: "PATCH", url: `/qa-runs/${qaRun.id}`, payload: { status: "passed", passed: 8, failed: 0 } });
     expect(updated.statusCode).toBe(200);
     expect(updated.json().status).toBe("passed");
+  });
+
+
+  it("keeps target_url unchanged when only stagingUrl is patched", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "QA staging patch mission");
+    const created = await server.inject({
+      method: "POST",
+      url: `/missions/${mission.id}/qa-runs`,
+      payload: { status: "queued", mode: "mock", targetUrl: "http://target.local", stagingUrl: "http://stage-a.local", summary: "Queued mock QA." },
+    });
+    expect(created.statusCode).toBe(201);
+    const qaRun = created.json();
+
+    const updated = await server.inject({ method: "PATCH", url: `/qa-runs/${qaRun.id}`, payload: { stagingUrl: "http://stage-b.local" } });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().target_url).toBe("http://target.local");
+    expect(updated.json().staging_url).toBe("http://stage-b.local");
+  });
+
+  it("returns linked bugs on QA run detail", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "QA linked bugs mission");
+    const qaRun = (await server.inject({
+      method: "POST",
+      url: `/missions/${mission.id}/qa-runs`,
+      payload: { status: "queued", mode: "mock", stagingUrl: "http://127.0.0.1:8200", summary: "Queued mock QA." },
+    })).json();
+    const bug = (await server.inject({
+      method: "POST",
+      url: `/missions/${mission.id}/bugs`,
+      payload: {
+        qaRunId: qaRun.id,
+        title: "Linked QA bug",
+        severity: "P1",
+        reproductionSteps: ["Open app"],
+        expectedResult: "QA detail includes linked bugs.",
+        actualResult: "QA detail omitted linked bugs.",
+      },
+    })).json();
+
+    const detail = await server.inject({ method: "GET", url: `/qa-runs/${qaRun.id}` });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().bugs).toHaveLength(1);
+    expect(detail.json().bugs[0].id).toBe(bug.id);
   });
 
 });

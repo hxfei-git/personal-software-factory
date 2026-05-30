@@ -148,6 +148,26 @@ export function createMissionServices(storage: MissionStorage) {
     return mission;
   }
 
+  async function validateWorkerRunBelongsToMission(workerRunId: string, missionId: string) {
+    const workerRun = await storage.getWorkerRun(workerRunId);
+    if (!workerRun) {
+      throw notFound("WorkerRun", workerRunId);
+    }
+    if (workerRun.mission_id !== missionId) {
+      throw badRequest("VALIDATION_ERROR", "WorkerRun does not belong to Mission", { worker_run_id: workerRunId, mission_id: missionId });
+    }
+  }
+
+  async function validateQARunBelongsToMission(qaRunId: string, missionId: string) {
+    const qaRun = await storage.getQARun(qaRunId);
+    if (!qaRun) {
+      throw notFound("QARun", qaRunId);
+    }
+    if (qaRun.mission_id !== missionId) {
+      throw badRequest("VALIDATION_ERROR", "QARun does not belong to Mission", { qa_run_id: qaRunId, mission_id: missionId });
+    }
+  }
+
   return {
     listProjects: () => storage.listProjects(),
     async getProject(id: string) {
@@ -251,6 +271,9 @@ export function createMissionServices(storage: MissionStorage) {
     },
     async decideApproval(id: string, body: unknown) {
       const current = await this.getApproval(id);
+      if (current.status !== "pending") {
+        throw badRequest("VALIDATION_ERROR", "Approval decision can only be recorded while approval is pending", { approval_id: id, status: current.status });
+      }
       const input = parseRequest(DecideApprovalRequestSchema, body);
       const now = new Date().toISOString();
       const approval: Approval = {
@@ -333,6 +356,9 @@ export function createMissionServices(storage: MissionStorage) {
     async createArtifact(missionId: string, body: unknown) {
       await getMission(missionId);
       const input = parseRequest(CreateArtifactRequestSchema, body);
+      if (input.workerRunId !== undefined) {
+        await validateWorkerRunBelongsToMission(input.workerRunId, missionId);
+      }
       const now = new Date().toISOString();
       const artifact: Artifact = {
         id: "artifact-" + randomUUID(),
@@ -343,7 +369,7 @@ export function createMissionServices(storage: MissionStorage) {
         ...(input.content === undefined ? {} : { content: input.content }),
         ...(input.mimeType === undefined ? {} : { mime_type: input.mimeType }),
         size: input.size ?? Buffer.byteLength(input.content ?? "", "utf8"),
-        metadata: input.metadata ?? {},
+        metadata: input.name === undefined ? input.metadata ?? {} : { ...(input.metadata ?? {}), name: input.name },
         created_at: now,
       };
       const event = buildEvent(missionId, "artifact.created", "Artifact created", { artifact_id: artifact.id, type: artifact.type, path: artifact.path }, now);
@@ -364,6 +390,9 @@ export function createMissionServices(storage: MissionStorage) {
     async createBug(missionId: string, body: unknown) {
       await getMission(missionId);
       const input = parseRequest(CreateBugRequestSchema, body);
+      if (input.qaRunId !== undefined) {
+        await validateQARunBelongsToMission(input.qaRunId, missionId);
+      }
       const now = new Date().toISOString();
       const bug: BugReport = {
         id: "bug-" + randomUUID(),
@@ -400,6 +429,9 @@ export function createMissionServices(storage: MissionStorage) {
     async updateBug(id: string, body: unknown) {
       const current = await this.getBug(id);
       const input = parseRequest(UpdateBugRequestSchema, body);
+      if (input.qaRunId !== undefined) {
+        await validateQARunBelongsToMission(input.qaRunId, current.mission_id);
+      }
       const now = new Date().toISOString();
       const bug: BugReport = {
         ...current,
@@ -463,10 +495,9 @@ export function createMissionServices(storage: MissionStorage) {
       const current = await this.getQARun(id);
       const input = parseRequest(UpdateQARunRequestSchema, body);
       const now = new Date().toISOString();
-      const targetUrl = input.targetUrl ?? input.stagingUrl;
       const qaRun: QAReport = {
         ...current,
-        ...(targetUrl === undefined ? {} : { target_url: targetUrl }),
+        ...(input.targetUrl === undefined ? {} : { target_url: input.targetUrl }),
         ...(input.mode === undefined ? {} : { mode: input.mode }),
         ...(input.status === undefined ? {} : { status: input.status }),
         ...(input.summary === undefined ? {} : { summary: input.summary }),
