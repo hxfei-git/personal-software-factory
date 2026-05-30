@@ -1,0 +1,24 @@
+{
+  "name": "@psf/mission-planner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic Mission Planner for Personal Software Factory.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "pnpm typecheck && pnpm test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@psf/mission-schema": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}
