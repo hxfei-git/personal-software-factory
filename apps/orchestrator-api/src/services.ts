@@ -2,6 +2,15 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  listIntegrationStatuses,
+  runIntegrationDryRun,
+  type ExternalIntegrationName,
+  type GitHubDryRunInput,
+  type CoolifyDryRunInput,
+  type UptimeKumaDryRunInput,
+  type PlaneDryRunInput,
+} from "@psf/integrations";
+import {
   MissionStatus,
   MissionStatusSchema,
   type Approval,
@@ -151,6 +160,10 @@ const CreateQARunRequestSchema = z.object({
 });
 
 const UpdateQARunRequestSchema = CreateQARunRequestSchema.partial();
+const IntegrationNameParamSchema = z.enum(["github", "coolify", "uptime_kuma", "uptime-kuma", "plane"]);
+const IntegrationDryRunRequestSchema = z.record(z.unknown());
+
+type IntegrationDryRunInput = GitHubDryRunInput | CoolifyDryRunInput | UptimeKumaDryRunInput | PlaneDryRunInput;
 
 export interface MissionServiceOptions {
   registryRoot?: string;
@@ -223,6 +236,45 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
   }
 
   return {
+    async getDashboard() {
+      const [projects, missions, approvals, workerRuns, artifacts, bugs, qaRuns] = await Promise.all([
+        storage.listProjects(),
+        storage.listMissions(),
+        storage.listAllApprovals(),
+        storage.listAllWorkerRuns(),
+        storage.listAllArtifacts(),
+        storage.listAllBugs(),
+        storage.listAllQARuns(),
+      ]);
+      const metrics = {
+        projectCount: projects.length,
+        missionCount: missions.length,
+        runningMissionCount: missions.filter(isRunningMission).length,
+        failedMissionCount: missions.filter((mission) => mission.status === MissionStatus.failed).length,
+        readyForReviewMissionCount: missions.filter((mission) => mission.status === MissionStatus.ready_for_review).length,
+        qaRunCount: qaRuns.length,
+        qaFailedCount: qaRuns.filter((qaRun) => qaRun.status === "failed" || (qaRun.failed ?? 0) > 0).length,
+        bugCount: bugs.length,
+        openBugCount: bugs.filter(isOpenBug).length,
+        p0p1BugCount: bugs.filter((bug) => bug.severity === "P0" || bug.severity === "P1").length,
+        pendingApprovalCount: approvals.filter((approval) => approval.status === "pending").length,
+        workerRunCount: workerRuns.length,
+        artifactCount: artifacts.length,
+      };
+
+      return {
+        metrics,
+        recentMissions: recentByCreatedAt(missions),
+        recentBugs: recentByCreatedAt(bugs),
+        recentWorkerRuns: recentByCreatedAt(workerRuns),
+        recentFailedWorkerRuns: recentByCreatedAt(workerRuns.filter((workerRun) => workerRun.status === "failed")),
+        recentQaRuns: recentByCreatedAt(qaRuns),
+        recentArtifacts: recentByCreatedAt(artifacts),
+        integrationStatuses: listIntegrationStatuses({ env: process.env }),
+        recommendedNextActions: buildDashboardRecommendedNextActions(metrics),
+        healthSignals: buildDashboardHealthSignals(metrics),
+      };
+    },
     listProjects: () => storage.listProjects(),
     async getProject(id: string) {
       const project = await storage.getProject(id);
@@ -245,6 +297,48 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     },
     listMissions: () => storage.listMissions(),
     getMission,
+    async getMissionSummary(id: string) {
+      const mission = await getMission(id);
+      const project = await storage.getProject(mission.project_id);
+      if (!project) {
+        throw notFound("Project", mission.project_id);
+      }
+      const [events, artifacts, workerRuns, qaRuns, bugs, approvals] = await Promise.all([
+        storage.listMissionEvents(id),
+        storage.listMissionArtifacts(id),
+        storage.listMissionWorkerRuns(id),
+        storage.listMissionQARuns(id),
+        storage.listMissionBugs(id),
+        storage.listMissionApprovals(id),
+      ]);
+
+      return {
+        mission,
+        project,
+        currentStatus: mission.status,
+        events,
+        artifacts,
+        workerRuns,
+        qaRuns,
+        bugs,
+        approvals,
+        qaReportArtifact: findArtifactByType(artifacts, "qa_report"),
+        bugsJsonArtifact: findArtifactByType(artifacts, "bugs_json"),
+        codexPromptArtifact: findArtifactByType(artifacts, "codex_prompt"),
+        codexCommandArtifact: findArtifactByType(artifacts, "codex_command"),
+        fixMissionArtifact: findArtifactByType(artifacts, "fix_mission"),
+        fixCodexCommandArtifact: findArtifactByType(artifacts, "fix_codex_command"),
+        recommendedNextAction: buildMissionRecommendedNextAction(mission, bugs, approvals, qaRuns, workerRuns),
+      };
+    },
+    listIntegrations() {
+      return listIntegrationStatuses({ env: process.env });
+    },
+    runIntegrationDryRun(name: string, body: unknown) {
+      const integrationName = parseRequest(IntegrationNameParamSchema, name) as ExternalIntegrationName;
+      const input = parseRequest(IntegrationDryRunRequestSchema, body ?? {});
+      return runIntegrationDryRun(integrationName, { ...input, env: process.env } as IntegrationDryRunInput);
+    },
     async createMission(body: unknown) {
       const input = parseRequest(CreateMissionRequestSchema, body);
       const project = await storage.getProject(input.project_id);
@@ -787,6 +881,123 @@ function buildEvent(missionId: string, type: string, message: string, payload: R
     payload,
     created_at: createdAt,
   };
+}
+
+const runningMissionStatuses = new Set<Mission["status"]>([
+  MissionStatus.planning,
+  MissionStatus.dev_queued,
+  MissionStatus.dev_running,
+  MissionStatus.build_running,
+  MissionStatus.test_running,
+  MissionStatus.staging_deploying,
+  MissionStatus.qa_running,
+  MissionStatus.fixing,
+  MissionStatus.regression_running,
+  MissionStatus.production_deploying,
+]);
+
+const openBugStatuses = new Set<BugReport["status"]>(["open", "in_progress"]);
+
+type DashboardMetrics = {
+  projectCount: number;
+  missionCount: number;
+  runningMissionCount: number;
+  failedMissionCount: number;
+  readyForReviewMissionCount: number;
+  qaRunCount: number;
+  qaFailedCount: number;
+  bugCount: number;
+  openBugCount: number;
+  p0p1BugCount: number;
+  pendingApprovalCount: number;
+  workerRunCount: number;
+  artifactCount: number;
+};
+
+function isRunningMission(mission: Mission): boolean {
+  return runningMissionStatuses.has(mission.status);
+}
+
+function isOpenBug(bug: BugReport): boolean {
+  return openBugStatuses.has(bug.status);
+}
+
+function recentByCreatedAt<T extends { id: string; created_at?: string | undefined }>(items: T[], limit = 5): T[] {
+  return [...items].sort(compareCreatedAtDesc).slice(0, limit);
+}
+
+function compareCreatedAtDesc(left: { id: string; created_at?: string | undefined }, right: { id: string; created_at?: string | undefined }): number {
+  const byCreatedAt = (right.created_at ?? "").localeCompare(left.created_at ?? "");
+  return byCreatedAt === 0 ? right.id.localeCompare(left.id) : byCreatedAt;
+}
+
+function buildDashboardRecommendedNextActions(metrics: DashboardMetrics): string[] {
+  const actions = [];
+  if (metrics.pendingApprovalCount > 0) {
+    actions.push("Review pending approvals before continuing gated work.");
+  }
+  if (metrics.p0p1BugCount > 0) {
+    actions.push("Triage P0/P1 bugs and schedule fixes before release review.");
+  }
+  if (metrics.failedMissionCount > 0 || metrics.qaFailedCount > 0) {
+    actions.push("Inspect failed missions or QA runs and collect evidence.");
+  }
+  if (metrics.readyForReviewMissionCount > 0) {
+    actions.push("Open ready-for-review missions and prepare PR review notes.");
+  }
+  return actions.length === 0 ? ["No urgent action detected; continue with the next planned mission."] : actions;
+}
+
+function buildDashboardHealthSignals(metrics: DashboardMetrics) {
+  return [
+    {
+      key: "mission_failures",
+      status: metrics.failedMissionCount > 0 ? "warning" : "ok",
+      count: metrics.failedMissionCount,
+      message: metrics.failedMissionCount > 0 ? "Some missions are failed." : "No failed missions.",
+    },
+    {
+      key: "qa_failures",
+      status: metrics.qaFailedCount > 0 ? "warning" : "ok",
+      count: metrics.qaFailedCount,
+      message: metrics.qaFailedCount > 0 ? "Some QA runs failed." : "No failed QA runs.",
+    },
+    {
+      key: "pending_approvals",
+      status: metrics.pendingApprovalCount > 0 ? "attention" : "ok",
+      count: metrics.pendingApprovalCount,
+      message: metrics.pendingApprovalCount > 0 ? "Approvals are waiting for a decision." : "No pending approvals.",
+    },
+  ];
+}
+
+function findArtifactByType(artifacts: Artifact[], type: Artifact["type"]): Artifact | null {
+  return artifacts.find((artifact) => artifact.type === type) ?? null;
+}
+
+function buildMissionRecommendedNextAction(
+  mission: Mission,
+  bugs: BugReport[],
+  approvals: Approval[],
+  qaRuns: QAReport[],
+  workerRuns: WorkerRun[],
+): string {
+  if (approvals.some((approval) => approval.status === "pending")) {
+    return "Review pending approval requests for this mission.";
+  }
+  if (bugs.some(isOpenBug)) {
+    return "Fix or triage open QA bugs before advancing the mission.";
+  }
+  if (qaRuns.some((qaRun) => qaRun.status === "failed" || (qaRun.failed ?? 0) > 0)) {
+    return "Review failed QA evidence and decide whether a fix mission is needed.";
+  }
+  if (workerRuns.some((workerRun) => workerRun.status === "failed")) {
+    return "Inspect failed worker run logs and retry after addressing the error.";
+  }
+  if (mission.status === MissionStatus.ready_for_review) {
+    return "Prepare human review and PR handoff for this mission.";
+  }
+  return "Continue the mission according to its current status.";
 }
 
 function compactArtifact(artifact: Artifact) {

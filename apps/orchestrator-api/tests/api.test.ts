@@ -907,4 +907,231 @@ describe("orchestrator api", () => {
     expect(detail.json().bugs[0].id).toBe(bug.id);
   });
 
+  it("returns dashboard metrics and recent operational resources", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "Dashboard mission");
+    await server.inject({ method: "POST", url: "/missions/" + mission.id + "/transition", payload: { to: MissionStatus.planning } });
+    const workerRun = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/worker-runs",
+      payload: { workerType: "codex", status: "failed", mode: "dry-run", error: "Unit test failed" },
+    })).json();
+    await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/artifacts",
+      payload: { type: "qa_report", path: "missions/" + mission.id + "/qa-report.md", workerRunId: workerRun.id, content: "# QA" },
+    });
+    const qaRun = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/qa-runs",
+      payload: { status: "failed", mode: "mock", stagingUrl: "http://127.0.0.1:8300", summary: "Failed QA.", failed: 1 },
+    })).json();
+    await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/bugs",
+      payload: {
+        qaRunId: qaRun.id,
+        title: "Dashboard P1 bug",
+        severity: "P1",
+        reproductionSteps: ["Open app"],
+        expectedResult: "Dashboard has data.",
+        actualResult: "Dashboard failed.",
+      },
+    });
+    await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/approvals",
+      payload: { type: "SECURITY_RISK", reason: "Needs review." },
+    });
+
+    const response = await server.inject({ method: "GET", url: "/dashboard" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().metrics).toMatchObject({
+      projectCount: 1,
+      missionCount: 1,
+      runningMissionCount: 1,
+      failedMissionCount: 0,
+      readyForReviewMissionCount: 0,
+      qaRunCount: 1,
+      qaFailedCount: 1,
+      bugCount: 1,
+      openBugCount: 1,
+      p0p1BugCount: 1,
+      pendingApprovalCount: 1,
+      workerRunCount: 1,
+      artifactCount: 1,
+    });
+    expect(response.json().recentMissions[0].id).toBe(mission.id);
+    expect(response.json().recentBugs).toHaveLength(1);
+    expect(response.json().recentWorkerRuns[0].id).toBe(workerRun.id);
+    expect(response.json().recentFailedWorkerRuns[0].status).toBe("failed");
+    expect(response.json().recentQaRuns[0].id).toBe(qaRun.id);
+    expect(response.json().recentArtifacts).toHaveLength(1);
+    expect(response.json().integrationStatuses[0]).toMatchObject({
+      realNetworkCall: false,
+      safeToRun: true,
+    });
+    expect(response.json().recommendedNextActions.length).toBeGreaterThan(0);
+    expect(response.json().healthSignals.length).toBeGreaterThan(0);
+  });
+
+  it("returns a mission summary with related resources and highlighted artifacts", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "Summary mission");
+    const workerRun = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/worker-runs",
+      payload: { workerType: "codex", status: "succeeded", mode: "dry-run", output: { summary: "Implemented." } },
+    })).json();
+    const qaReportArtifact = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/artifacts",
+      payload: { type: "qa_report", path: "missions/" + mission.id + "/qa-report.md", workerRunId: workerRun.id, content: "# QA Report" },
+    })).json();
+    const bugsJsonArtifact = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/artifacts",
+      payload: { type: "bugs_json", path: "missions/" + mission.id + "/bugs.json", content: "[]" },
+    })).json();
+    const codexPromptArtifact = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/artifacts",
+      payload: { type: "codex_prompt", path: "missions/" + mission.id + "/codex-prompt.md", content: "Prompt" },
+    })).json();
+    const codexCommandArtifact = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/artifacts",
+      payload: { type: "codex_command", path: "missions/" + mission.id + "/codex-command.sh", content: "pnpm test" },
+    })).json();
+    const fixMissionArtifact = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/artifacts",
+      payload: { type: "fix_mission", path: "missions/" + mission.id + "/fix-mission.md", content: "Fix" },
+    })).json();
+    const fixCodexCommandArtifact = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/artifacts",
+      payload: { type: "fix_codex_command", path: "missions/" + mission.id + "/fix-codex-command.sh", content: "pnpm test" },
+    })).json();
+    const qaRun = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/qa-runs",
+      payload: { status: "passed", mode: "mock", stagingUrl: "http://127.0.0.1:8400", summary: "Passed QA.", passed: 3 },
+    })).json();
+    const bug = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/bugs",
+      payload: {
+        qaRunId: qaRun.id,
+        title: "Summary linked bug",
+        severity: "P2",
+        status: "fixed",
+        reproductionSteps: ["Open app"],
+        expectedResult: "Summary links bugs.",
+        actualResult: "Summary omitted bug.",
+      },
+    })).json();
+    const approval = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/approvals",
+      payload: { type: "PRODUCTION_DEPLOY", reason: "Release review." },
+    })).json();
+
+    const response = await server.inject({ method: "GET", url: "/missions/" + mission.id + "/summary" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      mission: { id: mission.id },
+      project: { id: "ai-novelist" },
+      currentStatus: mission.status,
+      qaReportArtifact: { id: qaReportArtifact.id },
+      bugsJsonArtifact: { id: bugsJsonArtifact.id },
+      codexPromptArtifact: { id: codexPromptArtifact.id },
+      codexCommandArtifact: { id: codexCommandArtifact.id },
+      fixMissionArtifact: { id: fixMissionArtifact.id },
+      fixCodexCommandArtifact: { id: fixCodexCommandArtifact.id },
+    });
+    expect(response.json().events.map((event: { type: string }) => event.type)).toContain("mission.created");
+    expect(response.json().artifacts).toHaveLength(6);
+    expect(response.json().workerRuns[0].id).toBe(workerRun.id);
+    expect(response.json().qaRuns[0].bugs[0].id).toBe(bug.id);
+    expect(response.json().bugs[0].id).toBe(bug.id);
+    expect(response.json().approvals[0].id).toBe(approval.id);
+    expect(response.json().recommendedNextAction).toEqual(expect.any(String));
+  });
+
+  it("returns integration statuses with mandatory safety fields", async () => {
+    const { server } = await createTestServer();
+
+    const response = await server.inject({ method: "GET", url: "/integrations" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().map((status: { name: string }) => status.name)).toEqual(["github", "coolify", "uptime_kuma", "plane"]);
+    expect(response.json()[0]).toMatchObject({
+      configured: false,
+      realNetworkCall: false,
+      safeToRun: true,
+      realEnabled: false,
+    });
+    expect(response.json()[0].missingEnv.length).toBeGreaterThan(0);
+  });
+
+  it("runs integration dry-runs locally without provider credentials", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/integrations/github/dry-run",
+      payload: { mission: { missionId: "mission-001", missionTitle: "Dry run API" } },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      name: "github",
+      configured: false,
+      realNetworkCall: false,
+      safeToRun: true,
+      status: {
+        realNetworkCall: false,
+        safeToRun: true,
+      },
+    });
+    expect(response.json().missingEnv).toContain("GITHUB_TOKEN");
+  });
+
+  it("protects integration dry-run writes when auth is enabled", async () => {
+    const { server } = await createTestServer({ auth: { token: "secret", disabled: false } });
+
+    const response = await server.inject({ method: "POST", url: "/integrations/github/dry-run", payload: {} });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json().code).toBe("UNAUTHORIZED");
+  });
+
+  it("supports the uptime-kuma dry-run path", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/integrations/uptime-kuma/dry-run",
+      payload: { monitor: { project: "psf", stagingUrl: "https://staging.example.test" } },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      name: "uptime_kuma",
+      externalName: "uptime-kuma",
+      realNetworkCall: false,
+      safeToRun: true,
+      outputs: {
+        monitorConfig: {
+          type: "http",
+          dryRun: true,
+          url: "https://staging.example.test/",
+        },
+      },
+    });
+  });
+
 });

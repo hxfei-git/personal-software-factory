@@ -55,6 +55,9 @@ importers:
       '@psf/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@psf/integrations':
+        specifier: workspace:*
+        version: link:../../packages/integrations
       '@psf/mission-core':
         specifier: workspace:*
         version: link:../../packages/mission-core

@@ -30,6 +30,12 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   });
 
   server.get("/health", async () => ({ status: "ok" }));
+  server.get("/dashboard", async () => services.getDashboard());
+
+  server.get("/integrations", async () => services.listIntegrations());
+  server.post<{ Params: { name: string } }>("/integrations/:name/dry-run", async (request) => {
+    return services.runIntegrationDryRun(request.params.name, request.body);
+  });
 
   server.get("/projects", async () => services.listProjects());
   server.post("/projects/sync", async () => services.syncProjectRegistry());
@@ -43,6 +49,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     return reply.status(201).send(mission);
   });
   server.get("/missions", async () => services.listMissions());
+  server.get<{ Params: { id: string } }>("/missions/:id/summary", async (request) => services.getMissionSummary(request.params.id));
   server.get<{ Params: { id: string } }>("/missions/:id", async (request) => services.getMission(request.params.id));
 
   server.post<{ Params: { id: string } }>("/missions/:id/plan", async (request) => {
