@@ -1183,7 +1183,7 @@ function renderMissionMarkdown(title: string, input: MissionPlannerInput): strin
     ...input.passport.commands.test.map((command) => `- ${command}`),
     "",
     "## 禁止事项",
-    "- 不写入真实凭据。",
+    "- 不写入敏感凭证值。",
     "- 不 push 远程分支。",
     "- 不发布生产。",
     "",
@@ -1553,7 +1553,7 @@ Update the documentation files with these concrete sections:
 Run:
 
 ```bash
-rg -n "TBD|FIXME|真实凭据|secret-value" README.md docs .env.example projects missions
+rg -n "TBD|FIXME|敏感凭证值|secret-value" README.md docs .env.example projects missions
 ```
 
 Expected: no output for unresolved markers or fake secret values.

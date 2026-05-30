@@ -567,16 +567,7 @@ function requireMissionId(args: string[]): string {
 }
 
 function normalizePlannerFile(file: { name: string; content: string }): { name: typeof file.name; content: string } {
-  if (file.name !== "risk-notes.md") {
-    return file;
-  }
-  return {
-    ...file,
-    content: file.content.replace(
-      "- 当前规划阶段不写入数据库。",
-      "- CLI dry-run 阶段会同步 Project、Mission、WorkerRun、Artifact 和 MissionEvent 到 Prisma；不会执行生产业务写入或外部服务。",
-    ),
-  };
+  return file;
 }
 
 function syncPlannerArtifactsWithFiles(artifacts: Artifact[], files: Array<{ name: string; content: string }>): Artifact[] {

@@ -1,19 +1,43 @@
-# Mission Planner API
+# Mission Planner
 
-The Mission Planner API connects the Orchestrator API to the deterministic `@psf/mission-planner` package.
+The Mission Planner currently uses a deterministic template generator. It does not call an LLM, does not call external services, and does not execute project commands.
 
-## Endpoint
+## Package
 
-`POST /missions/:id/plan`
+`@psf/mission-planner` exports `createDeterministicMissionPlan(input)`.
 
-The endpoint plans an existing Mission. It does not create a new Mission and it does not write physical files to disk in this task.
+Inputs:
 
-Request body fields are optional:
+- `projectId`
+- `userRequirement`
+- normalized Project Passport
+- QA Charter text
+- optional `title`
+- optional `priority`
+- optional `missionId`
+
+Outputs:
+
+- `mission.md`
+- `acceptance.md`
+- `technical-notes.md`
+- `risk-notes.md`
+- one planner `WorkerRun` with `worker_type: planner`, `mode: dry-run`, and `status: succeeded`
+- four inline `Artifact` records for the generated markdown files
+- planner `MissionEvent` records for planning start/completion
+
+The package uses stable IDs and stable package-level timestamps so generated records are testable. API persistence rewrites planner event timestamps to the real planning execution window.
+
+## API Usage
+
+`POST /missions/:id/plan` plans an existing Mission.
+
+Request fields are optional:
 
 ```json
 {
   "userRequirement": "增加章节审稿和自动修复流程",
-  "qaCharter": "# QA Charter\n- 打开首页\n- 导出小说",
+  "qaCharter": "# QA Charter\n- 打开首页",
   "title": "章节审稿与修复闭环",
   "priority": "P1"
 }
@@ -24,52 +48,43 @@ Fallbacks:
 - `userRequirement` defaults to the Mission `raw_request`.
 - `title` defaults to the Mission `title`.
 - `priority` defaults to the Mission `priority`.
-- `qaCharter` defaults to `qa-charter.md` next to the Project Passport when that file exists; otherwise it is an empty string.
+- `qaCharter` defaults to `qa-charter.md` next to the Project Passport when the file exists.
 
-## Planning Flow
-
-The API service loads the Mission and validates that the current Mission status can be planned before reading Project Passport or QA Charter files. It then verifies the Project exists in storage and loads the Project Passport through the Project Registry code. Route handlers do not read registry files directly.
-
-The service calls `createDeterministicMissionPlan` with `missionId: mission.id`, so generated planner resources belong to the existing Mission.
-
-For a normal low or medium risk Mission in `received`, the service advances state through the existing state machine:
+For a normal Mission in `received`, the API records planner resources and moves state through:
 
 ```text
 received -> planning -> planned
 ```
 
-Those transitions create `mission.transition.received.planning` and `mission.transition.planning.planned` events. High-risk routing to `approval_required` is deferred; this endpoint currently plans the Mission and leaves approval routing to later workflow tasks.
+The API writes:
 
-The API records the returned planner resources through storage:
+- one `WorkerRun`;
+- `Artifact` records for `mission`, `acceptance`, `technical_notes`, and `risk_notes`;
+- `MissionEvent` records from the planner;
+- state transition events from the Mission state machine.
 
-- one `WorkerRun` with `worker_type: planner`;
-- four inline `Artifact` records: `mission`, `acceptance`, `technical_notes`, and `risk_notes`;
-- planner `MissionEvent` records including `mission.planning.started` and `mission.planning.completed`.
+Repeated planning is idempotent when the expected planner WorkerRun, Artifacts, and Events already exist. A repeated call returns the persisted result instead of mixing newly generated files with old resources.
 
-Planning is idempotent after resources are persisted. If a Mission is already `planned`, or is still `planning`, and the expected planner WorkerRun, Artifacts, and planner Events exist, a repeated `POST /missions/:id/plan` returns the persisted planner result without appending duplicate planner events; a `planning` retry also completes the missing transition to `planned`. This remains true even if the repeat request sends a different title, requirement, or QA Charter; the response is reconstructed from persisted WorkerRun input and Artifact records rather than mixing new generated files with old resources. Planner persistence also uses deterministic IDs idempotently so duplicate writes do not surface as generic database unique-key failures.
+## CLI Usage
 
-For the local MVP dry-run, these records are written as one planner result operation. Artifact `content` is stored inline in the database or in-memory storage; files under `missions/{missionId}/` are planned paths only until the later file-writing task. Mission event listing is ordered by `created_at` and then event `id`; the API rewrites deterministic planner package event timestamps to real planning execution times before persistence, and Prisma persists supplied event timestamps so in-memory and database-backed ordering remain consistent.
+The local CLI uses the same deterministic package:
 
-## Response
-
-The response is compact and omits artifact content:
-
-```json
-{
-  "missionId": "mission-123",
-  "title": "章节审稿与修复闭环",
-  "files": [
-    { "name": "mission.md", "path": "missions/mission-123/mission.md", "size": 1234 }
-  ],
-  "workerRun": { "worker_type": "planner", "status": "succeeded" },
-  "artifacts": [
-    { "type": "mission", "path": "missions/mission-123/mission.md" }
-  ],
-  "events": [
-    { "type": "mission.planning.started" },
-    { "type": "mission.planning.completed" }
-  ]
-}
+```bash
+pnpm psf mission:create ai-novelist "增加章节审稿和自动修复流程"
+pnpm psf mission:plan mission-0001-ai-novelist-chapter-review
 ```
 
-Missing Missions, Projects, or Project Passports return `404 NOT_FOUND`. Invalid registry reads or invalid request bodies return stable validation errors. Calling the endpoint from a Mission state where planning is not valid returns `INVALID_MISSION_TRANSITION` rather than recording planner artifacts silently.
+The CLI writes physical files under `missions/<mission-id>/` and, unless `PSF_SKIP_DB=1`, also syncs Project, Mission, WorkerRun, Artifact, and MissionEvent records to Prisma.
+
+## Boundaries
+
+The planner is a template generator. It does not:
+
+- call an LLM;
+- run Codex;
+- run project tests;
+- clone repositories;
+- deploy production;
+- decide or approve high-risk operations.
+
+High-risk routing to `approval_required` remains a later workflow responsibility. The generated acceptance and risk notes still name the approval points that later phases must enforce.

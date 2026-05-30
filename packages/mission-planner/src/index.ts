@@ -306,7 +306,7 @@ function buildRiskNotesDocument(input: MissionPlannerInput): string {
     "- 后续 API 集成必须保持规划包可替换为 LLM-backed planner。",
     "",
     "## 数据风险",
-    "- 当前规划阶段不写入数据库。",
+    "- 模板生成器本身只产出内存对象；API 或 CLI 持久化路径会写入 WorkerRun、Artifact 和 MissionEvent 等记录。",
     "- 后续阶段如涉及状态变更，必须生成 MissionEvent 并保留审计线索。",
     "",
     "## AI 输出风险",
