@@ -1,6 +1,15 @@
 # Orchestrator API MVP
 
-The Orchestrator API is the local control-plane API for Personal Software Factory Phase 4. It is built with Fastify and currently has no authentication because this batch is local-only.
+The Orchestrator API is the local control-plane API for Personal Software Factory Phase 4. It is built with Fastify. Write routes are protected by API token auth unless auth is explicitly disabled for local tests or development.
+
+## Conventions
+
+- Responses use the shared `@psf/mission-schema` snake_case field style.
+- New resource create/update requests accept the camelCase fields shown below and map them to snake_case responses.
+- Every write operation appends a `MissionEvent`.
+- Mission-scoped list/create routes first verify the Mission exists.
+- Missing resources return `404 NOT_FOUND`.
+- Invalid request bodies return `400 VALIDATION_ERROR`.
 
 ## Endpoints
 
@@ -84,6 +93,172 @@ Request:
 
 Returns Mission events in creation order.
 
+## Approvals
+
+### POST /missions/:missionId/approvals
+
+Creates an Approval and appends `approval.created`.
+
+```json
+{
+  "type": "PRODUCTION_DEPLOY",
+  "requestedBy": "planner",
+  "reason": "Release requires approval.",
+  "payload": { "target": "production" }
+}
+```
+
+### GET /missions/:missionId/approvals
+
+Lists Approvals for a Mission.
+
+### GET /approvals/:approvalId
+
+Returns one Approval or `404 NOT_FOUND`.
+
+### POST /approvals/:approvalId/decision
+
+Updates an Approval decision and appends `approval.decided`.
+
+```json
+{
+  "status": "approved",
+  "decidedBy": "local-user",
+  "decision": "Approved for dry-run."
+}
+```
+
+`status` may be `approved`, `rejected`, or `cancelled`.
+
+## Worker Runs
+
+### POST /missions/:missionId/worker-runs
+
+Creates a WorkerRun and appends `worker_run.created`.
+
+```json
+{
+  "workerType": "planner",
+  "status": "queued",
+  "mode": "dry-run",
+  "input": { "missionId": "mission-123" }
+}
+```
+
+### GET /missions/:missionId/worker-runs
+
+Lists WorkerRuns for a Mission.
+
+### GET /worker-runs/:workerRunId
+
+Returns one WorkerRun or `404 NOT_FOUND`.
+
+### PATCH /worker-runs/:workerRunId
+
+Updates a WorkerRun and appends `worker_run.updated`.
+
+```json
+{
+  "status": "succeeded",
+  "output": { "files": ["mission.md"] },
+  "logs": ["done"]
+}
+```
+
+## Artifacts
+
+### POST /missions/:missionId/artifacts
+
+Creates an Artifact and appends `artifact.created`.
+
+```json
+{
+  "type": "mission",
+  "name": "mission.md",
+  "path": "missions/mission-123/mission.md",
+  "content": "# Mission",
+  "metadata": { "storage": "inline" }
+}
+```
+
+### GET /missions/:missionId/artifacts
+
+Lists Artifacts for a Mission.
+
+### GET /artifacts/:artifactId
+
+Returns one Artifact or `404 NOT_FOUND`.
+
+## Bug Reports
+
+### POST /missions/:missionId/bugs
+
+Creates a BugReport with default status `open` and appends `bug.created`.
+
+```json
+{
+  "title": "Repeated generate clicks",
+  "severity": "P1",
+  "reproductionSteps": ["Open editor", "Click generate twice"],
+  "expectedResult": "One request is submitted.",
+  "actualResult": "Two requests are submitted.",
+  "evidence": { "source": "api-test" },
+  "suggestedFixDirection": "Disable the button while running.",
+  "source": "qa-worker"
+}
+```
+
+### GET /missions/:missionId/bugs
+
+Lists BugReports for a Mission.
+
+### GET /bugs/:bugId
+
+Returns one BugReport or `404 NOT_FOUND`.
+
+### PATCH /bugs/:bugId
+
+Updates a BugReport and appends `bug.updated`.
+
+```json
+{ "status": "in_progress" }
+```
+
+## QA Runs
+
+### POST /missions/:missionId/qa-runs
+
+Creates a QA run and appends `qa_run.created`.
+
+```json
+{
+  "status": "queued",
+  "mode": "mock",
+  "stagingUrl": "http://127.0.0.1:8000",
+  "summary": "Queued mock QA."
+}
+```
+
+### GET /missions/:missionId/qa-runs
+
+Lists QA runs for a Mission.
+
+### GET /qa-runs/:qaRunId
+
+Returns one QA run or `404 NOT_FOUND`.
+
+### PATCH /qa-runs/:qaRunId
+
+Updates a QA run and appends `qa_run.updated`.
+
+```json
+{
+  "status": "passed",
+  "passed": 8,
+  "failed": 0
+}
+```
+
 ## Error Shape
 
 ```json
@@ -94,4 +269,4 @@ Returns Mission events in creation order.
 }
 ```
 
-Stable error codes currently include `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_MISSION_TRANSITION`, and `INTERNAL_SERVER_ERROR`.
+Stable error codes currently include `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_MISSION_TRANSITION`, `UNAUTHORIZED`, and `INTERNAL_SERVER_ERROR`.

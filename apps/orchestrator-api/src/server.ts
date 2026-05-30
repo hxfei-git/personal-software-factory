@@ -50,5 +50,72 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     return services.listMissionEvents(request.params.id);
   });
 
+  server.post<{ Params: { missionId: string } }>("/missions/:missionId/approvals", async (request, reply) => {
+    const approval = await services.createApproval(request.params.missionId, request.body);
+    return reply.status(201).send(approval);
+  });
+  server.get<{ Params: { missionId: string } }>("/missions/:missionId/approvals", async (request) => {
+    return services.listMissionApprovals(request.params.missionId);
+  });
+  server.get<{ Params: { approvalId: string } }>("/approvals/:approvalId", async (request) => {
+    return services.getApproval(request.params.approvalId);
+  });
+  server.post<{ Params: { approvalId: string } }>("/approvals/:approvalId/decision", async (request) => {
+    return services.decideApproval(request.params.approvalId, request.body);
+  });
+
+  server.post<{ Params: { missionId: string } }>("/missions/:missionId/worker-runs", async (request, reply) => {
+    const workerRun = await services.createWorkerRun(request.params.missionId, request.body);
+    return reply.status(201).send(workerRun);
+  });
+  server.get<{ Params: { missionId: string } }>("/missions/:missionId/worker-runs", async (request) => {
+    return services.listMissionWorkerRuns(request.params.missionId);
+  });
+  server.get<{ Params: { workerRunId: string } }>("/worker-runs/:workerRunId", async (request) => {
+    return services.getWorkerRun(request.params.workerRunId);
+  });
+  server.patch<{ Params: { workerRunId: string } }>("/worker-runs/:workerRunId", async (request) => {
+    return services.updateWorkerRun(request.params.workerRunId, request.body);
+  });
+
+  server.post<{ Params: { missionId: string } }>("/missions/:missionId/artifacts", async (request, reply) => {
+    const artifact = await services.createArtifact(request.params.missionId, request.body);
+    return reply.status(201).send(artifact);
+  });
+  server.get<{ Params: { missionId: string } }>("/missions/:missionId/artifacts", async (request) => {
+    return services.listMissionArtifacts(request.params.missionId);
+  });
+  server.get<{ Params: { artifactId: string } }>("/artifacts/:artifactId", async (request) => {
+    return services.getArtifact(request.params.artifactId);
+  });
+
+  server.post<{ Params: { missionId: string } }>("/missions/:missionId/bugs", async (request, reply) => {
+    const bug = await services.createBug(request.params.missionId, request.body);
+    return reply.status(201).send(bug);
+  });
+  server.get<{ Params: { missionId: string } }>("/missions/:missionId/bugs", async (request) => {
+    return services.listMissionBugs(request.params.missionId);
+  });
+  server.get<{ Params: { bugId: string } }>("/bugs/:bugId", async (request) => {
+    return services.getBug(request.params.bugId);
+  });
+  server.patch<{ Params: { bugId: string } }>("/bugs/:bugId", async (request) => {
+    return services.updateBug(request.params.bugId, request.body);
+  });
+
+  server.post<{ Params: { missionId: string } }>("/missions/:missionId/qa-runs", async (request, reply) => {
+    const qaRun = await services.createQARun(request.params.missionId, request.body);
+    return reply.status(201).send(qaRun);
+  });
+  server.get<{ Params: { missionId: string } }>("/missions/:missionId/qa-runs", async (request) => {
+    return services.listMissionQARuns(request.params.missionId);
+  });
+  server.get<{ Params: { qaRunId: string } }>("/qa-runs/:qaRunId", async (request) => {
+    return services.getQARun(request.params.qaRunId);
+  });
+  server.patch<{ Params: { qaRunId: string } }>("/qa-runs/:qaRunId", async (request) => {
+    return services.updateQARun(request.params.qaRunId, request.body);
+  });
+
   return server;
 }
