@@ -87,47 +87,72 @@ describe("orchestrator api", () => {
 
   it("syncs projects from the configured registry root", async () => {
     const root = await createRegistryRoot();
-    const { server } = await createTestServer({ auth: { disabled: true }, registryRoot: root });
+    try {
+      const { server } = await createTestServer({ auth: { disabled: true }, registryRoot: root });
 
-    const response = await server.inject({ method: "POST", url: "/projects/sync" });
+      const response = await server.inject({ method: "POST", url: "/projects/sync" });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json().synced).toBe(1);
-    expect(response.json().projects).toHaveLength(1);
-    expect(response.json().projects[0]).toMatchObject({
-      id: "sample",
-      repo_url: "https://example.com/sample.git",
-      default_branch: "main",
-      status: "active",
-    });
-
-    await rm(root, { recursive: true, force: true });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().synced).toBe(1);
+      expect(response.json().projects).toHaveLength(1);
+      expect(response.json().projects[0]).toMatchObject({
+        id: "sample",
+        repo_url: "https://example.com/sample.git",
+        default_branch: "main",
+        status: "active",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("returns a normalized project passport for a registered project", async () => {
     const root = await createRegistryRoot();
-    const { server } = await createTestServer({ auth: { disabled: true }, registryRoot: root });
-    await server.inject({ method: "POST", url: "/projects/sync" });
+    try {
+      const { server } = await createTestServer({ auth: { disabled: true }, registryRoot: root });
+      await server.inject({ method: "POST", url: "/projects/sync" });
 
-    const response = await server.inject({ method: "GET", url: "/projects/sample/passport" });
+      const response = await server.inject({ method: "GET", url: "/projects/sample/passport" });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json().id).toBe("sample");
-    expect(response.json().commands.install).toEqual(["pnpm install"]);
-
-    await rm(root, { recursive: true, force: true });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().id).toBe("sample");
+      expect(response.json().commands.install).toEqual(["pnpm install"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("protects project registry sync when auth is enabled", async () => {
     const root = await createRegistryRoot();
-    const { server } = await createTestServer({ auth: { token: "secret", disabled: false }, registryRoot: root });
+    try {
+      const { server } = await createTestServer({ auth: { token: "secret", disabled: false }, registryRoot: root });
 
-    const response = await server.inject({ method: "POST", url: "/projects/sync" });
+      const response = await server.inject({ method: "POST", url: "/projects/sync" });
 
-    expect(response.statusCode).toBe(401);
-    expect(response.json().code).toBe("UNAUTHORIZED");
+      expect(response.statusCode).toBe(401);
+      expect(response.json().code).toBe("UNAUTHORIZED");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
-    await rm(root, { recursive: true, force: true });
+  it("returns validation error details when registry sync finds an invalid passport", async () => {
+    const root = await mkdtemp(join(tmpdir(), "psf-api-registry-"));
+    try {
+      const projectDir = join(root, "broken");
+      await mkdir(projectDir);
+      const passportPath = join(projectDir, "project.passport.yaml");
+      await writeFile(passportPath, ["id: broken", "name: Broken", ""].join("\n"));
+      const { server } = await createTestServer({ auth: { disabled: true }, registryRoot: root });
+
+      const response = await server.inject({ method: "POST", url: "/projects/sync" });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe("VALIDATION_ERROR");
+      expect(response.json().details.passportPath).toBe(passportPath);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("creates and reads a mission with initial received status", async () => {

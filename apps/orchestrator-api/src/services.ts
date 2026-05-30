@@ -11,7 +11,7 @@ import {
   type WorkerRun,
 } from "@psf/mission-schema";
 import { transitionMission as buildTransition } from "@psf/mission-core";
-import { findProjectById, scanProjectRegistry } from "@psf/project-registry";
+import { ProjectRegistryError, findProjectById, scanProjectRegistry } from "@psf/project-registry";
 import { z } from "zod";
 import { badRequest, invalidTransition, notFound } from "./errors.js";
 import { ApprovalDecisionConflictError, type MissionStorage } from "./storage.js";
@@ -176,6 +176,17 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     }
   }
 
+  async function scanRegistryOrValidationError(root: string) {
+    try {
+      return await scanProjectRegistry(root);
+    } catch (error) {
+      if (error instanceof ProjectRegistryError) {
+        throw badRequest("VALIDATION_ERROR", error.message, { code: error.code, ...error.details });
+      }
+      throw error;
+    }
+  }
+
   return {
     listProjects: () => storage.listProjects(),
     async getProject(id: string) {
@@ -186,7 +197,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       return project;
     },
     async syncProjectRegistry() {
-      const registryProjects = await scanProjectRegistry(registryRoot);
+      const registryProjects = await scanRegistryOrValidationError(registryRoot);
       const projects = await storage.syncProjects(registryProjects.map((entry) => entry.project));
       return { synced: projects.length, projects };
     },
@@ -195,7 +206,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       if (!project) {
         throw notFound("Project", projectId);
       }
-      const registryProjects = await scanProjectRegistry(registryRoot);
+      const registryProjects = await scanRegistryOrValidationError(registryRoot);
       const registryProject = findProjectById(registryProjects, projectId);
       if (!registryProject) {
         throw notFound("ProjectPassport", projectId);

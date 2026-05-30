@@ -27,7 +27,7 @@ Returns registered projects from storage.
 
 ### POST /projects/sync
 
-Scans the configured local Project Registry root (`PSF_PROJECTS_ROOT`, or `projects` by default), validates and normalizes `project.passport.yaml` files through `@psf/project-passport`, upserts projects into storage, and returns the synced project records. This is a write route and requires API token auth when auth is enabled.
+Scans the configured local Project Registry root (`PSF_PROJECTS_ROOT`, or `projects` by default), skips child directories without `project.passport.yaml`, validates and normalizes existing passport files through `@psf/project-passport`, upserts projects into storage, and returns the synced project records. Invalid passports return `400 VALIDATION_ERROR` with registry details. This is a write route and requires API token auth when auth is enabled.
 
 Response:
 
