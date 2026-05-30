@@ -185,6 +185,26 @@ describe("orchestrator api", () => {
   });
 
 
+
+
+  it("rejects custom mission events without lower-case dotted types", async () => {
+    const { server } = await createTestServer();
+    const mission = await createMission(server, "Invalid event type mission");
+
+    for (const type of ["MISSION_NOTE", "mission", ".mission.note", "mission."]) {
+      const response = await server.inject({
+        method: "POST",
+        url: `/missions/${mission.id}/events`,
+        payload: {
+          type,
+          message: "Invalid event type.",
+        },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe("VALIDATION_ERROR");
+    }
+  });
+
   it("creates, lists, reads, approves, and rejects approvals", async () => {
     const { server } = await createTestServer({ auth: { disabled: true } });
     const mission = await createMission(server, "Approval mission");

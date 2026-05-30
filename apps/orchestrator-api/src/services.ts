@@ -35,8 +35,10 @@ const TransitionRequestSchema = z.object({
   payload: JsonObjectSchema.default({}),
 });
 
+const EventTypeSchema = z.string().regex(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/, "Event type must be lower-case dotted format");
+
 const AppendEventRequestSchema = z.object({
-  type: z.string().min(1),
+  type: EventTypeSchema,
   message: z.string().min(1),
   payload: JsonObjectSchema.default({}),
 });
