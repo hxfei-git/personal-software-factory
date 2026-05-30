@@ -24,22 +24,24 @@ Completed checks:
 - `npm run typecheck` passed.
 - `npm run test` passed.
 
-Checks not completed because required tools are unavailable in the current environment:
+Additional environment checks completed after toolchain installation:
 
-- `pnpm --version` failed because `pnpm` is not installed.
-- `corepack --version` failed because `corepack` is not installed.
-- `pnpm install --lockfile-only` was not run because `pnpm` is unavailable.
-- `pnpm check`, `pnpm typecheck`, and `pnpm test` were not run because `pnpm` is unavailable.
-- `docker --version`, `docker compose version`, and `docker compose config --quiet` failed because `docker` is unavailable.
+- `pnpm install --lockfile-only` passed.
+- `pnpm check` passed.
+- `pnpm typecheck` passed.
+- `pnpm test` passed.
+- `sudo docker compose config --quiet` passed.
+- Docker daemon proxy configuration was added for registry access.
+- `sudo docker compose up -d postgres redis` passed.
+- `sudo docker compose ps` shows `psf-postgres` and `psf-redis` running and healthy.
 
 ## Remaining Risks
 
 - Runtime implementation has not started.
 - Database schema has not started.
 - Worker and QA behavior has not started.
-- The local environment currently uses Node.js 18, while the project target is Node.js 20+.
-- The local environment does not currently provide pnpm, corepack, or Docker.
+- Docker registry access depends on the host-level Docker daemon proxy configuration.
 
 ## Next Phase Entry
 
-Phase 2 may begin after the user confirms Phase 1 output. Node.js 20, pnpm, Docker, and Docker Compose are now installed; Docker Hub image pulls for PostgreSQL and Redis are still blocked by registry network timeouts, so database container startup needs either registry access or an approved mirror configuration.
+Phase 2 may begin after the user confirms Phase 1 output. Node.js 20, pnpm, Docker, and Docker Compose are installed, and the PostgreSQL and Redis development services are available through Docker Compose.
