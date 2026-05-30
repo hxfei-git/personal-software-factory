@@ -22,6 +22,7 @@ Personal Software Factory is built in explicit phases. Each phase must satisfy i
 ## Commit And Documentation Hygiene
 
 - Each task should end with a focused local git commit that groups related changes.
+- Each commit must use a Chinese summary as the commit title and include a Chinese description in the commit body.
 - Each task should update the relevant README, progress note, design doc, plan, or operating guide when behavior, structure, commands, or phase status changes.
 - Do not push commits to GitHub or update protected branches without explicit user approval.
 

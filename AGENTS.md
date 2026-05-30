@@ -29,6 +29,7 @@ Build a personal AI software factory that turns user requirements into planned M
 - Every QA bug in later phases must include reproduction steps, expected result, actual result, and evidence.
 - Keep generated artifacts under `artifacts/` and worker project clones under `workspaces/`.
 - Every task must finish with a focused local git commit and relevant documentation updates, unless the user explicitly says not to commit or a blocker prevents a safe commit. Do not push to GitHub without explicit approval.
+- Every commit must use a Chinese summary as the commit title and include a Chinese description in the commit body.
 - During testing, minimize elapsed time by running the smallest meaningful checks for the changed surface first. Focus on critical test chains, then run broader suites only when phase gates, shared contracts, or risk level require them.
 
 ## Phase 1 Checks

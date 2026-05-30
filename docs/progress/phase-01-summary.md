@@ -12,7 +12,7 @@ Phase 1 initialized the Personal Software Factory repository foundation.
 - Minimal README files added for scaffold directories.
 - Phase 1 structure validation command added.
 - Docker Compose file added for future PostgreSQL and Redis development services.
-- Governance updated to require focused local commits, documentation updates, and time-conscious critical-path testing.
+- Governance updated to require focused local commits, documentation updates, time-conscious critical-path testing, and Chinese commit titles with Chinese commit body descriptions.
 
 ## Verification
 
