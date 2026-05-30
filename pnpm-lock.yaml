@@ -17,6 +17,9 @@ importers:
       '@psf/db':
         specifier: workspace:*
         version: link:packages/db
+      '@psf/integrations':
+        specifier: workspace:*
+        version: link:packages/integrations
       '@psf/mission-planner':
         specifier: workspace:*
         version: link:packages/mission-planner

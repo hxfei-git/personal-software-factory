@@ -40,6 +40,7 @@
     "vitest": "^3.2.0",
     "@psf/auto-fix-loop": "workspace:*",
     "@psf/qa-worker": "workspace:*",
-    "@psf/worker-runtime": "workspace:*"
+    "@psf/worker-runtime": "workspace:*",
+    "@psf/integrations": "workspace:*"
   }
 }

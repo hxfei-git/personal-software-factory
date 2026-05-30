@@ -188,6 +188,58 @@ describe("psf CLI", () => {
     expect(result.stdout).toContain("Codex was not executed");
   });
 
+  test("integrations status lists configured state for supported providers", async () => {
+    const result = await withEnv(
+      {
+        GITHUB_TOKEN: undefined,
+        COOLIFY_API_URL: undefined,
+        COOLIFY_TOKEN: undefined,
+        UPTIME_KUMA_URL: undefined,
+        UPTIME_KUMA_USERNAME: undefined,
+        UPTIME_KUMA_PASSWORD: undefined,
+        PLANE_API_URL: undefined,
+        PLANE_TOKEN: undefined,
+        PLANE_WORKSPACE_SLUG: undefined,
+        PLANE_PROJECT_ID: undefined,
+      },
+      () => runPsfCli(["integrations:status"], { syncDatabase: false }),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('"externalName": "github"');
+    expect(result.stdout).toContain('"externalName": "coolify"');
+    expect(result.stdout).toContain('"externalName": "uptime-kuma"');
+    expect(result.stdout).toContain('"externalName": "plane"');
+    expect(result.stdout).toContain('"mode": "dry-run"');
+    expect(result.stdout).toContain('"configured": false');
+    expect(result.stdout).toContain('"realEnabled": false');
+    expect(result.stdout).toContain('"realNetworkCall": false');
+    expect(result.stdout).toContain('"safeToRun": true');
+    expect(result.stdout).toContain('"missingEnv"');
+  });
+
+  test("integrations dry-run supports the uptime-kuma external provider name", async () => {
+    const result = await runPsfCli(["integrations:dry-run", "uptime-kuma"], { syncDatabase: false });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('"externalName": "uptime-kuma"');
+    expect(result.stdout).toContain('"mode": "dry-run"');
+    expect(result.stdout).toContain('"realNetworkCall": false');
+    expect(result.stdout).toContain('"safeToRun": true');
+  });
+
+  test("integrations dry-run does not leak provider tokens to stdout or stderr", async () => {
+    const secret = "ghp_cli_secret_token";
+
+    const result = await withEnv({ GITHUB_TOKEN: secret }, () =>
+      runPsfCli(["integrations:dry-run", "github"], { syncDatabase: false }),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain(secret);
+    expect(result.stderr).not.toContain(secret);
+  });
+
   test("mission commands reject unsafe mission ids", async () => {
     const cwd = await createExampleWorkspace("psf-cli-path-");
 
@@ -206,6 +258,30 @@ async function createExampleWorkspace(prefix: string): Promise<string> {
   const cwd = await mkdtemp(join(tmpdir(), prefix));
   await cp(resolve("projects"), join(cwd, "projects"), { recursive: true });
   return cwd;
+}
+
+async function withEnv<T>(env: Record<string, string | undefined>, callback: () => Promise<T>): Promise<T> {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(env)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    return await callback();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
 }
 
 function createPrismaStub(missionUpdates: Array<Record<string, unknown>>) {
