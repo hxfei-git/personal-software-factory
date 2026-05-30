@@ -60,6 +60,14 @@ describe("mission schemas", () => {
     expect(result.success).toBe(false);
   });
 
+  it("rejects uppercase MissionEvent types", () => {
+    const result = MissionEventSchema.safeParse({
+      ...missionEventExample,
+      type: "MISSION_CREATED",
+    });
+    expect(result.success).toBe(false);
+  });
+
   it("accepts expanded Approval fields", () => {
     const approval = ApprovalSchema.parse({
       ...approvalExample,

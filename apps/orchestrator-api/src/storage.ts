@@ -3,6 +3,12 @@ import type { PrismaClient } from "@psf/db";
 import type { Approval, Artifact, BugReport, Mission, MissionEvent, Project, QAReport, WorkerRun } from "@psf/mission-schema";
 
 
+export class ApprovalDecisionConflictError extends Error {
+  constructor(id: string) {
+    super("Approval decision can only be recorded while approval is pending: " + id);
+  }
+}
+
 export interface CreateMissionRecordInput {
   mission: Mission;
   event: MissionEvent;
@@ -121,6 +127,10 @@ export function createInMemoryMissionStorage(seed: InMemoryMissionStorageSeed = 
       return approvals.get(id) ?? null;
     },
     async decideApproval(input) {
+      const current = approvals.get(input.resource.id);
+      if (!current || current.status !== "pending") {
+        throw new ApprovalDecisionConflictError(input.resource.id);
+      }
       approvals.set(input.resource.id, input.resource);
       events.push(input.event);
       return input.resource;
@@ -253,9 +263,19 @@ export function createPrismaMissionStorage(prisma: PrismaClient): MissionStorage
     },
     async decideApproval(input) {
       const approval = await prisma.$transaction(async (tx) => {
-        const updated = await tx.approval.update({ where: { id: input.resource.id }, data: toPrismaApprovalUpdate(input.resource) });
+        const updated = await tx.approval.updateMany({
+          where: { id: input.resource.id, status: "pending" },
+          data: toPrismaApprovalUpdate(input.resource),
+        });
+        if (updated.count !== 1) {
+          throw new ApprovalDecisionConflictError(input.resource.id);
+        }
         await tx.missionEvent.create({ data: toPrismaMissionEventCreate(input.event) });
-        return updated;
+        const decided = await tx.approval.findUnique({ where: { id: input.resource.id } });
+        if (!decided) {
+          throw new ApprovalDecisionConflictError(input.resource.id);
+        }
+        return decided;
       });
       return mapApproval(approval);
     },

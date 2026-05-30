@@ -13,7 +13,7 @@ import {
 import { transitionMission as buildTransition } from "@psf/mission-core";
 import { z } from "zod";
 import { badRequest, invalidTransition, notFound } from "./errors.js";
-import type { MissionStorage } from "./storage.js";
+import { ApprovalDecisionConflictError, type MissionStorage } from "./storage.js";
 
 
 const JsonObjectSchema = z.record(z.unknown());
@@ -288,7 +288,14 @@ export function createMissionServices(storage: MissionStorage) {
         ...(input.status === "rejected" ? { rejected_at: now } : {}),
       };
       const event = buildEvent(approval.mission_id, "approval.decided", "Approval decided", { approval_id: approval.id, status: approval.status }, now);
-      return storage.decideApproval({ resource: approval, event });
+      try {
+        return await storage.decideApproval({ resource: approval, event });
+      } catch (error) {
+        if (error instanceof ApprovalDecisionConflictError) {
+          throw badRequest("VALIDATION_ERROR", "Approval decision can only be recorded while approval is pending", { approval_id: id });
+        }
+        throw error;
+      }
     },
 
     async createWorkerRun(missionId: string, body: unknown) {

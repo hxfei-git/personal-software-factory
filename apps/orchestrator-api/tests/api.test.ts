@@ -259,6 +259,10 @@ describe("orchestrator api", () => {
     expect(detail.statusCode).toBe(200);
     expect(detail.json().status).toBe("approved");
     expect(detail.json().decision).toBe("Approved once.");
+
+    const events = await server.inject({ method: "GET", url: `/missions/${mission.id}/events` });
+    expect(events.statusCode).toBe(200);
+    expect(events.json().filter((event: { type: string }) => event.type === "approval.decided")).toHaveLength(1);
   });
 
   it("creates, lists, reads, and updates worker runs", async () => {

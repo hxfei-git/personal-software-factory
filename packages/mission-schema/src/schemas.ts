@@ -4,6 +4,7 @@ import { missionStatusValues } from "./status.js";
 const NonEmptyString = z.string().min(1);
 const DateTimeString = z.string().datetime({ offset: true });
 const JsonObject = z.record(z.unknown());
+const EventTypeSchema = z.string().regex(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/, "Event type must be lower-case dotted format");
 const CommandValueSchema = z.union([NonEmptyString, z.array(NonEmptyString).min(1)]);
 const WorkerTypeSchema = z.enum(["codex", "qa", "deploy", "monitor", "planner", "integration", "orchestrator"]);
 const WorkerRunStatusSchema = z.enum(["queued", "running", "succeeded", "failed", "cancelled", "skipped"]);
@@ -108,7 +109,7 @@ export const MissionSchema = z.object({
 export const MissionEventSchema = z.object({
   id: NonEmptyString,
   mission_id: NonEmptyString,
-  type: NonEmptyString,
+  type: EventTypeSchema,
   message: NonEmptyString,
   payload: JsonObject.default({}),
   created_at: DateTimeString,
