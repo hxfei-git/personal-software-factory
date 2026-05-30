@@ -2,12 +2,25 @@
   "name": "@psf/project-passport",
   "version": "0.1.0",
   "private": true,
-  "description": "Project Passport schema scaffold for Personal Software Factory.",
+  "type": "module",
+  "description": "Project Passport parser and validator for Personal Software Factory.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
-    "check": "node -e \"console.log('@psf/project-passport scaffold ready')\"",
-    "typecheck": "node -e \"console.log('@psf/project-passport has no TypeScript implementation in Phase 1')\"",
-    "test": "node -e \"console.log('@psf/project-passport has no tests in Phase 1')\"",
-    "lint": "node -e \"console.log('@psf/project-passport lint scaffold ready')\"",
-    "build": "node -e \"console.log('@psf/project-passport build scaffold ready')\""
+    "check": "pnpm typecheck && pnpm test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@psf/mission-schema": "workspace:*",
+    "yaml": "^2.8.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
   }
 }

@@ -1,0 +1,39 @@
+id: ai-novelist
+name: AI Novel Assistant
+description: Web AI writing assistant for creating, reviewing, repairing and exporting novels.
+repo:
+  url: git@github.com:hxfei-git/ai-novelist.git
+  default_branch: main
+runtime:
+  kind: web
+  backend:
+    language: python
+    framework: unknown
+  frontend:
+    language: typescript
+    framework: unknown
+commands:
+  install:
+    - python -m venv .venv
+    - npm --prefix web/frontend install
+  test: pytest -q
+  build:
+    - npm --prefix web/frontend run build
+  run_staging: ai-novelist web --host 127.0.0.1 --port 8000
+urls:
+  production: ""
+  staging: ""
+quality_gates:
+  require_build: true
+  require_unit_tests: true
+  require_e2e_tests: true
+  require_ai_qa: true
+  require_pr_review: true
+  require_human_production_approval: true
+core_flows:
+  - id: create_novel_project
+    name: Create novel project
+    priority: P0
+  - id: generate_chapter
+    name: Generate chapter
+    priority: P0
