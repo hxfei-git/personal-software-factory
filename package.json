@@ -6,15 +6,26 @@
   "license": "UNLICENSED",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "check": "node scripts/check-phase1-structure.mjs",
-    "typecheck": "node scripts/check-phase1-structure.mjs",
-    "test": "node scripts/check-phase1-structure.mjs",
-    "lint": "node scripts/check-phase1-structure.mjs",
+    "check": "pnpm typecheck && pnpm test",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "build": "turbo run build",
     "check:packages": "pnpm -r check",
-    "dev": "node -e \"console.log('Phase 1 scaffold only. Runtime services begin in later phases.')\""
+    "db:generate": "pnpm --filter @psf/db prisma generate --schema prisma/schema.prisma",
+    "db:migrate": "pnpm --filter @psf/db prisma migrate deploy --schema prisma/schema.prisma",
+    "db:seed": "pnpm --filter @psf/db seed",
+    "dev:api": "pnpm --filter @psf/orchestrator-api dev",
+    "dev": "pnpm dev:api"
   },
   "engines": {
     "node": ">=20.0.0",
     "pnpm": ">=9.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
   }
 }
