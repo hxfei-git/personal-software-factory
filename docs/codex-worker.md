@@ -27,10 +27,10 @@ The generator returns in-memory records and file contents only:
 - `MissionEvent[]` including `worker_run.created` and `codex.dry_run.created`;
 - `executed: false`.
 
-The generated command is an artifact, not an action:
+The generated command is an artifact, not an action. Its prompt argument is POSIX single-quote escaped so shell substitutions in Mission or AGENTS content remain literal:
 
 ```bash
-codex exec --sandbox workspace-write --ask-for-approval on-request "<mission prompt>"
+codex exec --sandbox workspace-write --ask-for-approval on-request '<mission prompt>'
 ```
 
 ## Prompt Contract

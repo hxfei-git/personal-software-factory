@@ -144,8 +144,11 @@ function renderCodexPrompt(input: CodexDryRunInput): string {
 }
 
 function renderCodexCommand(prompt: string): string {
-  return `codex exec --sandbox workspace-write --ask-for-approval on-request ${JSON.stringify(prompt)}
-`;
+  return `codex exec --sandbox workspace-write --ask-for-approval on-request ${shellQuote(prompt)}\n`;
+}
+
+function shellQuote(value: string): string {
+  return "'" + value.replaceAll("'", "'\"'\"'") + "'";
 }
 
 function renderDevSummary(input: CodexDryRunInput, requestedMode: CodexWorkerMode, now: string): string {

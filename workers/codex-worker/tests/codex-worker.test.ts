@@ -44,6 +44,37 @@ describe("codex worker dry-run", () => {
     }
   });
 
+  it("single-quotes adversarial prompt content in the generated shell command", () => {
+    const result = createCodexDryRun({
+      ...input,
+      projectAgents: `# AGENTS\n- Do not run $(touch /tmp/agents-pwned).\n- Do not run \`touch /tmp/backtick-pwned\`.\n- Quote "double" and 'single'.`,
+      missionFiles: {
+        ...input.missionFiles,
+        "mission.md": `# Mission\nHandle $(touch /tmp/mission-pwned), \`touch /tmp/tick-pwned\`, "double", and 'single'.`,
+      },
+    });
+
+    const command = result.files["codex-command.sh"];
+
+    expect(command).toMatch(/^codex exec --sandbox workspace-write --ask-for-approval on-request '/);
+    expect(command).toContain(`'"'"'`);
+    expect(command).toContain("$(touch /tmp/mission-pwned)");
+    expect(command).toContain("`touch /tmp/tick-pwned`");
+    expect(command).not.toMatch(/on-request "/);
+  });
+
+  it("blocks real mode at the public dry-run API boundary when real Codex is disabled", () => {
+    expect(() =>
+      createCodexDryRun({
+        ...input,
+        mode: "real",
+        enableRealCodex: false,
+        hasApproval: true,
+        currentBranch: "agent/test",
+      }),
+    ).toThrow(/ENABLE_REAL_CODEX=1/);
+  });
+
   it("blocks real execution on main and master", () => {
     expect(() =>
       assertSafeCodexExecution({ mode: "real", enableRealCodex: true, currentBranch: "main", hasApproval: true }),

@@ -13,10 +13,10 @@ The worker does not:
 - push to remotes;
 - call external services.
 
-The generated command is saved as `codex-command.sh` artifact content only:
+The generated command is saved as `codex-command.sh` artifact content only. The prompt argument is POSIX single-quote escaped so shell substitutions in Mission or AGENTS content remain literal if the artifact is inspected or run:
 
 ```bash
-codex exec --sandbox workspace-write --ask-for-approval on-request "<mission prompt>"
+codex exec --sandbox workspace-write --ask-for-approval on-request '<mission prompt>'
 ```
 
 ## API
