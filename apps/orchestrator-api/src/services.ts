@@ -285,10 +285,10 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       }
 
       const existing = await getExistingPlannerResult(mission.id);
+      if (existing && (mission.status === MissionStatus.planned || mission.status === MissionStatus.planning)) {
+        return buildPersistedPlanResponse(mission, existing);
+      }
       if (mission.status === MissionStatus.planned) {
-        if (existing) {
-          return buildPersistedPlanResponse(mission, existing);
-        }
         throw invalidTransition("Mission is already planned but planner resources are missing");
       }
 

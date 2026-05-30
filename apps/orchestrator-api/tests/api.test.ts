@@ -508,6 +508,61 @@ describe("orchestrator api", () => {
     }
   });
 
+  it("repeated planning while status is planning returns persisted planner result", async () => {
+    const root = await createAiNovelistRegistryRoot();
+    try {
+      const { server, storage } = await createTestServer({ auth: { disabled: true }, registryRoot: root });
+      const mission = await createMission(server, "Planning retry original title");
+
+      const first = await server.inject({
+        method: "POST",
+        url: `/missions/${mission.id}/plan`,
+        payload: {
+          title: "Planning retry original title",
+          userRequirement: "第一次 planning 规划需求",
+          qaCharter: "# QA Charter\n- 原始 planning 路径",
+        },
+      });
+      expect(first.statusCode).toBe(200);
+
+      await storage.transitionMission(mission.id, MissionStatus.planning, {
+        id: "event-" + mission.id + "-force-planning-for-test",
+        mission_id: mission.id,
+        type: "mission.transition.test.planning",
+        message: "Force planning status for retry test.",
+        payload: { source: "api-test" },
+        created_at: new Date().toISOString(),
+      });
+
+      const second = await server.inject({
+        method: "POST",
+        url: `/missions/${mission.id}/plan`,
+        payload: {
+          title: "Planning retry different title",
+          userRequirement: "第二次 planning 规划需求",
+          qaCharter: "# QA Charter\n- 不同 planning 路径",
+        },
+      });
+
+      expect(second.statusCode).toBe(200);
+      expect(second.json().title).toBe(first.json().title);
+      expect(second.json().workerRun.input).toMatchObject({
+        title: "Planning retry original title",
+        userRequirement: "第一次 planning 规划需求",
+        qaCharter: "# QA Charter\n- 原始 planning 路径",
+      });
+      expect(second.json().files).toEqual(first.json().files);
+      expect(second.json().artifacts).toEqual(first.json().artifacts);
+
+      const events = await server.inject({ method: "GET", url: `/missions/${mission.id}/events` });
+      const eventTypes = events.json().map((event: { type: string }) => event.type);
+      expect(eventTypes.filter((type: string) => type === "mission.planning.started")).toHaveLength(1);
+      expect(eventTypes.filter((type: string) => type === "mission.planning.completed")).toHaveLength(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects planning from invalid states before registry reads", async () => {
     const { server } = await createTestServer({ auth: { disabled: true } });
     const mission = await createMission(server, "Invalid state planner mission");
