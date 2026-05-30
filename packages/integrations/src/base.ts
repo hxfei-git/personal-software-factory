@@ -10,7 +10,7 @@ import type {
   IntegrationStatus,
 } from "./types.js";
 
-export const INTEGRATION_DEFINITIONS: Record<IntegrationName, IntegrationDefinition> = {
+export const INTEGRATION_DEFINITIONS: { [Name in IntegrationName]: IntegrationDefinition<Name> } = {
   github: {
     name: "github",
     externalName: "github",
@@ -55,25 +55,24 @@ export function resolveMode(mode: IntegrationRuntimeOptions["mode"]): Integratio
   return mode ?? "dry-run";
 }
 
-export function getMissingEnv(definition: IntegrationDefinition, env: IntegrationEnv = {}): string[] {
+export function getMissingEnv<TName extends IntegrationName>(definition: IntegrationDefinition<TName>, env: IntegrationEnv = {}): string[] {
   return definition.requiredEnv.filter((name) => !env[name]?.trim());
 }
 
-export function isRealEnabled(definition: IntegrationDefinition, env: IntegrationEnv = {}): boolean {
+export function isRealEnabled<TName extends IntegrationName>(definition: IntegrationDefinition<TName>, env: IntegrationEnv = {}): boolean {
   return env[definition.enableRealEnv] === "1";
 }
 
-export function buildIntegrationStatus(
-  definition: IntegrationDefinition,
+export function buildIntegrationStatus<TName extends IntegrationName>(
+  definition: IntegrationDefinition<TName>,
   options: IntegrationRuntimeOptions = {},
-): IntegrationStatus {
+): IntegrationStatus<TName> {
   const env = options.env ?? {};
   const missingEnv = getMissingEnv(definition, env);
   const configured = missingEnv.length === 0;
   const realEnabled = isRealEnabled(definition, env);
   const mode = resolveMode(options.mode);
-
-  return {
+  const status: IntegrationStatus<TName> = {
     name: definition.name,
     externalName: definition.externalName,
     mode,
@@ -90,17 +89,18 @@ export function buildIntegrationStatus(
       ? `${definition.externalName} is configured for ${mode}; real network calls are disabled.`
       : `${definition.externalName} is not fully configured; dry-run remains safe and local.`,
   };
+
+  return redactValue(status, env);
 }
 
-export function buildDryRunResult(
-  definition: IntegrationDefinition,
-  options: IntegrationRuntimeOptions & { message: string; outputs: Record<string, unknown> },
-): IntegrationDryRunResult {
+export function buildDryRunResult<TName extends IntegrationName, TOutputs extends object>(
+  definition: IntegrationDefinition<TName>,
+  options: IntegrationRuntimeOptions & { message: string; outputs: TOutputs },
+): IntegrationDryRunResult<TName, TOutputs> {
+  const env = options.env ?? {};
   const createdAt = resolveNow(options.now);
-  const status = buildIntegrationStatus(definition, { env: options.env ?? {}, now: createdAt, mode: options.mode ?? "dry-run" });
-  const outputs = redactValue(options.outputs, options.env);
-
-  return {
+  const status = buildIntegrationStatus(definition, { env, now: createdAt, mode: options.mode ?? "dry-run" });
+  const result: IntegrationDryRunResult<TName, TOutputs> = {
     name: definition.name,
     externalName: definition.externalName,
     mode: status.mode,
@@ -111,9 +111,11 @@ export function buildDryRunResult(
     safeToRun: true,
     message: options.message,
     status,
-    outputs,
+    outputs: options.outputs,
     createdAt,
   };
+
+  return redactValue(result, env);
 }
 
 export function formatList(items: readonly string[] | undefined, fallback: string): string {

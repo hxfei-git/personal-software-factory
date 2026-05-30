@@ -1,9 +1,9 @@
 import { INTEGRATION_DEFINITIONS, buildDryRunResult } from "./base.js";
-import type { CoolifyDryRunInput, IntegrationDryRunResult } from "./types.js";
+import type { CoolifyDryRunInput, CoolifyDryRunResult } from "./types.js";
 
 const definition = INTEGRATION_DEFINITIONS.coolify;
 
-export function runCoolifyDryRun(input: CoolifyDryRunInput = {}): IntegrationDryRunResult {
+export function runCoolifyDryRun(input: CoolifyDryRunInput = {}): CoolifyDryRunResult {
   const deployment = input.deployment ?? {};
   const environment = deployment.environment ?? "staging";
   const project = deployment.project ?? "unknown-project";

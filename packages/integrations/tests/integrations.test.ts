@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  createCoolifyAdapter,
+  createGithubAdapter,
+  createPlaneAdapter,
+  createUptimeKumaAdapter,
   getIntegrationAdapter,
   listIntegrationStatuses,
   runCoolifyDryRun,
   runGitHubDryRun,
+  runIntegrationDryRun,
   runPlaneDryRun,
   runUptimeKumaDryRun,
 } from "../src/index.js";
@@ -183,5 +188,89 @@ describe("integration dry-run adapters", () => {
   it("maps uptime-kuma external names to the uptime_kuma adapter", () => {
     expect(getIntegrationAdapter("uptime-kuma").name).toBe("uptime_kuma");
     expect(getIntegrationAdapter("uptime_kuma").name).toBe("uptime_kuma");
+  });
+
+  it("scrubs secret-like URL query params, URL userinfo, and secret-like object keys", () => {
+    const result = runUptimeKumaDryRun({
+      env: {},
+      now: fixedNow,
+      monitor: {
+        project: "psf",
+        stagingUrl: "https://deploy:staging-password@x.test/health?token=query-token&api_key=query-key&safe=ok",
+      },
+    });
+
+    const text = textOf(result);
+
+    expect(text).not.toContain("deploy:staging-password");
+    expect(text).not.toContain("staging-password");
+    expect(text).not.toContain("query-token");
+    expect(text).not.toContain("query-key");
+    expect(text).toContain("safe=ok");
+    expect(text).toContain("[REDACTED]");
+  });
+
+  it("scrubs secret-like assignments in user supplied text", () => {
+    const result = runGitHubDryRun({
+      env: {},
+      now: fixedNow,
+      mission: {
+        ...missionInput,
+        missionSummary: "token=plain-token password: plain-password apiKey=plain-key",
+      },
+    });
+
+    const text = textOf(result);
+
+    expect(text).not.toContain("plain-token");
+    expect(text).not.toContain("plain-password");
+    expect(text).not.toContain("plain-key");
+  });
+
+  it("scrubs secret-like bug evidence fields and keeps an evidence summary on Plane bug issues", () => {
+    const result = runPlaneDryRun({
+      env: {},
+      now: fixedNow,
+      mission: missionInput,
+      bugs: [{
+        id: "bug-001",
+        title: "部署状态泄露",
+        evidence: {
+          apiToken: "bug-api-token",
+          password: "bug-password",
+          cookie: "bug-cookie",
+          logUrl: "https://qa:qa-password@evidence.test/logs?secret=bug-secret&trace=visible",
+          screenshot: "artifacts/bug-001/screenshot.png",
+        },
+      }],
+    });
+
+    const bugIssue = result.outputs.bugIssues[0];
+    const text = textOf(result);
+
+    expect(bugIssue?.evidenceSummary).toContain("screenshot");
+    expect(bugIssue?.evidenceSummary).toContain("trace=visible");
+    expect(text).not.toContain("bug-api-token");
+    expect(text).not.toContain("bug-password");
+    expect(text).not.toContain("bug-cookie");
+    expect(text).not.toContain("bug-secret");
+    expect(text).not.toContain("qa:qa-password");
+  });
+
+  it("returns provider-specific output types from adapters and discriminated union dry-runs", () => {
+    const github = createGithubAdapter().dryRun({ env: {}, now: fixedNow, mission: missionInput });
+    const coolify = createCoolifyAdapter().dryRun({ env: {}, now: fixedNow, deployment: { project: "psf", environment: "production" } });
+    const uptimeKuma = createUptimeKumaAdapter().dryRun({ env: {}, now: fixedNow, monitor: { project: "psf" } });
+    const plane = createPlaneAdapter().dryRun({ env: {}, now: fixedNow, mission: missionInput, bugs: [] });
+    const union = runIntegrationDryRun("github", { env: {}, now: fixedNow, mission: missionInput });
+
+    expect(github.outputs.pullRequest.body).toContain("Mission 摘要");
+    expect(coolify.outputs.deployRequest.requiresApproval).toBe(true);
+    expect(uptimeKuma.outputs.monitorConfig.type).toBe("http");
+    expect(plane.outputs.missionIssue.title).toContain("[Mission]");
+
+    if (union.name === "github") {
+      expect(union.outputs.simulatedPullRequest.status).toBe("simulated");
+    }
   });
 });

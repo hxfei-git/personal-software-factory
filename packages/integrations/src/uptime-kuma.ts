@@ -1,9 +1,9 @@
 import { INTEGRATION_DEFINITIONS, buildDryRunResult } from "./base.js";
-import type { IntegrationDryRunResult, UptimeKumaDryRunInput } from "./types.js";
+import type { UptimeKumaDryRunInput, UptimeKumaDryRunResult } from "./types.js";
 
 const definition = INTEGRATION_DEFINITIONS.uptime_kuma;
 
-export function runUptimeKumaDryRun(input: UptimeKumaDryRunInput = {}): IntegrationDryRunResult {
+export function runUptimeKumaDryRun(input: UptimeKumaDryRunInput = {}): UptimeKumaDryRunResult {
   const monitor = input.monitor ?? {};
   const project = monitor.project ?? "unknown-project";
   const targetUrl = monitor.stagingUrl || monitor.productionUrl || "https://example.invalid";

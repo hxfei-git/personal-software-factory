@@ -1,5 +1,5 @@
 import { INTEGRATION_DEFINITIONS, buildDryRunResult, formatList } from "./base.js";
-import type { GitHubDryRunInput, IntegrationDryRunResult, MissionIntegrationInput } from "./types.js";
+import type { GitHubDryRunInput, GitHubDryRunResult, MissionIntegrationInput } from "./types.js";
 
 const definition = INTEGRATION_DEFINITIONS.github;
 
@@ -61,7 +61,7 @@ export function buildGitHubPullRequestBody(mission: MissionIntegrationInput | un
   ].join("\n");
 }
 
-export function runGitHubDryRun(input: GitHubDryRunInput = {}): IntegrationDryRunResult {
+export function runGitHubDryRun(input: GitHubDryRunInput = {}): GitHubDryRunResult {
   const mission = input.mission;
   const branchName = missionValue(mission, "branchName", `psf/${mission?.missionId ?? "dry-run"}`);
   const missionTitle = missionValue(mission, "missionTitle", "Mission dry-run");
