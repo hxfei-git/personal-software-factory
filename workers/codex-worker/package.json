@@ -1,0 +1,13 @@
+{
+  "name": "@psf/codex-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal Software Factory Codex Worker scaffold.",
+  "scripts": {
+    "check": "node -e \"console.log('@psf/codex-worker scaffold ready')\"",
+    "typecheck": "node -e \"console.log('@psf/codex-worker has no TypeScript implementation in Phase 1')\"",
+    "test": "node -e \"console.log('@psf/codex-worker has no tests in Phase 1')\"",
+    "lint": "node -e \"console.log('@psf/codex-worker lint scaffold ready')\"",
+    "build": "node -e \"console.log('@psf/codex-worker build scaffold ready')\""
+  }
+}

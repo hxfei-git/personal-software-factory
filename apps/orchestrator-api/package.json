@@ -1,0 +1,13 @@
+{
+  "name": "@psf/orchestrator-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal Software Factory Orchestrator API scaffold.",
+  "scripts": {
+    "check": "node -e \"console.log('@psf/orchestrator-api scaffold ready')\"",
+    "typecheck": "node -e \"console.log('@psf/orchestrator-api has no TypeScript implementation in Phase 1')\"",
+    "test": "node -e \"console.log('@psf/orchestrator-api has no tests in Phase 1')\"",
+    "lint": "node -e \"console.log('@psf/orchestrator-api lint scaffold ready')\"",
+    "build": "node -e \"console.log('@psf/orchestrator-api build scaffold ready')\""
+  }
+}

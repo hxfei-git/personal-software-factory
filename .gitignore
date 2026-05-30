@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.next/
+out/
+coverage/
+.turbo/
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Operating system
+.DS_Store
+Thumbs.db
+
+# Personal Software Factory runtime data
+artifacts/*
+!artifacts/README.md
+workspaces/*
+!workspaces/README.md
+
+# Test reports generated in later phases
+playwright-report/
+test-results/

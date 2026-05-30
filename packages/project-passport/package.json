@@ -1,0 +1,13 @@
+{
+  "name": "@psf/project-passport",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Project Passport schema scaffold for Personal Software Factory.",
+  "scripts": {
+    "check": "node -e \"console.log('@psf/project-passport scaffold ready')\"",
+    "typecheck": "node -e \"console.log('@psf/project-passport has no TypeScript implementation in Phase 1')\"",
+    "test": "node -e \"console.log('@psf/project-passport has no tests in Phase 1')\"",
+    "lint": "node -e \"console.log('@psf/project-passport lint scaffold ready')\"",
+    "build": "node -e \"console.log('@psf/project-passport build scaffold ready')\""
+  }
+}

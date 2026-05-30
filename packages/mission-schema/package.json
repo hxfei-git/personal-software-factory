@@ -1,0 +1,13 @@
+{
+  "name": "@psf/mission-schema",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared Mission schema scaffold for Personal Software Factory.",
+  "scripts": {
+    "check": "node -e \"console.log('@psf/mission-schema scaffold ready')\"",
+    "typecheck": "node -e \"console.log('@psf/mission-schema has no TypeScript implementation in Phase 1')\"",
+    "test": "node -e \"console.log('@psf/mission-schema has no tests in Phase 1')\"",
+    "lint": "node -e \"console.log('@psf/mission-schema lint scaffold ready')\"",
+    "build": "node -e \"console.log('@psf/mission-schema build scaffold ready')\""
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "personal-software-factory",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal AI software factory control plane monorepo.",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "check": "node scripts/check-phase1-structure.mjs",
+    "typecheck": "node scripts/check-phase1-structure.mjs",
+    "test": "node scripts/check-phase1-structure.mjs",
+    "lint": "node scripts/check-phase1-structure.mjs",
+    "check:packages": "pnpm -r check",
+    "dev": "node -e \"console.log('Phase 1 scaffold only. Runtime services begin in later phases.')\""
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

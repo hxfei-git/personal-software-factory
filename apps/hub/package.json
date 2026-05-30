@@ -1,0 +1,13 @@
+{
+  "name": "@psf/hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal Software Factory Hub Web scaffold.",
+  "scripts": {
+    "check": "node -e \"console.log('@psf/hub scaffold ready')\"",
+    "typecheck": "node -e \"console.log('@psf/hub has no TypeScript implementation in Phase 1')\"",
+    "test": "node -e \"console.log('@psf/hub has no tests in Phase 1')\"",
+    "lint": "node -e \"console.log('@psf/hub lint scaffold ready')\"",
+    "build": "node -e \"console.log('@psf/hub build scaffold ready')\""
+  }
+}
