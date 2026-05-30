@@ -2,18 +2,24 @@
 
 Personal Software Factory / 个人 AI 软件工厂 is a single-user control plane for turning natural-language software requests into structured Missions, Codex Worker development, Playwright QA, structured bug reports, automated fix loops, and GitHub PRs.
 
-This repository is currently in Phase 1: monorepo foundation. It contains structure, configuration, and development guidance only. Business logic starts in later phases.
+The repository now contains the Phase 2-4 core foundation: shared schemas, Project Passport parsing, Prisma/PostgreSQL persistence, a reusable Mission state machine, and a minimal Orchestrator API.
 
-## Phase 1 Scope
+## Current Scope
 
-Phase 1 creates the repository foundation for:
+Implemented:
 
-- Hub Web: future project and Mission control surface.
-- Orchestrator API: future source of truth for Mission state, events, artifacts, and approvals.
-- Codex Worker: future isolated branch/worktree development executor.
-- QA Worker: future deterministic Playwright and AI exploratory QA executor.
-- Shared packages: future Mission and Project Passport schemas.
-- Project and Mission directories: future local registry and Mission artifacts.
+- `packages/mission-schema`: shared Zod schemas, TypeScript types, and examples.
+- `packages/project-passport`: YAML parser and validator for `project.passport.yaml`.
+- `packages/db`: Prisma schema, initial migration, client wrapper, and seed data.
+- `packages/mission-core`: Mission state machine and transition event generation.
+- `apps/orchestrator-api`: Fastify API MVP for projects, missions, transitions, and events.
+
+Not implemented in this batch:
+
+- Codex Worker.
+- QA Worker.
+- Hub Web UI.
+- Real GitHub, Coolify, Uptime Kuma, or Plane API integrations.
 
 ## Repository Layout
 
@@ -25,6 +31,8 @@ workers/
   codex-worker/
   qa-worker/
 packages/
+  db/
+  mission-core/
   mission-schema/
   project-passport/
 projects/
@@ -38,28 +46,39 @@ scripts/
 ## Local Prerequisites
 
 - Node.js 20 or newer.
-- pnpm.
-- Docker and Docker Compose for PostgreSQL and Redis when database phases begin.
+- pnpm 9 or newer.
+- Docker and Docker Compose for PostgreSQL and Redis.
 
-## Phase 1 Commands
+## Setup And Database
 
 ```bash
-pnpm install --lockfile-only
-pnpm check
-pnpm typecheck
-pnpm test
+pnpm install
+sudo docker compose up -d postgres redis
+pnpm db:generate
+pnpm db:migrate
+pnpm db:seed
 ```
 
-The current `check`, `typecheck`, and `test` commands validate the Phase 1 structure. They do not run business logic tests yet.
+## Test And Build
+
+```bash
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+## Run API
+
+```bash
+pnpm dev:api
+```
+
+Default local API URL: `http://127.0.0.1:3000`.
+
+## API Docs
+
+See `docs/api.md` for endpoint details.
 
 ## Development Order
 
-Follow the documented phase order:
-
-1. Phase 1: monorepo foundation.
-2. Phase 2: schema and database.
-3. Phase 3: state machine and core services.
-4. Phase 4: Orchestrator API.
-5. Later phases: project registry, workers, QA loop, Hub, GitHub PR integration, and external integrations.
-
-Do not skip phase acceptance criteria in `docs/04-phase-acceptance-criteria.md`.
+Follow the documented phase order in `docs/01-execution-roadmap.md` and acceptance gates in `docs/04-phase-acceptance-criteria.md`.
