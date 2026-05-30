@@ -33,4 +33,4 @@ Routes do not perform raw Prisma operations. Routes call services; services call
 
 ## Authentication Scope
 
-The current API is local-only and has no authentication. API token authentication is deferred to a hardening batch before exposing the service remotely.
+The Orchestrator API now protects write routes with API token auth unless `PSF_AUTH_DISABLED=true` or `NODE_ENV=test`. Storage remains auth-agnostic: routes call services, services call storage, and auth is enforced before write handlers run.

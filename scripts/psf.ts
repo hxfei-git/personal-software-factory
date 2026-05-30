@@ -2,8 +2,10 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createCodexDryRun } from "@psf/codex-worker";
+import { createAutoFixDryRun } from "@psf/auto-fix-loop";
 import { createDeterministicMissionPlan } from "@psf/mission-planner";
-import type { Artifact, MissionEvent, WorkerRun } from "@psf/mission-schema";
+import { createQaDryRun, createSkippedPlaywrightSummary } from "@psf/qa-worker";
+import type { Artifact, BugReport, MissionEvent, QAReport, WorkerRun } from "@psf/mission-schema";
 import { findProjectById, scanProjectRegistry, type RegistryProject } from "@psf/project-registry";
 
 const DEFAULT_DATABASE_URL = "postgresql://psf:psf_dev_password@localhost:5432/psf?schema=public";
@@ -15,7 +17,7 @@ const EXAMPLE_SLUG = "ai-novelist-chapter-review";
 const EXAMPLE_BRANCH = `psf/${EXAMPLE_MISSION_ID}`;
 const MISSION_ID_PATTERN = /^mission-[a-z0-9][a-z0-9-]*$/;
 
-type CliCommand = "projects:sync" | "mission:create" | "mission:plan" | "codex:dry-run";
+type CliCommand = "projects:sync" | "mission:create" | "mission:plan" | "codex:dry-run" | "qa:dry-run" | "qa:playwright" | "fix:dry-run" | "loop:dry-run";
 
 type JsonObject = Record<string, unknown>;
 
@@ -55,6 +57,8 @@ interface MissionMetadata {
   updatedAt: string;
   plannedAt?: string;
   codexDryRunAt?: string;
+  qaDryRunAt?: string;
+  fixDryRunAt?: string;
 }
 
 
@@ -66,6 +70,8 @@ interface PrismaLike {
   workerRun: { upsert(args: unknown): Promise<unknown> };
   artifact: { upsert(args: unknown): Promise<unknown> };
   missionEvent: { upsert(args: unknown): Promise<unknown> };
+  qARun: { upsert(args: unknown): Promise<unknown> };
+  bug: { upsert(args: unknown): Promise<unknown> };
 }
 
 class PsfCliError extends Error {
@@ -104,6 +110,18 @@ export async function runPsfCli(argv: string[], options: PsfCliOptions = {}): Pr
         break;
       case "codex:dry-run":
         await codexDryRunCommand(context, args);
+        break;
+      case "qa:dry-run":
+        await qaDryRunCommand(context, args);
+        break;
+      case "qa:playwright":
+        await qaPlaywrightCommand(context, args);
+        break;
+      case "fix:dry-run":
+        await fixDryRunCommand(context, args);
+        break;
+      case "loop:dry-run":
+        await loopDryRunCommand(context, args);
         break;
       default:
         throw new PsfCliError("USAGE", usage(), command ? 1 : 0);
@@ -258,6 +276,185 @@ async function codexDryRunCommand(context: CliContext, args: string[]): Promise<
 
   context.stdout.push(`Generated Codex dry-run artifacts for ${metadata.id}.`);
   context.stdout.push("Codex was not executed.");
+}
+
+async function qaDryRunCommand(context: CliContext, args: string[]): Promise<void> {
+  const missionId = requireMissionId(args);
+  const withSampleBug = args.includes("--with-sample-bug");
+  const { metadata, project, qaCharter, missionFiles } = await loadQaInputs(context, missionId);
+  const qaTargetUrl = process.env.QA_TEST_URL || process.env.STAGING_URL;
+  const result = createQaDryRun({
+    missionId: metadata.id,
+    projectId: metadata.projectId,
+    passport: project.passport,
+    qaCharter,
+    missionFiles,
+    withSampleBug,
+    ...(qaTargetUrl ? { stagingUrl: qaTargetUrl } : {}),
+  });
+
+  await writeQaResult(context, metadata, result);
+  await syncDatabase(context, async (prisma) => {
+    await upsertProject(prisma, project);
+    await upsertMission(prisma, metadata);
+    await upsertWorkerRun(prisma, result.workerRun);
+    await upsertQARun(prisma, result.qaRun);
+    for (const artifact of result.artifacts) {
+      await upsertArtifact(prisma, artifact);
+    }
+    for (const bug of result.bugs) {
+      await upsertBug(prisma, bug);
+    }
+    for (const event of result.events) {
+      await upsertMissionEvent(prisma, event);
+    }
+  });
+
+  context.stdout.push("Generated QA dry-run artifacts for " + metadata.id + ".");
+  context.stdout.push(withSampleBug ? "Sample BugReport generated." : "No sample bugs generated.");
+}
+
+async function qaPlaywrightCommand(context: CliContext, args: string[]): Promise<void> {
+  const missionId = requireMissionId(args);
+  const summary = createSkippedPlaywrightSummary({ missionId });
+  await writeMissionFile(context, missionId, "qa-summary.json", JSON.stringify(summary, null, 2) + "\n");
+  context.stdout.push("Playwright smoke skipped for " + missionId + ".");
+  context.stdout.push(summary.reason);
+}
+
+async function fixDryRunCommand(context: CliContext, args: string[]): Promise<void> {
+  const missionId = requireMissionId(args);
+  const metadata = await readMissionMetadata(context, missionId);
+  const inputs = await loadAutoFixInputs(context, missionId, await readBugsFile(context, missionId));
+  const result = createAutoFixDryRun(inputs);
+
+  await writeAutoFixResult(context, missionId, result.files);
+  const fixDryRunAt = new Date().toISOString();
+  await writeMissionMetadata(context, { ...metadata, fixDryRunAt, updatedAt: fixDryRunAt });
+
+  await syncDatabase(context, async (prisma) => {
+    const project = await loadProject(context, metadata.projectId);
+    await upsertProject(prisma, project);
+    await upsertMission(prisma, metadata);
+    for (const workerRun of result.workerRuns) {
+      await upsertWorkerRun(prisma, workerRun);
+    }
+    for (const artifact of result.artifacts) {
+      await upsertArtifact(prisma, artifact);
+    }
+    for (const event of result.events) {
+      await upsertMissionEvent(prisma, event);
+    }
+  });
+
+  context.stdout.push("Generated auto-fix dry-run artifacts for " + missionId + ".");
+  context.stdout.push("Codex was not executed.");
+}
+
+async function loopDryRunCommand(context: CliContext, args: string[]): Promise<void> {
+  const missionId = requireMissionId(args);
+  const withSampleBug = args.includes("--with-sample-bug");
+  const { metadata, project, qaCharter, missionFiles } = await loadQaInputs(context, missionId);
+  const qaTargetUrl = process.env.QA_TEST_URL || process.env.STAGING_URL;
+  const qaResult = createQaDryRun({
+    missionId: metadata.id,
+    projectId: metadata.projectId,
+    passport: project.passport,
+    qaCharter,
+    missionFiles,
+    withSampleBug,
+    ...(qaTargetUrl ? { stagingUrl: qaTargetUrl } : {}),
+  });
+  await writeQaResult(context, metadata, qaResult);
+
+  const autoFixInputs = await loadAutoFixInputs(context, missionId, qaResult.bugs);
+  const fixResult = createAutoFixDryRun(autoFixInputs);
+  await writeAutoFixResult(context, missionId, fixResult.files);
+
+  await syncDatabase(context, async (prisma) => {
+    await upsertProject(prisma, project);
+    await upsertMission(prisma, metadata);
+    await upsertWorkerRun(prisma, qaResult.workerRun);
+    await upsertQARun(prisma, qaResult.qaRun);
+    for (const workerRun of fixResult.workerRuns) {
+      await upsertWorkerRun(prisma, workerRun);
+    }
+    for (const artifact of [...qaResult.artifacts, ...fixResult.artifacts]) {
+      await upsertArtifact(prisma, artifact);
+    }
+    for (const bug of qaResult.bugs) {
+      await upsertBug(prisma, bug);
+    }
+    for (const event of [...qaResult.events, ...fixResult.events]) {
+      await upsertMissionEvent(prisma, event);
+    }
+  });
+
+  context.stdout.push("Completed QA -> fix dry-run loop for " + missionId + ".");
+  context.stdout.push("Codex was not executed.");
+}
+
+async function loadQaInputs(context: CliContext, missionId: string) {
+  const metadata = await readMissionMetadata(context, missionId);
+  const project = await loadProject(context, metadata.projectId);
+  const qaCharter = await readText(context, "projects", metadata.projectId, "qa-charter.md");
+  const missionFiles = {
+    "mission.md": await readMissionFile(context, metadata.id, "mission.md"),
+    "acceptance.md": await readMissionFile(context, metadata.id, "acceptance.md"),
+  };
+  return { metadata, project, qaCharter, missionFiles };
+}
+
+async function loadAutoFixInputs(context: CliContext, missionId: string, bugs: BugReport[]) {
+  const metadata = await readMissionMetadata(context, missionId);
+  const project = await loadProject(context, metadata.projectId);
+  const projectAgents = await readText(context, "projects", metadata.projectId, "AGENTS.md");
+  return {
+    missionId: metadata.id,
+    projectId: metadata.projectId,
+    missionStatus: "qa_running" as const,
+    branchName: metadata.branchName,
+    currentBranch: "dry-run/no-worktree",
+    passport: project.passport,
+    projectAgents,
+    missionFiles: {
+      "mission.md": await readMissionFile(context, metadata.id, "mission.md"),
+      "acceptance.md": await readMissionFile(context, metadata.id, "acceptance.md"),
+      "technical-notes.md": await readMissionFile(context, metadata.id, "technical-notes.md"),
+      "risk-notes.md": await readMissionFile(context, metadata.id, "risk-notes.md"),
+    },
+    bugs,
+    currentAttempt: 0,
+    maxAttempts: Number(process.env.PSF_MAX_MISSION_FIX_ATTEMPTS ?? 3),
+    maxBugAttempts: Number(process.env.PSF_MAX_BUG_FIX_ATTEMPTS ?? 2),
+  };
+}
+
+async function writeQaResult(context: CliContext, metadata: MissionMetadata, result: ReturnType<typeof createQaDryRun>): Promise<void> {
+  for (const [name, content] of Object.entries(result.files)) {
+    await writeMissionFile(context, metadata.id, name, content);
+  }
+  for (const dir of ["artifacts/screenshots", "artifacts/traces", "artifacts/logs"]) {
+    await writeMissionFile(context, metadata.id, dir + "/.gitkeep", "");
+  }
+  const qaDryRunAt = new Date().toISOString();
+  await writeMissionMetadata(context, { ...metadata, qaDryRunAt, updatedAt: qaDryRunAt });
+}
+
+async function writeAutoFixResult(context: CliContext, missionId: string, files: Partial<Record<string, string>>): Promise<void> {
+  for (const [name, content] of Object.entries(files)) {
+    if (content !== undefined) {
+      await writeMissionFile(context, missionId, name, content);
+    }
+  }
+  if (files["fix-codex-command.sh"] !== undefined) {
+    await chmod(missionFilePath(context, missionId, "fix-codex-command.sh"), 0o644);
+  }
+}
+
+async function readBugsFile(context: CliContext, missionId: string): Promise<BugReport[]> {
+  const parsed = JSON.parse(await readMissionFile(context, missionId, "bugs.json")) as { bugs?: BugReport[] };
+  return parsed.bugs ?? [];
 }
 
 function mergeExistingMissionMetadata(existing: MissionMetadata | null, next: MissionMetadata): MissionMetadata {
@@ -467,6 +664,48 @@ async function upsertMissionEvent(prisma: PrismaLike, event: MissionEvent): Prom
   await prisma.missionEvent.upsert({ where: { id: event.id }, create: data, update: data });
 }
 
+
+async function upsertQARun(prisma: PrismaLike, qaRun: QAReport): Promise<void> {
+  const data = {
+    id: qaRun.id,
+    missionId: qaRun.mission_id,
+    targetUrl: qaRun.target_url,
+    mode: qaRun.mode,
+    status: qaRun.status,
+    summary: qaRun.summary,
+    reportPath: qaRun.report_path ?? null,
+    screenshotsDir: qaRun.screenshots_dir ?? null,
+    tracePath: qaRun.trace_path ?? null,
+    bugsJsonPath: qaRun.bugs_json_path ?? null,
+    stagingUrl: qaRun.staging_url ?? null,
+    passed: qaRun.passed ?? 0,
+    failed: qaRun.failed ?? 0,
+    startedAt: toDateOrNull(qaRun.started_at),
+    finishedAt: toDateOrNull(qaRun.finished_at),
+  };
+  await prisma.qARun.upsert({ where: { id: qaRun.id }, create: data, update: data });
+}
+
+async function upsertBug(prisma: PrismaLike, bug: BugReport): Promise<void> {
+  const data = {
+    id: bug.id,
+    missionId: bug.mission_id,
+    qaRunId: bug.qa_run_id ?? null,
+    title: bug.title,
+    severity: bug.severity,
+    status: bug.status,
+    reproductionSteps: bug.reproduction_steps,
+    expectedResult: bug.expected_result,
+    actualResult: bug.actual_result,
+    evidence: bug.evidence ?? {},
+    suggestedFix: bug.suggested_fix ?? null,
+    regressionTestPath: bug.regression_test_path ?? null,
+    suggestedFixDirection: bug.suggested_fix_direction ?? null,
+    source: bug.source ?? "qa-worker",
+  };
+  await prisma.bug.upsert({ where: { id: bug.id }, create: data, update: data });
+}
+
 function rebaseArtifactPath(artifact: Artifact, missionId: string): Artifact {
   const fileName = artifact.path.split("/").at(-1) ?? artifact.path;
   return { ...artifact, path: `missions/${missionId}/${fileName}` };
@@ -672,8 +911,13 @@ function usage(): string {
     `  pnpm psf mission:create ${EXAMPLE_PROJECT_ID} \"${EXAMPLE_REQUEST}\"`,
     `  pnpm psf mission:plan ${EXAMPLE_MISSION_ID}`,
     `  pnpm psf codex:dry-run ${EXAMPLE_MISSION_ID}`,
+    `  pnpm psf qa:dry-run ${EXAMPLE_MISSION_ID}`,
+    `  pnpm psf qa:dry-run ${EXAMPLE_MISSION_ID} --with-sample-bug`,
+    `  pnpm psf fix:dry-run ${EXAMPLE_MISSION_ID}`,
+    `  pnpm psf loop:dry-run ${EXAMPLE_MISSION_ID} --with-sample-bug`,
+    `  pnpm psf qa:playwright ${EXAMPLE_MISSION_ID}`,
     "",
-    "All commands are local dry-runs. codex:dry-run writes a command artifact but never executes Codex.",
+    "All commands are local dry-runs. codex and fix command artifacts never execute Codex.",
   ].join("\n");
 }
 

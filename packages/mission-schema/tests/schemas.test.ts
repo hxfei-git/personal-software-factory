@@ -102,6 +102,22 @@ describe("mission schemas", () => {
     }).type).toBe("qa-report");
   });
 
+  it("accepts auto-fix worker runs and skipped QA runs", () => {
+    expect(WorkerRunSchema.parse({
+      ...workerRunExample,
+      worker_type: "auto_fix",
+      mode: "dry-run",
+      metadata: { generatedBy: "auto-fix-loop" },
+    }).worker_type).toBe("auto_fix");
+
+    expect(QAReportSchema.parse({
+      ...qaReportExample,
+      mode: "dry-run",
+      status: "skipped",
+      summary: "Playwright smoke skipped because no QA_TEST_URL or STAGING_URL was set.",
+    }).status).toBe("skipped");
+  });
+
   it("accepts expanded Artifact, BugReport, and QAReport values", () => {
     expect(ArtifactSchema.parse({
       ...artifactExample,

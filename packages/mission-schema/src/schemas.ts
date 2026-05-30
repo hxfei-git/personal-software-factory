@@ -6,7 +6,7 @@ const DateTimeString = z.string().datetime({ offset: true });
 const JsonObject = z.record(z.unknown());
 const EventTypeSchema = z.string().regex(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/, "Event type must be lower-case dotted format");
 const CommandValueSchema = z.union([NonEmptyString, z.array(NonEmptyString).min(1)]);
-const WorkerTypeSchema = z.enum(["codex", "qa", "deploy", "monitor", "planner", "integration", "orchestrator"]);
+const WorkerTypeSchema = z.enum(["codex", "qa", "deploy", "monitor", "planner", "integration", "orchestrator", "auto_fix"]);
 const WorkerRunStatusSchema = z.enum(["queued", "running", "succeeded", "failed", "cancelled", "skipped"]);
 const WorkerRunModeSchema = z.enum(["dry-run", "mock", "real"]);
 const ArtifactTypeSchema = z.enum([
@@ -139,7 +139,7 @@ export const QAReportSchema = z.object({
   mission_id: NonEmptyString,
   target_url: z.string().url().or(z.literal("")),
   mode: QAReportModeSchema,
-  status: z.enum(["queued", "passed", "failed", "running", "cancelled"]),
+  status: z.enum(["queued", "passed", "failed", "running", "cancelled", "skipped"]),
   summary: NonEmptyString,
   report_path: z.string().optional(),
   screenshots_dir: z.string().optional(),

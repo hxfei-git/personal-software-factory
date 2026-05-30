@@ -1,96 +1,111 @@
-# Phase 4.5-7 Documentation Pass Progress
+# Phase 8-10 Progress
 
 ## Completed In This Batch
 
-- Documented API token auth with `PSF_API_TOKEN`, `PSF_AUTH_DISABLED`, public `GET /health`, protected write methods, and local/dev/test boundaries.
-- Documented the expanded Orchestrator API surface: Project sync/passport, Mission plan, Approval, WorkerRun, Artifact, BugReport, and QARun routes.
-- Added Project Registry documentation for scanning `projects/*/project.passport.yaml`, validation, DB sync, and `ai-novelist` intake.
-- Expanded Project Passport documentation, including required fields and the manual-verification boundary for `ai-novelist` placeholder commands.
-- Documented Mission Planner as a deterministic template generator that does not call an LLM and records WorkerRun, Artifact, and MissionEvent resources through API/CLI paths.
-- Documented Codex Worker dry-run behavior: prompt, command review artifact, dev summary, no Codex execution, `ENABLE_REAL_CODEX=1` future gate, main/master protection, Approval requirement, and non-executable `codex-command.sh`.
-- Added Artifact policy for inline small text artifacts versus path-only large/binary artifacts.
-- Added Approval policy for release, production deploy, real Codex, remote push, dangerous operations, external cost, security risk, secret changes, and database migrations.
-- Updated README with local setup, migration, API startup, CLI examples, and test commands.
-- Updated `.env.example` with necessary local variables and no real secret values.
+- Added `@psf/worker-runtime` with a synchronous `InProcessWorkerRuntime` facade.
+- Converted `@psf/qa-worker` from scaffold to deterministic dry-run generator.
+- Added QA artifacts for the ai-novelist example Mission: `qa-report.md`, `bugs.json`, `qa-summary.json`, `generated-regression.spec.ts`, screenshot/trace/log placeholder directories.
+- Added `@psf/auto-fix-loop` dry-run controller that turns bugs into fix Mission artifacts and reuses Codex Worker dry-run.
+- Added optional Playwright smoke config and a safe skip runner.
+- Added Playwright MCP docs and AI QA prompt templates.
+- Extended `pnpm psf` with QA and fix dry-run commands.
+- Updated Artifact and Storage docs, README, and environment example.
 
 ## Created Or Modified Files
 
-- `README.md`
+- `package.json`
+- `pnpm-lock.yaml`
 - `.env.example`
-- `docs/api.md`
-- `docs/auth.md`
-- `docs/project-registry.md`
-- `docs/project-passport.md`
-- `docs/mission-planner.md`
-- `docs/codex-worker.md`
-- `docs/artifacts.md`
-- `docs/approval-policy.md`
-- `docs/progress.md`
-
-Additional scan-cleanup edits were made where required by the requested validation command:
-
-- `docs/superpowers/plans/2026-05-30-phase-4-5-7-project-registry-codex-worker-implementation.md`
+- `playwright.config.ts`
+- `tests/e2e/psf-smoke.spec.ts`
 - `scripts/psf.ts`
-- `packages/mission-planner/src/index.ts`
+- `scripts/psf.test.ts`
+- `scripts/run-playwright-smoke.mjs`
+- `packages/mission-schema/src/schemas.ts`
+- `packages/mission-schema/tests/schemas.test.ts`
+- `packages/worker-runtime/**`
+- `workers/qa-worker/**`
+- `packages/auto-fix-loop/**`
+- `missions/mission-0001-ai-novelist-chapter-review/**` QA/Fix outputs
+- `docs/qa-worker.md`
+- `docs/playwright.md`
+- `docs/playwright-mcp.md`
+- `docs/auto-fix-loop.md`
+- `docs/worker-runtime.md`
+- `docs/prompts/*.md`
+- `docs/artifacts.md`
+- `docs/storage.md`
+- `docs/progress.md`
+- `README.md`
 
-## How To Run Tests
+## Database Migration
 
-Focused checks for this documentation pass:
+No Prisma migration is required. Existing Prisma models store worker type, QA status, artifact type, and statuses as strings. The Zod schema now accepts `auto_fix` WorkerRun type and `skipped` QARun status.
+
+## Commands
+
+QA dry-run:
 
 ```bash
-rg -n "TODO|FIXME|真实凭据|secret-value|不写入数据库" README.md docs .env.example projects missions scripts
-pnpm test:scripts
+pnpm psf qa:dry-run mission-0001-ai-novelist-chapter-review
 ```
 
-Broader project checks remain available:
+QA dry-run with sample bug:
 
 ```bash
-pnpm check
-pnpm typecheck
-pnpm test
+pnpm psf qa:dry-run mission-0001-ai-novelist-chapter-review --with-sample-bug
 ```
 
-Phase 1 check commands remain:
+Auto-fix dry-run:
 
 ```bash
-pnpm install --lockfile-only
-pnpm check
-pnpm typecheck
-pnpm test
+pnpm psf fix:dry-run mission-0001-ai-novelist-chapter-review
 ```
 
-## Current Dry-Run And Mock Boundaries
+Full QA -> fix dry-run loop:
 
-- Mission Planner is deterministic and does not call an LLM.
-- CLI commands are local dry-runs and do not call external APIs.
-- `projects:sync` validates local passports and can sync Project records to Prisma.
-- `mission:create` writes local metadata and can sync a Mission/Event to Prisma.
-- `mission:plan` writes local planner files and can sync WorkerRun, Artifact, and MissionEvent records to Prisma.
-- `codex:dry-run` writes prompt, command review, and summary artifacts. It never executes Codex.
-- `codex-command.sh` is intentionally non-executable and exits without invoking Codex.
-- Real Codex execution is not implemented; `ENABLE_REAL_CODEX=1` is only a future safety gate.
-- QA Worker, Playwright execution, GitHub PR creation, remote push, production deploy, Coolify, Uptime Kuma, Plane, and n8n integrations remain unimplemented.
+```bash
+pnpm psf loop:dry-run mission-0001-ai-novelist-chapter-review --with-sample-bug
+```
 
-## Current Unfinished Work
+Optional Playwright smoke:
 
-- Real Codex Worker execution with isolated checkout/worktree and command runner.
-- Deterministic Playwright QA Worker.
-- QA bug report ingestion from real Playwright evidence.
-- Automated fix loop.
-- Hub Web UI.
-- BullMQ queues.
-- GitHub branch push and PR creation.
-- Production deploy and monitoring integrations.
-- Full artifact retention and cleanup policy.
+```bash
+pnpm test:e2e:smoke
+QA_TEST_URL=http://127.0.0.1:8000 ENABLE_REAL_PLAYWRIGHT=1 pnpm test:e2e:smoke
+```
 
-## Next Batch Suggestions
+## Dry-Run And Mock Boundaries
 
-1. Build Phase 8 deterministic Playwright QA Worker with path-only screenshot/trace/report artifacts.
-2. Add queue-backed WorkerRun dispatch only after API and dry-run records remain stable.
-3. Add Hub views for Projects, Missions, WorkerRuns, Artifacts, Bugs, QA runs, and Approvals.
-4. Introduce real Codex execution only behind Approval, branch protection, workspace isolation, and mock-first tests.
-5. Add retention and redaction utilities before large QA artifacts or worker logs grow.
+- QA dry-run does not open a browser.
+- QA dry-run does not require staging URL.
+- Optional Playwright smoke skips without URL or explicit `ENABLE_REAL_PLAYWRIGHT=1`.
+- Playwright MCP is docs and prompt only.
+- Auto Fix Loop does not execute Codex.
+- `fix-codex-command.sh` is a non-executable review artifact.
+- No GitHub push, PR creation, Coolify deploy, Uptime Kuma sync, Plane sync, or production action occurs.
+
+## Requirements For Real Modes Later
+
+- Real staging URL and browser binaries for Playwright.
+- Explicit `ENABLE_REAL_PLAYWRIGHT=1` for local smoke command.
+- Real Codex implementation behind `ENABLE_REAL_CODEX=1`, Approval, branch protection, and isolated workspace checks.
+
+## Why Hub Web Is Deferred
+
+Hub Web is Phase 11. This batch stabilizes backend records, worker artifacts, and CLI flows first so UI can render durable contracts later.
+
+## Why BullMQ Is Deferred
+
+Worker Runtime facade now defines the seam for a later queue adapter. BullMQ can be introduced after job payloads, retries, and event behavior are stable.
 
 ## Plan Alignment
 
-This pass does not deviate from `personal-software-factory-plan.md`. It documents the Phase 4.5-7 implementation and explicitly keeps unimplemented real worker, QA, PR, deployment, and external-service behavior out of scope.
+This batch remains aligned with `plan.md`: it implements Phase 8 QA Worker MVP in dry-run form, Phase 9 Playwright MCP design placeholders, and Phase 10 auto-fix loop dry-run. Real browser, Codex, GitHub, deployment, monitoring, and Hub UI work remain later phases.
+
+## Next Batch Suggestions
+
+1. Add API endpoints to trigger QA dry-run and auto-fix loop from Orchestrator.
+2. Add real Playwright smoke against a verified local ai-novelist staging URL.
+3. Add Hub Web views for QARun, BugReport, Artifact, and WorkerRun records.
+4. Introduce BullMQ only after in-process worker contracts remain stable.

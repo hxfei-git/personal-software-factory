@@ -1,11 +1,10 @@
 {
-  "name": "@psf/qa-worker",
+  "name": "@psf/worker-runtime",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
-  "description": "Personal Software Factory QA Worker dry-run generator.",
   "scripts": {
     "check": "pnpm typecheck && pnpm test",
     "typecheck": "tsc --noEmit",

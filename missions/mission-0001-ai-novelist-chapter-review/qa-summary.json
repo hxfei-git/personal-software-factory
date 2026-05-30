@@ -1,0 +1,13 @@
+{
+  "missionId": "mission-0001-ai-novelist-chapter-review",
+  "projectId": "ai-novelist",
+  "mode": "dry-run",
+  "status": "failed",
+  "passed": 17,
+  "failed": 1,
+  "browserOpened": false,
+  "stagingVisited": false,
+  "generatedRegressionTemplate": true,
+  "bugCount": 1,
+  "createdAt": "2026-05-31T10:00:00.000Z"
+}

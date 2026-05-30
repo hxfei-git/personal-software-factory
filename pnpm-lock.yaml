@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@psf/auto-fix-loop':
+        specifier: workspace:*
+        version: link:packages/auto-fix-loop
       '@psf/codex-worker':
         specifier: workspace:*
         version: link:workers/codex-worker
@@ -23,6 +26,12 @@ importers:
       '@psf/project-registry':
         specifier: workspace:*
         version: link:packages/project-registry
+      '@psf/qa-worker':
+        specifier: workspace:*
+        version: link:workers/qa-worker
+      '@psf/worker-runtime':
+        specifier: workspace:*
+        version: link:packages/worker-runtime
       '@types/node':
         specifier: ^25.9.1
         version: 25.9.1
@@ -68,6 +77,25 @@ importers:
       tsx:
         specifier: ^4.19.0
         version: 4.22.3
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@25.9.1)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
+
+  packages/auto-fix-loop:
+    dependencies:
+      '@psf/codex-worker':
+        specifier: workspace:*
+        version: link:../../workers/codex-worker
+      '@psf/mission-core':
+        specifier: workspace:*
+        version: link:../mission-core
+      '@psf/mission-schema':
+        specifier: workspace:*
+        version: link:../mission-schema
+    devDependencies:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -165,6 +193,19 @@ importers:
         specifier: ^3.2.0
         version: 3.2.4(@types/node@25.9.1)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
 
+  packages/worker-runtime:
+    dependencies:
+      '@psf/mission-schema':
+        specifier: workspace:*
+        version: link:../mission-schema
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@25.9.1)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
+
   workers/codex-worker:
     dependencies:
       '@psf/mission-schema':
@@ -178,7 +219,18 @@ importers:
         specifier: ^3.2.0
         version: 3.2.4(@types/node@25.9.1)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
 
-  workers/qa-worker: {}
+  workers/qa-worker:
+    dependencies:
+      '@psf/mission-schema':
+        specifier: workspace:*
+        version: link:../../packages/mission-schema
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@25.9.1)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
 
 packages:
 

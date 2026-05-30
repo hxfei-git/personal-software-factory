@@ -75,3 +75,9 @@ Current API behavior accepts `content` for `POST /missions/:missionId/artifacts`
 ## Current Batch
 
 The current dry-run batch stores planner and Codex review artifacts as small text records and local mission files. QA screenshots, traces, Playwright reports, and large logs are not implemented yet and should be path-only when added.
+
+## Phase 8-10 QA Artifacts
+
+QA Worker dry-run writes small text artifacts inline where useful: `qa-report.md`, `bugs.json`, `qa-summary.json`, and `generated-regression.spec.ts`. Screenshot, trace, and log directories are path-only artifacts and currently contain placeholder `.gitkeep` files.
+
+Auto Fix Loop dry-run writes `fix-mission.md`, `fix-acceptance.md`, `fix-codex-prompt.md`, and `fix-codex-command.sh`. The command file is review-only and must not be executable.

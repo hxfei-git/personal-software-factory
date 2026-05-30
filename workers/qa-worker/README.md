@@ -1,5 +1,5 @@
 # QA Worker
 
-The QA Worker will run deterministic Playwright tests, collect evidence, produce QA reports, and later support AI exploratory testing through Playwright MCP.
+`@psf/qa-worker` generates deterministic QA dry-run artifacts for Personal Software Factory. It reads Project Passport, QA Charter, and Mission files, then emits `qa-report.md`, `bugs.json`, `qa-summary.json`, and `generated-regression.spec.ts` records without opening a browser.
 
-Phase 1 only reserves the worker boundary. Playwright setup starts in a later phase.
+The optional Playwright path is skipped unless a later command provides `QA_TEST_URL` or `STAGING_URL`. Normal `pnpm test` does not require browser binaries.

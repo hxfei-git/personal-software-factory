@@ -142,90 +142,51 @@ AI 小说助手用于创建小说项目、生成世界观、生成大纲、生�
 
 ## mission.md
 ```markdown
-# Mission Plan
+# Fix Mission
 
-## Mission 标题
-增加章节审稿和自动修复流程
+## Mission
+mission-0001-ai-novelist-chapter-review
 
-## 背景
-项目 AI 小说助手 (ai-novelist) 收到需求：增加章节审稿和自动修复流程
+## Goal
+Fix the QA-reported bugs without changing production, pushing remote branches, or bypassing review.
 
-## 目标
-- 将用户需求拆解为可交付、可验收、可测试的开发任务。
-- 保持任务 mission-0001-ai-novelist-chapter-review 的范围清晰，优先级为 P2。
+## Bugs
+### Bug 1: 连续点击生成按钮会重复提交
+- ID: bug-mission-0001-ai-novelist-chapter-review-sample-duplicate-generate
+- Severity: P1
+- Status: open
+- Expected: 生成按钮进入 pending 状态且只提交一次生成请求。
+- Actual: dry-run 示例 Bug：连续点击可能导致重复提交，需要真实页面验证。
+- Reproduction steps:
+  - 打开首页
+  - 新建小说项目
+  - 输入小说题材
+  - 连续点击生成按钮
+- Suggested direction: 优先检查生成按钮的 disabled 状态、请求幂等键和失败恢复路径。
 
-## 用户故事
-- 作为项目用户，我希望增加章节审稿和自动修复流程，以便获得更完整和可验证的产品能力。
-
-## 范围
-- 依据 Project Passport、QA Charter 和用户需求生成实现指导。
-- 产出 mission、acceptance、technical notes 和 risk notes 四份规划文档。
-
-## 非目标
-- 不调用 LLM 或外部服务。
-- 不修改 API、数据库、Worker 执行逻辑或 Hub UI。
-- 不执行生产部署或真实业务变更。
-
-## 验收标准
-- 规划文档覆盖任务背景、目标、范围、测试、交付物和风险。
-- 验收文档覆盖功能、交互、错误处理、数据一致性、回归、安全和人工审批。
-- 技术说明列出相关命令、核心流程、推荐修改区域和测试策略。
-
-## 必须运行的测试
-- `. .venv/bin/activate && pytest -q`
-
-## 禁止事项
-- 禁止泄露、记录或提交任何 secret。
-- 禁止直接推送 main 分支。
-- 禁止在未获批准时部署生产或删除用户数据。
-
-## 预期交付物
-- 可审阅的代码变更。
-- 本地测试结果。
-- 相关文档更新。
-- 如进入后续阶段，提交 GitHub PR 等待人工审阅。
-
-## 风险点
-- 需求可能影响核心流程，需要在实现前确认范围边界。
-- QA Charter 中的关键路径必须在后续 QA 阶段覆盖。
-- 任何部署、数据迁移或外部成本风险都需要人工审批。
+## Required Safety
+- Do not modify main/master.
+- Do not push remote branches.
+- Do not deploy production.
+- Do not store secrets in logs, prompts, reports, or artifacts.
 
 ```
 
 ## acceptance.md
 ```markdown
-# Acceptance Plan
+# Fix Acceptance
 
-## 功能验收
-- 用户需求“增加章节审稿和自动修复流程”对应的核心功能可以被人工或自动化步骤验证。
-- 所有声明完成的行为都有明确的期望结果。
+## Functional Acceptance
+- Every listed Bug has a concrete code-level fix or documented reason for human review.
 
-## 交互验收
-- 涉及 UI 或命令行交互时，主要路径、取消路径和重复提交路径均可预期。
-- 文案和状态反馈不会误导用户。
+## Regression Acceptance
+- Add or update a regression test for bug-mission-0001-ai-novelist-chapter-review-sample-duplicate-generate: 连续点击生成按钮会重复提交
 
-## 错误处理验收
-- 失败场景返回可理解的错误信息。
-- 重试、回滚或人工处理路径被清楚记录。
+## Verification
+- Run: . .venv/bin/activate && pytest -q
 
-## 数据一致性验收
-- 任务不破坏既有数据结构和持久化约定。
-- 状态变化在后续集成阶段必须可审计。
-
-## 回归测试验收
-- 运行 Project Passport 中声明的测试命令。
-- 覆盖 QA Charter 中列出的关键路径。
-
-## 安全验收
-- 不打印、不持久化、不提交 secret。
-- 涉及权限、外部服务或生产数据时必须进入人工审批。
-
-## 人工审批点
-- 生产部署。
-- 数据库迁移。
-- Secret 变更。
-- 破坏性操作。
-- 外部成本或安全风险。
+## Manual Approval
+- Stop for approval before production deploy, destructive operations, secret changes, or real external service calls.
 
 ```
 

@@ -171,3 +171,28 @@ pnpm test
 - `docs/progress.md`: latest batch progress and remaining work.
 
 Follow the phase order in `docs/01-execution-roadmap.md` and acceptance gates in `docs/04-phase-acceptance-criteria.md`.
+
+## QA And Auto Fix Dry Run
+
+Generate QA dry-run artifacts without a browser:
+
+```bash
+pnpm psf qa:dry-run mission-0001-ai-novelist-chapter-review
+pnpm psf qa:dry-run mission-0001-ai-novelist-chapter-review --with-sample-bug
+```
+
+Generate dry-run fix artifacts from `bugs.json`:
+
+```bash
+pnpm psf fix:dry-run mission-0001-ai-novelist-chapter-review
+pnpm psf loop:dry-run mission-0001-ai-novelist-chapter-review --with-sample-bug
+```
+
+Optional Playwright smoke is skipped unless a URL and explicit real-browser gate are provided:
+
+```bash
+pnpm test:e2e:smoke
+QA_TEST_URL=http://127.0.0.1:8000 ENABLE_REAL_PLAYWRIGHT=1 pnpm test:e2e:smoke
+```
+
+Playwright MCP is documented for later AI exploratory QA. It is not installed or run by default. Real Codex execution, remote push, PR creation, external APIs, and production deploy remain disabled.

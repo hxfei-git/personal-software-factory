@@ -19,7 +19,9 @@
     "db:migrate": "pnpm --filter @psf/db prisma migrate deploy --schema prisma/schema.prisma",
     "db:seed": "pnpm --filter @psf/db seed",
     "dev:api": "pnpm --filter @psf/orchestrator-api dev",
-    "dev": "pnpm dev:api"
+    "dev": "pnpm dev:api",
+    "test:e2e": "node scripts/run-playwright-smoke.mjs",
+    "test:e2e:smoke": "node scripts/run-playwright-smoke.mjs"
   },
   "engines": {
     "node": ">=20.0.0",
@@ -35,6 +37,9 @@
     "tsx": "^4.19.0",
     "turbo": "^2.5.0",
     "typescript": "^5.8.0",
-    "vitest": "^3.2.0"
+    "vitest": "^3.2.0",
+    "@psf/auto-fix-loop": "workspace:*",
+    "@psf/qa-worker": "workspace:*",
+    "@psf/worker-runtime": "workspace:*"
   }
 }

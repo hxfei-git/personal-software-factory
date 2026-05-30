@@ -1,0 +1,33 @@
+{
+  "bugs": [
+    {
+      "id": "bug-mission-0001-ai-novelist-chapter-review-sample-duplicate-generate",
+      "mission_id": "mission-0001-ai-novelist-chapter-review",
+      "qa_run_id": "qa-run-mission-0001-ai-novelist-chapter-review-dry-run",
+      "title": "连续点击生成按钮会重复提交",
+      "severity": "P1",
+      "status": "open",
+      "reproduction_steps": [
+        "打开首页",
+        "新建小说项目",
+        "输入小说题材",
+        "连续点击生成按钮"
+      ],
+      "expected_result": "生成按钮进入 pending 状态且只提交一次生成请求。",
+      "actual_result": "dry-run 示例 Bug：连续点击可能导致重复提交，需要真实页面验证。",
+      "evidence": {
+        "source": "qa-worker-dry-run",
+        "screenshot": "missions/mission-0001-ai-novelist-chapter-review/artifacts/screenshots/sample-bug-placeholder.png",
+        "trace": "missions/mission-0001-ai-novelist-chapter-review/artifacts/traces/sample-bug-placeholder.zip",
+        "browserOpened": false,
+        "stagingVisited": false
+      },
+      "suggested_fix": "为生成动作增加前端 pending 状态锁和后端幂等保护。",
+      "regression_test_path": "missions/mission-0001-ai-novelist-chapter-review/generated-regression.spec.ts",
+      "suggested_fix_direction": "优先检查生成按钮的 disabled 状态、请求幂等键和失败恢复路径。",
+      "source": "qa-worker",
+      "created_at": "2026-05-31T10:00:00.000Z",
+      "updated_at": "2026-05-31T10:00:00.000Z"
+    }
+  ]
+}

@@ -159,6 +159,35 @@ describe("psf CLI", () => {
     expect(after.codexDryRunAt).toBe(before.codexDryRunAt);
   });
 
+
+  test("qa dry-run writes report, bugs, summary, regression template, and artifact dirs", async () => {
+    const cwd = await createExampleWorkspace("psf-cli-qa-");
+    await runPsfCli(["mission:create", "ai-novelist", exampleRequest], { cwd, syncDatabase: false });
+    await runPsfCli(["mission:plan", exampleMissionId], { cwd, syncDatabase: false });
+
+    const result = await runPsfCli(["qa:dry-run", exampleMissionId], { cwd, syncDatabase: false });
+
+    expect(result.exitCode).toBe(0);
+    expect(await readFile(join(cwd, "missions", exampleMissionId, "qa-report.md"), "utf8")).toContain("dry-run");
+    expect(await readFile(join(cwd, "missions", exampleMissionId, "bugs.json"), "utf8")).toContain('"bugs": []');
+    expect(await readFile(join(cwd, "missions", exampleMissionId, "qa-summary.json"), "utf8")).toContain('"browserOpened": false');
+    expect(await readFile(join(cwd, "missions", exampleMissionId, "generated-regression.spec.ts"), "utf8")).toContain("AI 小说助手");
+    await expect(stat(join(cwd, "missions", exampleMissionId, "artifacts", "screenshots", ".gitkeep"))).resolves.toBeTruthy();
+  });
+
+  test("loop dry-run with sample bug generates fix artifacts without executing Codex", async () => {
+    const cwd = await createExampleWorkspace("psf-cli-loop-");
+    await runPsfCli(["mission:create", "ai-novelist", exampleRequest], { cwd, syncDatabase: false });
+    await runPsfCli(["mission:plan", exampleMissionId], { cwd, syncDatabase: false });
+
+    const result = await runPsfCli(["loop:dry-run", exampleMissionId, "--with-sample-bug"], { cwd, syncDatabase: false });
+
+    expect(result.exitCode).toBe(0);
+    expect(await readFile(join(cwd, "missions", exampleMissionId, "fix-mission.md"), "utf8")).toContain("Bug");
+    expect(await readFile(join(cwd, "missions", exampleMissionId, "fix-codex-command.sh"), "utf8")).toContain("DRY-RUN REVIEW ARTIFACT");
+    expect(result.stdout).toContain("Codex was not executed");
+  });
+
   test("mission commands reject unsafe mission ids", async () => {
     const cwd = await createExampleWorkspace("psf-cli-path-");
 
@@ -196,5 +225,7 @@ function createPrismaStub(missionUpdates: Array<Record<string, unknown>>) {
     workerRun: { upsert },
     artifact: { upsert },
     missionEvent: { upsert },
+    qARun: { upsert },
+    bug: { upsert },
   };
 }
