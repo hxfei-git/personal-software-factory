@@ -2,12 +2,26 @@
   "name": "@psf/orchestrator-api",
   "version": "0.1.0",
   "private": true,
-  "description": "Personal Software Factory Orchestrator API scaffold.",
+  "type": "module",
+  "description": "Personal Software Factory Orchestrator API MVP.",
   "scripts": {
-    "check": "node -e \"console.log('@psf/orchestrator-api scaffold ready')\"",
-    "typecheck": "node -e \"console.log('@psf/orchestrator-api has no TypeScript implementation in Phase 1')\"",
-    "test": "node -e \"console.log('@psf/orchestrator-api has no tests in Phase 1')\"",
-    "lint": "node -e \"console.log('@psf/orchestrator-api lint scaffold ready')\"",
-    "build": "node -e \"console.log('@psf/orchestrator-api build scaffold ready')\""
+    "check": "pnpm typecheck && pnpm test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@psf/db": "workspace:*",
+    "@psf/mission-core": "workspace:*",
+    "@psf/mission-schema": "workspace:*",
+    "fastify": "^5.3.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
   }
 }
