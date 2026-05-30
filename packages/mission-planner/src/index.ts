@@ -26,6 +26,7 @@ export interface MissionPlan {
 }
 
 const stableTimestamp = "1970-01-01T00:00:00.000Z";
+type PassportCommand = ProjectPassport["commands"][keyof ProjectPassport["commands"]];
 
 const artifactTypesByFileName = {
   "mission.md": "mission",
@@ -117,10 +118,10 @@ function buildDefaultMissionId(
   const slugSource = `${input.projectId}-${title || input.userRequirement}`;
   const slug = slugify(slugSource) || "untitled";
   const hash = createHash("sha256")
-    .update(JSON.stringify({
+    .update(stableStringify({
       projectId: input.projectId,
       userRequirement: input.userRequirement,
-      passportId: input.passport.id,
+      passport: input.passport,
       qaCharter: input.qaCharter,
       title,
       priority,
@@ -129,6 +130,26 @@ function buildDefaultMissionId(
     .slice(0, 12);
 
   return `mission-${slug}-${hash}`;
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortJsonValue);
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, sortJsonValue(item)]),
+    );
+  }
+
+  return value;
 }
 
 function slugify(value: string): string {
@@ -303,13 +324,13 @@ function buildRiskNotesDocument(input: MissionPlannerInput): string {
   ].join("\n");
 }
 
-function formatCommandList(command: ProjectPassport["commands"]["test"]): string {
+function formatCommandList(command: PassportCommand): string {
   const commands = Array.isArray(command) ? command : [command];
 
   return commands.map((item) => `- \`${item}\``).join("\n");
 }
 
-function formatCommandValue(command: ProjectPassport["commands"]["test"]): string {
+function formatCommandValue(command: PassportCommand): string {
   const commands = Array.isArray(command) ? command : [command];
 
   return commands.map((item) => `\`${item}\``).join(", ");

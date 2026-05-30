@@ -62,6 +62,39 @@ describe("mission planner", () => {
     expect(firstPlan).toEqual(secondPlan);
   });
 
+  it("derives different mission IDs and artifact paths when passport commands or core flows change", () => {
+    const baseInput = {
+      projectId: "ai-novelist",
+      title: "章节审稿与修复闭环",
+      userRequirement: "增加章节审稿和自动修复流程",
+      passport: projectPassportExample,
+      qaCharter: "# QA Charter\n- 打开首页\n- 新建小说项目",
+      priority: "P1" as const,
+    };
+    const changedPassport = {
+      ...projectPassportExample,
+      commands: {
+        ...projectPassportExample.commands,
+        test: ["pytest -q", "npm --prefix web/frontend test"],
+      },
+      core_flows: [
+        ...projectPassportExample.core_flows,
+        { id: "review_chapter", name: "Review chapter", priority: "P1" as const },
+      ],
+    };
+
+    const basePlan = createDeterministicMissionPlan(baseInput);
+    const changedPlan = createDeterministicMissionPlan({
+      ...baseInput,
+      passport: changedPassport,
+    });
+
+    expect(changedPlan.missionId).not.toBe(basePlan.missionId);
+    expect(changedPlan.artifacts.map((artifact) => artifact.path)).not.toEqual(
+      basePlan.artifacts.map((artifact) => artifact.path),
+    );
+  });
+
   it("generates all required planning documents", () => {
     const plan = createDeterministicMissionPlan({
       projectId: "ai-novelist",
