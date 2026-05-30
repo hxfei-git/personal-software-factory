@@ -49,13 +49,13 @@ export function createOrchestratorClient(options: OrchestratorClientOptions = {}
   const token = options.token ?? defaultToken;
   const fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
 
-  async function request<T>(path: string, init: RequestInit = {}, protectedCall = false): Promise<T> {
+  async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers: Record<string, string> = {};
     const initHeaders = init.headers instanceof Headers
       ? Object.fromEntries(init.headers.entries())
       : (init.headers as Record<string, string> | undefined) ?? {};
     Object.assign(headers, initHeaders);
-    if (protectedCall && token.trim() !== "") {
+    if (token.trim() !== "") {
       headers.authorization = `Bearer ${token}`;
     }
 
@@ -81,7 +81,6 @@ export function createOrchestratorClient(options: OrchestratorClientOptions = {}
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       },
-      true,
     ),
   };
 }

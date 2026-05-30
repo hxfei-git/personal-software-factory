@@ -222,10 +222,11 @@ const missionSummary: MissionSummaryResponse = {
 };
 
 describe("orchestrator API client", () => {
-  it("builds GET and protected POST requests without leaking token values", async () => {
+  it("sends configured token on GET and POST requests without leaking token values", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({ ok: true, json: async () => dashboard })
+      .mockResolvedValueOnce({ ok: true, json: async () => missionSummary })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) });
     const client = createOrchestratorClient({
       baseUrl: "http://api.local/",
@@ -234,10 +235,16 @@ describe("orchestrator API client", () => {
     });
 
     await client.getDashboard();
+    await client.getMissionSummary("mission-0001-ai-novelist-chapter-review");
     await client.runIntegrationDryRun("github", { mission: { missionId: "mission-1" } });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://api.local/dashboard", { headers: {} });
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://api.local/integrations/github/dry-run", {
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://api.local/dashboard", {
+      headers: { authorization: "Bearer super-secret-token" },
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://api.local/missions/mission-0001-ai-novelist-chapter-review/summary", {
+      headers: { authorization: "Bearer super-secret-token" },
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://api.local/integrations/github/dry-run", {
       method: "POST",
       headers: {
         "content-type": "application/json",
