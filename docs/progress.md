@@ -122,6 +122,6 @@ This batch remains aligned with `plan.md`: it documents Phase 11 Hub Web MVP, Ph
 
 ## Next Batch Suggestions
 
-1. Reconcile integration environment variable aliases between `.env.example` and adapter `requiredEnv` reporting.
+1. Add reviewed provider clients only after approval gates, redaction tests, and network-call audit fields are in place.
 2. Add focused docs or tests for Hub operator flows once real users exercise the local console.
-3. Add reviewed provider clients only behind explicit approvals, redaction tests, and `realNetworkCall` assertions.
+3. Add compatibility notes only if older local env files need migration guidance.

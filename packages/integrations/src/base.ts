@@ -14,25 +14,25 @@ export const INTEGRATION_DEFINITIONS: { [Name in IntegrationName]: IntegrationDe
   github: {
     name: "github",
     externalName: "github",
-    requiredEnv: ["GITHUB_TOKEN"],
+    requiredEnv: ["GITHUB_TOKEN", "GITHUB_OWNER", "GITHUB_REPO"],
     enableRealEnv: "ENABLE_REAL_GITHUB",
   },
   coolify: {
     name: "coolify",
     externalName: "coolify",
-    requiredEnv: ["COOLIFY_API_URL", "COOLIFY_TOKEN"],
+    requiredEnv: ["COOLIFY_BASE_URL", "COOLIFY_TOKEN"],
     enableRealEnv: "ENABLE_REAL_COOLIFY",
   },
   uptime_kuma: {
     name: "uptime_kuma",
     externalName: "uptime-kuma",
-    requiredEnv: ["UPTIME_KUMA_URL", "UPTIME_KUMA_USERNAME", "UPTIME_KUMA_PASSWORD"],
+    requiredEnv: ["UPTIME_KUMA_BASE_URL", "UPTIME_KUMA_USERNAME", "UPTIME_KUMA_PASSWORD"],
     enableRealEnv: "ENABLE_REAL_UPTIME_KUMA",
   },
   plane: {
     name: "plane",
     externalName: "plane",
-    requiredEnv: ["PLANE_API_URL", "PLANE_TOKEN", "PLANE_WORKSPACE_SLUG", "PLANE_PROJECT_ID"],
+    requiredEnv: ["PLANE_BASE_URL", "PLANE_API_TOKEN", "PLANE_WORKSPACE_ID", "PLANE_PROJECT_ID"],
     enableRealEnv: "ENABLE_REAL_PLANE",
   },
 };

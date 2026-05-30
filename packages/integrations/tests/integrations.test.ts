@@ -49,7 +49,23 @@ describe("integration dry-run adapters", () => {
     expect(statuses.every((status) => status.safeToRun === true)).toBe(true);
   });
 
-  it("keeps dry-runs successful and marks missing env without tokens", () => {
+  it("reports the planned required env names and missing env for unconfigured dry-runs", () => {
+    const statuses = listIntegrationStatuses({ env: {}, now: fixedNow });
+
+    expect(statuses.find((status) => status.name === "github")?.requiredEnv).toEqual(["GITHUB_TOKEN", "GITHUB_OWNER", "GITHUB_REPO"]);
+    expect(statuses.find((status) => status.name === "coolify")?.requiredEnv).toEqual(["COOLIFY_BASE_URL", "COOLIFY_TOKEN"]);
+    expect(statuses.find((status) => status.name === "uptime_kuma")?.requiredEnv).toEqual([
+      "UPTIME_KUMA_BASE_URL",
+      "UPTIME_KUMA_USERNAME",
+      "UPTIME_KUMA_PASSWORD",
+    ]);
+    expect(statuses.find((status) => status.name === "plane")?.requiredEnv).toEqual([
+      "PLANE_BASE_URL",
+      "PLANE_API_TOKEN",
+      "PLANE_WORKSPACE_ID",
+      "PLANE_PROJECT_ID",
+    ]);
+
     const results = [
       runGitHubDryRun({ env: {}, now: fixedNow, mission: missionInput }),
       runCoolifyDryRun({ env: {}, now: fixedNow, deployment: { project: "psf", environment: "production" } }),
@@ -57,9 +73,15 @@ describe("integration dry-run adapters", () => {
       runPlaneDryRun({ env: {}, now: fixedNow, mission: missionInput, bugs: [] }),
     ];
 
+    expect(results.map((result) => result.missingEnv)).toEqual([
+      ["GITHUB_TOKEN", "GITHUB_OWNER", "GITHUB_REPO"],
+      ["COOLIFY_BASE_URL", "COOLIFY_TOKEN"],
+      ["UPTIME_KUMA_BASE_URL", "UPTIME_KUMA_USERNAME", "UPTIME_KUMA_PASSWORD"],
+      ["PLANE_BASE_URL", "PLANE_API_TOKEN", "PLANE_WORKSPACE_ID", "PLANE_PROJECT_ID"],
+    ]);
+
     for (const result of results) {
       expect(result.configured).toBe(false);
-      expect(result.missingEnv.length).toBeGreaterThan(0);
       expect(result.safeToRun).toBe(true);
       expect(result.realNetworkCall).toBe(false);
       expect(result.status.configured).toBe(false);
@@ -73,14 +95,16 @@ describe("integration dry-run adapters", () => {
       ENABLE_REAL_UPTIME_KUMA: "0",
       ENABLE_REAL_PLANE: "0",
       GITHUB_TOKEN: "github-secret",
+      GITHUB_OWNER: "hxfei-git",
+      GITHUB_REPO: "ai-novelist",
       COOLIFY_TOKEN: "coolify-secret",
-      COOLIFY_API_URL: "https://coolify.example.test",
-      UPTIME_KUMA_URL: "https://uptime.example.test",
+      COOLIFY_BASE_URL: "https://coolify.example.test",
+      UPTIME_KUMA_BASE_URL: "https://uptime.example.test",
       UPTIME_KUMA_USERNAME: "ops",
       UPTIME_KUMA_PASSWORD: "kuma-secret",
-      PLANE_API_URL: "https://plane.example.test",
-      PLANE_TOKEN: "plane-secret",
-      PLANE_WORKSPACE_SLUG: "factory",
+      PLANE_BASE_URL: "https://plane.example.test",
+      PLANE_API_TOKEN: "plane-secret",
+      PLANE_WORKSPACE_ID: "factory",
       PLANE_PROJECT_ID: "hub",
     };
 
@@ -97,14 +121,16 @@ describe("integration dry-run adapters", () => {
       ENABLE_REAL_UPTIME_KUMA: "1",
       ENABLE_REAL_PLANE: "1",
       GITHUB_TOKEN: "github-secret",
+      GITHUB_OWNER: "hxfei-git",
+      GITHUB_REPO: "ai-novelist",
       COOLIFY_TOKEN: "coolify-secret",
-      COOLIFY_API_URL: "https://coolify.example.test",
-      UPTIME_KUMA_URL: "https://uptime.example.test",
+      COOLIFY_BASE_URL: "https://coolify.example.test",
+      UPTIME_KUMA_BASE_URL: "https://uptime.example.test",
       UPTIME_KUMA_USERNAME: "ops",
       UPTIME_KUMA_PASSWORD: "kuma-secret",
-      PLANE_API_URL: "https://plane.example.test",
-      PLANE_TOKEN: "plane-secret",
-      PLANE_WORKSPACE_SLUG: "factory",
+      PLANE_BASE_URL: "https://plane.example.test",
+      PLANE_API_TOKEN: "plane-secret",
+      PLANE_WORKSPACE_ID: "factory",
       PLANE_PROJECT_ID: "hub",
     };
 
@@ -132,7 +158,7 @@ describe("integration dry-run adapters", () => {
     const env = {
       ENABLE_REAL_COOLIFY: "1",
       COOLIFY_TOKEN: "coolify_top_secret",
-      COOLIFY_API_URL: "https://coolify.example.test",
+      COOLIFY_BASE_URL: "https://coolify.example.test",
     };
 
     const result = runCoolifyDryRun({ env, now: fixedNow, deployment: { project: "psf", environment: "production" } });
@@ -143,7 +169,7 @@ describe("integration dry-run adapters", () => {
   it("does not leak Uptime Kuma passwords in statuses or dry-run outputs", () => {
     const env = {
       ENABLE_REAL_UPTIME_KUMA: "1",
-      UPTIME_KUMA_URL: "https://uptime.example.test",
+      UPTIME_KUMA_BASE_URL: "https://uptime.example.test",
       UPTIME_KUMA_USERNAME: "ops",
       UPTIME_KUMA_PASSWORD: "kuma_top_secret",
     };
@@ -156,9 +182,9 @@ describe("integration dry-run adapters", () => {
   it("does not leak Plane tokens in statuses or dry-run outputs", () => {
     const env = {
       ENABLE_REAL_PLANE: "1",
-      PLANE_API_URL: "https://plane.example.test",
-      PLANE_TOKEN: "plane_top_secret",
-      PLANE_WORKSPACE_SLUG: "factory",
+      PLANE_BASE_URL: "https://plane.example.test",
+      PLANE_API_TOKEN: "plane_top_secret",
+      PLANE_WORKSPACE_ID: "factory",
       PLANE_PROJECT_ID: "hub",
     };
 
