@@ -2,9 +2,9 @@
 
 ## Phase 0 Context
 
-This document refines `personal-software-factory-plan.md` into the first engineering architecture for the Personal Software Factory / 个人 AI 软件工厂.
+This document refines `plan.md` into the first engineering architecture for the Personal Software Factory / 个人 AI 软件工厂.
 
-The repository is currently greenfield. There is no application code yet. The root plan file is present as `personal-software-factory-plan.md`; later setup may create or rename a canonical `plan.md` if the team wants the filename to match the plan text exactly.
+The canonical root plan file is `plan.md`. Use `plan.md` in active documents; older plan filename variants are historical context only.
 
 ## System Goal
 
@@ -111,6 +111,8 @@ Responsibilities:
 - link to GitHub PRs and later external systems.
 
 The Hub is a control surface. It should not contain business workflow rules that belong in the Orchestrator.
+
+Current Phase 11-15 Hub Web is a React/Vite console started with `pnpm dev:hub` at `http://127.0.0.1:5173`. It reads `GET /dashboard`, `GET /missions/:id/summary`, and `GET /integrations`, and uses protected POST integration dry-runs for local operator checks.
 
 ### Orchestrator API
 
@@ -226,6 +228,8 @@ Responsibilities:
 
 MVP can use git CLI and optionally GitHub CLI. A GitHub App can wait until the workflow proves stable.
 
+Current Phase 11-15 GitHub support is mock/dry-run only. It can simulate branch, Chinese commit message, PR body, and Issue payloads, but it does not push, open a PR, create an Issue, or call GitHub.
+
 ### Later Integrations
 
 Coolify, Uptime Kuma, Plane, n8n, Temporal, and LangGraph are not first-stage core dependencies.
@@ -238,6 +242,8 @@ They should be integrated after the basic loop proves useful:
 - n8n: low-risk notifications and webhook glue;
 - Temporal: durable workflow upgrade;
 - LangGraph: complex AI decision graphs.
+
+Current Phase 11-15 adapters for Coolify, Uptime Kuma, and Plane are mock/dry-run only. `ENABLE_REAL_*="1"` reports `realEnabled: true` but still returns `realNetworkCall: false`.
 
 ## Data Flow
 
@@ -296,7 +302,7 @@ The following decisions should be fixed before implementation starts:
 - Runtime: use Node.js 20+.
 - Monorepo: use pnpm workspaces and Turborepo.
 - API: use Fastify.
-- Hub: use Next.js.
+- Hub: current implementation uses React/Vite for the local MVP console.
 - Database: use PostgreSQL through Prisma.
 - Queue: use Redis and BullMQ.
 - Schema validation: use Zod for config and artifact inputs.
@@ -313,6 +319,7 @@ The following decisions should be fixed before implementation starts:
 - No production deployment without approval.
 - No destructive data operation without approval.
 - No secrets in prompts, artifacts, logs, or PR comments.
+- No token or password values in API responses, Hub UI, logs, PR bodies, Issue bodies, or integration outputs.
 - Automatic repair attempts are capped.
 - Worker failures must be recorded instead of hidden.
 - Generated QA findings must include reproduction, expected result, actual result, and evidence.

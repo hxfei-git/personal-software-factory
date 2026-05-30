@@ -2,8 +2,8 @@
 
 ## Current Assumptions
 
-- The repository is greenfield and currently contains only the root plan file.
-- The root plan file is named `personal-software-factory-plan.md`, although the plan text refers to `plan.md`.
+- The canonical root plan file is `plan.md`.
+- Use `plan.md` in active documents; older plan filename variants should not appear in active docs.
 - The first managed project is `hxfei-git/ai-novelist`.
 - The first deployment target is local development or a single VPS.
 - The first user model is single-user.
@@ -13,6 +13,7 @@
 - GitHub branch and PR integration can start through git CLI and optionally GitHub CLI.
 - Production deployment requires explicit human approval.
 - External service credentials are not assumed to exist during early phases.
+- Phase 11-15 external integrations are still mock/dry-run only and do not make network calls.
 
 ## Key Risks
 
@@ -96,6 +97,8 @@ Mitigation:
 
 Never put real secrets into prompts. Keep `.env` out of git. Mask known secret patterns before displaying logs or writing public artifacts. Keep production credentials outside worker prompts.
 
+Provider token and password values must also be absent from Orchestrator API responses, Hub UI state, logs, PR bodies, Issue bodies, and integration dry-run outputs.
+
 ### Artifact Growth
 
 Risk:
@@ -115,6 +118,8 @@ GitHub, Coolify, Uptime Kuma, Plane, or n8n may be unavailable, unconfigured, or
 Mitigation:
 
 Make GitHub PR optional until configured. Treat Coolify, Uptime Kuma, Plane, and n8n as non-core integrations. The core Mission loop should still work locally.
+
+For Phase 11-15, integration status and dry-run commands must remain useful without credentials. Even when `ENABLE_REAL_GITHUB`, `ENABLE_REAL_COOLIFY`, `ENABLE_REAL_UPTIME_KUMA`, or `ENABLE_REAL_PLANE` is set to `"1"`, the adapters must keep `realNetworkCall` false until a later real-integration phase adds reviewed network clients, approval gates, tests, and secret redaction checks.
 
 ### Production Risk
 

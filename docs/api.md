@@ -40,6 +40,45 @@ Public endpoint.
 { "status": "ok" }
 ```
 
+## Dashboard And Hub Reads
+
+### GET /dashboard
+
+Public read endpoint for the local MVP API. Returns dashboard metrics, recent Missions, bugs, WorkerRuns, QA runs, Artifacts, Integration statuses, recommended next actions, and health signals. This route has no side effects and is intended for Hub Web.
+
+### GET /missions/:id/summary
+
+Public read endpoint for Mission detail screens. Returns the Mission, Project, current status, events, artifacts, WorkerRuns, QA runs, bugs, approvals, selected key artifacts such as QA report and Codex prompt, and one recommended next action.
+
+The route returns `404 NOT_FOUND` when the Mission or linked Project is missing.
+
+## Integrations
+
+Integration routes are currently mock/dry-run only. They never call GitHub, Coolify, Uptime Kuma, Plane, or any other external network service.
+
+### GET /integrations
+
+Public read endpoint. Returns the supported integration statuses in display order: `github`, `coolify`, `uptime_kuma`, and `plane`.
+
+Each status includes `configured`, `missingEnv`, `realEnabled`, `realNetworkCall`, and `safeToRun`. Even when an `ENABLE_REAL_*` variable is set to `"1"`, `realEnabled` may become `true` but `realNetworkCall` remains `false`.
+
+### POST /integrations/:name/dry-run
+
+Protected. Runs a local dry-run for one integration and returns the simulated payloads that would later become PRs, deploy requests, monitors, or issues. Supported names are `github`, `coolify`, `uptime_kuma`, `uptime-kuma`, and `plane`.
+
+`POST /integrations/uptime-kuma/dry-run` is supported as the external-name path for the internal `uptime_kuma` adapter.
+
+Example:
+
+```bash
+curl -H "Authorization: Bearer $PSF_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -X POST http://127.0.0.1:3000/integrations/uptime-kuma/dry-run \
+  -d '{}'
+```
+
+Dry-run responses include `realNetworkCall: false` and must not include token or password values.
+
 ## Projects And Registry
 
 ### GET /projects

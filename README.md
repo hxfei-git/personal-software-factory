@@ -2,7 +2,7 @@
 
 Personal Software Factory / 个人 AI 软件工厂 is a single-user control plane for turning natural-language software requests into structured Missions, Codex-driven development, Playwright QA, structured bug reports, approval gates, and reviewable release work.
 
-The repository currently contains the foundation through the Phase 4.5-7 dry-run batch: shared schemas, Prisma persistence, Mission state machine, Fastify Orchestrator API, API token auth, Project Registry, Project Passport intake for `ai-novelist`, deterministic Mission Planner, local CLI helpers, and Codex Worker dry-run artifact generation.
+The repository currently contains the foundation through the Phase 11-15 dry-run batch: shared schemas, Prisma persistence, Mission state machine, Fastify Orchestrator API, API token auth, Project Registry, Project Passport intake for `ai-novelist`, deterministic Mission Planner, local CLI helpers, Codex Worker dry-run artifact generation, QA/fix dry-runs, Hub Web, dashboard APIs, and mock integration adapters.
 
 ## Current Scope
 
@@ -14,16 +14,17 @@ Implemented:
 - `packages/project-passport`: YAML parser, normalization, and validation for `project.passport.yaml`.
 - `packages/project-registry`: scanner for `projects/*/project.passport.yaml` and Project metadata sync inputs.
 - `packages/mission-planner`: deterministic template planner that does not call an LLM.
-- `apps/orchestrator-api`: Fastify API with health, project sync/passport, Mission planning, Approval, WorkerRun, Artifact, BugReport, and QARun routes.
+- `packages/integrations`: mock/dry-run GitHub, Coolify, Uptime Kuma, and Plane adapters. They never call real external APIs.
+- `apps/orchestrator-api`: Fastify API with health, dashboard, project sync/passport, Mission planning/summary, Approval, WorkerRun, Artifact, BugReport, QARun, and Integration routes.
+- `apps/hub`: React/Vite Hub Web console for dashboard, Mission detail, QA, bugs, WorkerRun, artifact, and Integration views.
 - `workers/codex-worker`: dry-run prompt, command review artifact, and dev summary generator. It never executes Codex.
-- `scripts/psf.ts`: local dry-run CLI for registry sync, example Mission creation, planning, and Codex dry-run artifacts.
+- `scripts/psf.ts`: local dry-run CLI for registry sync, example Mission creation, planning, Codex/QA/fix dry-run artifacts, and Integration dry-runs.
 
 Not implemented yet:
 
 - Real Codex execution, repository clone/update, worktree creation, project test execution, local commits, remote push, or PR creation.
-- QA Worker execution and Playwright report collection.
-- Hub Web UI beyond placeholder package structure.
-- BullMQ queues and external integrations with GitHub, Coolify, Uptime Kuma, Plane, or n8n.
+- Real Playwright QA execution and browser report collection beyond the optional local smoke gate.
+- BullMQ queues and real external integrations with GitHub, Coolify, Uptime Kuma, Plane, or n8n.
 
 ## Repository Layout
 
@@ -68,7 +69,11 @@ Important auth variables:
 
 - `PSF_API_TOKEN`: bearer token required for API write routes.
 - `PSF_AUTH_DISABLED`: set to `true` only for local development or automated tests.
+- `VITE_ORCHESTRATOR_API_URL`: Hub Web API base URL. Local default is `http://127.0.0.1:3000`.
+- `VITE_PSF_API_TOKEN`: Hub Web bearer token for protected POST dry-run actions.
 - `ENABLE_REAL_CODEX`: keep `0`; real Codex execution is not implemented in this batch.
+
+Integration variables are documented in `docs/integrations.md` and provider-specific docs. Current adapters are still mock/dry-run only: setting `ENABLE_REAL_GITHUB=1`, `ENABLE_REAL_COOLIFY=1`, `ENABLE_REAL_UPTIME_KUMA=1`, or `ENABLE_REAL_PLANE=1` only returns `realEnabled: true`; `realNetworkCall` remains `false`.
 
 ## Setup And Database
 
@@ -113,6 +118,18 @@ curl http://127.0.0.1:3000/health
 curl -H "Authorization: Bearer $PSF_API_TOKEN" -X POST http://127.0.0.1:3000/projects/sync
 ```
 
+Hub-facing read endpoints include `GET /dashboard`, `GET /missions/:id/summary`, and `GET /integrations`. Integration dry-runs use `POST /integrations/:name/dry-run`, including `POST /integrations/uptime-kuma/dry-run`, and require the bearer token when auth is enabled.
+
+## Run Hub Web
+
+```bash
+pnpm dev:hub
+```
+
+Default local Hub URL: `http://127.0.0.1:5173`.
+
+The Hub reads `VITE_ORCHESTRATOR_API_URL` and uses `VITE_PSF_API_TOKEN` only for protected dry-run actions. Token and password values must not be rendered in the Hub, returned from the API, logged, or copied into PR/Issue bodies.
+
 ## CLI Examples
 
 The CLI is local-first and dry-run oriented. By default it tries to sync Prisma records; set `PSF_SKIP_DB=1` for explicit artifact-only runs.
@@ -122,6 +139,12 @@ pnpm psf projects:sync
 pnpm psf mission:create ai-novelist "增加章节审稿和自动修复流程"
 pnpm psf mission:plan mission-0001-ai-novelist-chapter-review
 pnpm psf codex:dry-run mission-0001-ai-novelist-chapter-review
+pnpm psf loop:dry-run mission-0001-ai-novelist-chapter-review --with-sample-bug
+pnpm psf integrations:status
+pnpm psf integrations:dry-run github
+pnpm psf integrations:dry-run coolify
+pnpm psf integrations:dry-run uptime-kuma
+pnpm psf integrations:dry-run plane
 ```
 
 Artifact-only example:
@@ -162,6 +185,12 @@ pnpm test
 
 - `docs/api.md`: Orchestrator API routes and request shapes.
 - `docs/auth.md`: API token auth and local/dev/test boundaries.
+- `docs/hub-web.md`: Hub Web startup, routes, and local demo flow.
+- `docs/integrations.md`: shared Integration dry-run contract and CLI/API commands.
+- `docs/github-integration.md`: GitHub mock PR/Issue dry-run behavior.
+- `docs/coolify-integration.md`: Coolify mock deploy dry-run behavior.
+- `docs/uptime-kuma-integration.md`: Uptime Kuma mock monitor dry-run behavior.
+- `docs/plane-integration.md`: Plane mock Mission/Bug issue dry-run behavior.
 - `docs/project-registry.md`: registry scan and DB sync behavior.
 - `docs/project-passport.md`: passport fields and `ai-novelist` caveats.
 - `docs/mission-planner.md`: deterministic planner API and CLI behavior.
