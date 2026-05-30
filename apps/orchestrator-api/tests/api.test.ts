@@ -368,13 +368,16 @@ describe("orchestrator api", () => {
         method: "POST",
         url: `/missions/${mission.id}/plan`,
         payload: {
-          userRequirement: "增加章节审稿和自动修复流程",
-          qaCharter: "# QA Charter\n- 打开首页\n- 导出小说",
+          userRequirement: "增加章节审稿和自动修复流程 token=planner-user-token",
+          qaCharter: "# QA Charter\n- 打开首页\n- 导出小说\npassword: planner-charter-password",
         },
       });
       expect(response.statusCode).toBe(200);
       expect(response.json().files).toHaveLength(4);
       expect(response.json().workerRun.worker_type).toBe("planner");
+      const planBody = JSON.stringify(response.json());
+      expect(planBody).not.toContain("planner-user-token");
+      expect(planBody).not.toContain("planner-charter-password");
 
       const artifacts = await server.inject({ method: "GET", url: `/missions/${mission.id}/artifacts` });
       expect(artifacts.json().map((artifact: { type: string }) => artifact.type)).toEqual([
@@ -1063,7 +1066,22 @@ describe("orchestrator api", () => {
 
   it("redacts token and password values from dashboard, summary, and resource GET responses", async () => {
     const { server } = await createTestServer({ auth: { disabled: true } });
-    const mission = await createMission(server, "Secret redaction mission");
+    const missionResponse = await server.inject({
+      method: "POST",
+      url: "/missions",
+      payload: {
+        project_id: "ai-novelist",
+        title: "Secret redaction mission",
+        raw_request: "token=mission-raw-token",
+        mission_markdown: "password: mission-md-password",
+        acceptance_markdown: "secret=mission-acceptance-secret",
+      },
+    });
+    expect(missionResponse.statusCode).toBe(201);
+    const mission = missionResponse.json();
+    expect(JSON.stringify(mission)).not.toContain("mission-raw-token");
+    expect(JSON.stringify(mission)).not.toContain("mission-md-password");
+    expect(JSON.stringify(mission)).not.toContain("mission-acceptance-secret");
     const workerRun = (await server.inject({
       method: "POST",
       url: "/missions/" + mission.id + "/worker-runs",
@@ -1128,6 +1146,8 @@ describe("orchestrator api", () => {
 
     const responses = await Promise.all([
       server.inject({ method: "GET", url: "/dashboard" }),
+      server.inject({ method: "GET", url: "/missions" }),
+      server.inject({ method: "GET", url: "/missions/" + mission.id }),
       server.inject({ method: "GET", url: "/missions/" + mission.id + "/summary" }),
       server.inject({ method: "GET", url: "/missions/" + mission.id + "/artifacts" }),
       server.inject({ method: "GET", url: "/artifacts/" + artifact.id }),
@@ -1144,6 +1164,9 @@ describe("orchestrator api", () => {
     for (const response of responses) {
       expect(response.statusCode).toBe(200);
       const body = JSON.stringify(response.json());
+      expect(body).not.toContain("mission-raw-token");
+      expect(body).not.toContain("mission-md-password");
+      expect(body).not.toContain("mission-acceptance-secret");
       expect(body).not.toContain("artifact-token");
       expect(body).not.toContain("artifact-password");
       expect(body).not.toContain("artifact-access-key");

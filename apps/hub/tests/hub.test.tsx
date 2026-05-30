@@ -286,6 +286,9 @@ describe("Hub render helpers", () => {
     expect(text).toContain("3 ready_for_review");
     expect(text).toContain("QA");
     expect(text).toContain("Latest key artifact");
+    expect(text).toContain("Health signals");
+    expect(text).toContain("1 worker run failed recently");
+    expect(text).toContain("Recent Artifacts");
     expect(text).toContain("artifact-qa");
     expect(text).toContain("AI Novelist chapter review");
     expect(text).toContain("Chapter review blocks ready state");

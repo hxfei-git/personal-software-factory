@@ -154,7 +154,8 @@ export function renderDashboardView({ state }: ViewProps<DashboardResponse>): Re
         {metricCard("Approvals", data.metrics.pendingApprovalCount + " pending", [data.metrics.projectCount + " project(s)"])}
       </section>
 
-      <section className="panel-grid two-columns">
+      <section className="panel-grid three-columns">
+        {renderHealthSignals(data.healthSignals)}
         {renderIntegrationCards(data.integrationStatuses)}
         {renderActionList("Recommended next actions", data.recommendedNextActions, "No recommended actions")}
       </section>
@@ -163,6 +164,10 @@ export function renderDashboardView({ state }: ViewProps<DashboardResponse>): Re
         {renderMissionList("Recent Missions", data.recentMissions.slice(0, 5))}
         {renderBugList("Recent Bugs", data.recentBugs.slice(0, 5))}
         {renderWorkerRunList("Recent WorkerRuns", data.recentWorkerRuns.slice(0, 5))}
+      </section>
+
+      <section className="panel-grid">
+        {renderArtifactList("Recent Artifacts", data.recentArtifacts.slice(0, 5))}
       </section>
     </main>
   );
@@ -299,6 +304,23 @@ function metricCard(title: string, value: string, rows: string[]): ReactElement 
       <strong>{value}</strong>
       <div>{rows.map((row) => <small key={row}>{row}</small>)}</div>
     </article>
+  );
+}
+
+function renderHealthSignals(signals: DashboardResponse["healthSignals"]): ReactElement {
+  return (
+    <section className="panel">
+      <div className="panel-heading"><h2>Health signals</h2></div>
+      {signals.length === 0 ? <p className="empty-line">No health signals reported</p> : signals.map((signal) => (
+        <div className="list-row" key={signal.key}>
+          <div>
+            <strong>{signal.message}</strong>
+            <span>{signal.key}</span>
+          </div>
+          <span>{signal.status} / {signal.count}</span>
+        </div>
+      ))}
+    </section>
   );
 }
 

@@ -173,7 +173,7 @@ export interface MissionServiceOptions {
 
 export function createMissionServices(storage: MissionStorage, options: MissionServiceOptions = {}) {
   const registryRoot = options.registryRoot ?? "projects";
-  async function getMission(id: string) {
+  async function getRawMission(id: string) {
     const mission = await storage.getMission(id);
     if (!mission) {
       throw notFound("Mission", id);
@@ -374,10 +374,12 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       }
       return (await getRegistryProject(projectId)).passport;
     },
-    listMissions: () => storage.listMissions(),
-    getMission,
+    listMissions: async () => sanitizeApiList(await storage.listMissions()),
+    async getMission(id: string) {
+      return sanitizeApiResponse(await getRawMission(id));
+    },
     async getMissionSummary(id: string) {
-      const mission = await getMission(id);
+      const mission = await getRawMission(id);
       const project = await storage.getProject(mission.project_id);
       if (!project) {
         throw notFound("Project", mission.project_id);
@@ -455,18 +457,18 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       };
       const event = buildEvent(mission.id, "mission.created", "Mission created", { status: MissionStatus.received }, now);
 
-      return storage.createMission({ mission, event });
+      return sanitizeApiResponse(await storage.createMission({ mission, event }));
     },
     async planMission(id: string, body: unknown) {
       const input = parseRequest(PlanMissionRequestSchema, body ?? {});
-      const mission = await getMission(id);
+      const mission = await getRawMission(id);
       if (mission.status !== MissionStatus.received && mission.status !== MissionStatus.planning && mission.status !== MissionStatus.planned) {
         throw invalidTransition(`Mission planning is not valid while status is ${mission.status}`);
       }
 
       const existing = await getExistingPlannerResult(mission.id);
       if (existing && mission.status === MissionStatus.planned) {
-        return buildPersistedPlanResponse(mission, existing);
+        return sanitizeApiResponse(buildPersistedPlanResponse(mission, existing));
       }
       if (existing && mission.status === MissionStatus.planning) {
         const completed = buildPlanningTransition(
@@ -476,7 +478,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
           nextTimestamp(existing.events.at(-1)?.created_at ?? new Date().toISOString()),
         );
         await storage.transitionMission(mission.id, completed.status, completed.event);
-        return buildPersistedPlanResponse(mission, existing);
+        return sanitizeApiResponse(buildPersistedPlanResponse(mission, existing));
       }
       if (mission.status === MissionStatus.planned) {
         throw invalidTransition("Mission is already planned but planner resources are missing");
@@ -524,11 +526,11 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         await storage.transitionMission(mission.id, completed.status, completed.event);
       }
 
-      return buildPlanResponse(plan, persisted);
+      return sanitizeApiResponse(buildPlanResponse(plan, persisted));
     },
     async transitionMission(id: string, body: unknown) {
       const input = parseRequest(TransitionRequestSchema, body);
-      const mission = await getMission(id);
+      const mission = await getRawMission(id);
       try {
         const result = buildTransition({
           mission_id: id,
@@ -546,18 +548,18 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       }
     },
     async appendMissionEvent(id: string, body: unknown) {
-      await getMission(id);
+      await getRawMission(id);
       const input = parseRequest(AppendEventRequestSchema, body);
       const event = buildEvent(id, input.type, input.message, input.payload ?? {});
       return sanitizeApiResponse(await storage.appendMissionEvent(event));
     },
     async listMissionEvents(id: string) {
-      await getMission(id);
+      await getRawMission(id);
       return sanitizeApiList(await storage.listMissionEvents(id));
     },
 
     async createApproval(missionId: string, body: unknown) {
-      await getMission(missionId);
+      await getRawMission(missionId);
       const input = parseRequest(CreateApprovalRequestSchema, body);
       const now = new Date().toISOString();
       const approval: Approval = {
@@ -574,7 +576,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       return sanitizeApiResponse(await storage.createApproval({ resource: approval, event }));
     },
     async listMissionApprovals(missionId: string) {
-      await getMission(missionId);
+      await getRawMission(missionId);
       return sanitizeApiList(await storage.listMissionApprovals(missionId));
     },
     async getApproval(id: string) {
@@ -608,7 +610,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     },
 
     async createWorkerRun(missionId: string, body: unknown) {
-      await getMission(missionId);
+      await getRawMission(missionId);
       const input = parseRequest(CreateWorkerRunRequestSchema, body);
       const now = new Date().toISOString();
       const workerRun: WorkerRun = {
@@ -635,7 +637,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       return sanitizeApiResponse(await storage.createWorkerRun({ resource: workerRun, event }));
     },
     async listMissionWorkerRuns(missionId: string) {
-      await getMission(missionId);
+      await getRawMission(missionId);
       return sanitizeApiList(await storage.listMissionWorkerRuns(missionId));
     },
     async getWorkerRun(id: string) {
@@ -668,7 +670,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     },
 
     async createArtifact(missionId: string, body: unknown) {
-      await getMission(missionId);
+      await getRawMission(missionId);
       const input = parseRequest(CreateArtifactRequestSchema, body);
       if (input.workerRunId !== undefined) {
         await validateWorkerRunBelongsToMission(input.workerRunId, missionId);
@@ -690,7 +692,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       return sanitizeApiResponse(await storage.createArtifact({ resource: artifact, event }));
     },
     async listMissionArtifacts(missionId: string) {
-      await getMission(missionId);
+      await getRawMission(missionId);
       return sanitizeApiList(await storage.listMissionArtifacts(missionId));
     },
     async getArtifact(id: string) {
@@ -702,7 +704,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     },
 
     async createBug(missionId: string, body: unknown) {
-      await getMission(missionId);
+      await getRawMission(missionId);
       const input = parseRequest(CreateBugRequestSchema, body);
       if (input.qaRunId !== undefined) {
         await validateQARunBelongsToMission(input.qaRunId, missionId);
@@ -730,7 +732,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       return sanitizeApiResponse(await storage.createBug({ resource: bug, event }));
     },
     async listMissionBugs(missionId: string) {
-      await getMission(missionId);
+      await getRawMission(missionId);
       return sanitizeApiList(await storage.listMissionBugs(missionId));
     },
     async getBug(id: string) {
@@ -764,7 +766,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     },
 
     async createQARun(missionId: string, body: unknown) {
-      await getMission(missionId);
+      await getRawMission(missionId);
       const input = parseRequest(CreateQARunRequestSchema, body);
       const now = new Date().toISOString();
       const qaRun: QAReport = {
@@ -791,7 +793,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       return sanitizeApiResponse(await storage.createQARun({ resource: qaRun, event }));
     },
     async listMissionQARuns(missionId: string) {
-      await getMission(missionId);
+      await getRawMission(missionId);
       return sanitizeApiList(await storage.listMissionQARuns(missionId));
     },
     async getQARun(id: string) {
