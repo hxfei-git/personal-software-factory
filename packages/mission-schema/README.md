@@ -23,6 +23,8 @@ This package is the contract layer used by the Orchestrator API, future Hub Web,
 
 The shared resource schemas include Phase 4.5-7 dry-run fields for Planner and worker orchestration: expanded worker types and modes, structured worker input/output/logs, inline artifact content and metadata, approval request/decision metadata, QA run counters/timestamps, and bug source/fix-direction fields.
 
+QA run modes include `dry-run`, `mock`, `playwright`, and `playwright-mcp`; legacy modes such as `deterministic`, `ai_exploratory`, `regression`, and `smoke` remain accepted for compatibility.
+
 Artifact types should use canonical values such as `mission`, `acceptance`, `codex_prompt`, `qa_report`, `bugs_json`, `playwright_trace`, `generated_test`, `log`, and `other`, while the schema continues to accept legacy non-empty strings such as `qa-report` for existing data compatibility.
 
 ## Mission Statuses

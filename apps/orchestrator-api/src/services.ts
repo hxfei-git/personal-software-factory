@@ -15,7 +15,6 @@ import { z } from "zod";
 import { badRequest, invalidTransition, notFound } from "./errors.js";
 import type { MissionStorage } from "./storage.js";
 
-type QARunRecord = Omit<QAReport, "mode"> & { mode: QAReport["mode"] | "mock" };
 
 const JsonObjectSchema = z.record(z.unknown());
 const DateTimeStringSchema = z.string().datetime({ offset: true });
@@ -120,7 +119,7 @@ const CreateBugRequestSchema = z.object({
 const UpdateBugRequestSchema = CreateBugRequestSchema.partial();
 
 const QARunStatusSchema = z.enum(["queued", "passed", "failed", "running", "cancelled"]);
-const QARunModeSchema = z.enum(["deterministic", "ai_exploratory", "regression", "smoke", "playwright-mcp", "mock"]);
+const QARunModeSchema = z.enum(["dry-run", "mock", "playwright", "playwright-mcp", "deterministic", "ai_exploratory", "regression", "smoke"]);
 
 const CreateQARunRequestSchema = z.object({
   targetUrl: z.string().url().optional(),
@@ -426,7 +425,7 @@ export function createMissionServices(storage: MissionStorage) {
       await getMission(missionId);
       const input = parseRequest(CreateQARunRequestSchema, body);
       const now = new Date().toISOString();
-      const qaRun: QARunRecord = {
+      const qaRun: QAReport = {
         id: "qa-run-" + randomUUID(),
         mission_id: missionId,
         target_url: input.targetUrl ?? input.stagingUrl ?? "",
@@ -465,7 +464,7 @@ export function createMissionServices(storage: MissionStorage) {
       const input = parseRequest(UpdateQARunRequestSchema, body);
       const now = new Date().toISOString();
       const targetUrl = input.targetUrl ?? input.stagingUrl;
-      const qaRun: QARunRecord = {
+      const qaRun: QAReport = {
         ...current,
         ...(targetUrl === undefined ? {} : { target_url: targetUrl }),
         ...(input.mode === undefined ? {} : { mode: input.mode }),

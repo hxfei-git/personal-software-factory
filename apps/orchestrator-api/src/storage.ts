@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@psf/db";
 import type { Approval, Artifact, BugReport, Mission, MissionEvent, Project, QAReport, WorkerRun } from "@psf/mission-schema";
 
-type QARunRecord = Omit<QAReport, "mode"> & { mode: QAReport["mode"] | "mock" };
 
 export interface CreateMissionRecordInput {
   mission: Mission;
@@ -43,10 +42,10 @@ export interface MissionStorage {
   getBug(id: string): Promise<BugReport | null>;
   updateBug(input: ResourceWriteInput<BugReport>): Promise<BugReport>;
 
-  createQARun(input: ResourceWriteInput<QARunRecord>): Promise<QARunRecord>;
-  listMissionQARuns(missionId: string): Promise<QARunRecord[]>;
-  getQARun(id: string): Promise<QARunRecord | null>;
-  updateQARun(input: ResourceWriteInput<QARunRecord>): Promise<QARunRecord>;
+  createQARun(input: ResourceWriteInput<QAReport>): Promise<QAReport>;
+  listMissionQARuns(missionId: string): Promise<QAReport[]>;
+  getQARun(id: string): Promise<QAReport | null>;
+  updateQARun(input: ResourceWriteInput<QAReport>): Promise<QAReport>;
 }
 
 export interface InMemoryMissionStorageSeed {
@@ -57,7 +56,7 @@ export interface InMemoryMissionStorageSeed {
   workerRuns?: WorkerRun[];
   artifacts?: Artifact[];
   bugs?: BugReport[];
-  qaRuns?: QARunRecord[];
+  qaRuns?: QAReport[];
 }
 
 export function createInMemoryMissionStorage(seed: InMemoryMissionStorageSeed = {}): MissionStorage {
@@ -488,12 +487,12 @@ function mapBug(bug: PrismaBug): BugReport {
   };
 }
 
-function mapQARun(qaRun: PrismaQARun): QARunRecord {
+function mapQARun(qaRun: PrismaQARun): QAReport {
   return {
     id: qaRun.id,
     mission_id: qaRun.missionId,
     target_url: qaRun.targetUrl,
-    mode: qaRun.mode as QARunRecord["mode"],
+    mode: qaRun.mode as QAReport["mode"],
     status: qaRun.status as QAReport["status"],
     summary: qaRun.summary,
     ...(qaRun.reportPath === null ? {} : { report_path: qaRun.reportPath }),
@@ -660,7 +659,7 @@ function toPrismaBugUpdate(bug: BugReport) {
   };
 }
 
-function toPrismaQARunCreate(qaRun: QARunRecord) {
+function toPrismaQARunCreate(qaRun: QAReport) {
   return {
     id: qaRun.id,
     missionId: qaRun.mission_id,
@@ -680,7 +679,7 @@ function toPrismaQARunCreate(qaRun: QARunRecord) {
   };
 }
 
-function toPrismaQARunUpdate(qaRun: QARunRecord) {
+function toPrismaQARunUpdate(qaRun: QAReport) {
   return {
     targetUrl: qaRun.target_url,
     mode: qaRun.mode,

@@ -25,6 +25,16 @@ const ArtifactTypeSchema = z.enum([
   "log",
   "other",
 ]);
+const QAReportModeSchema = z.enum([
+  "dry-run",
+  "mock",
+  "playwright",
+  "playwright-mcp",
+  "deterministic",
+  "ai_exploratory",
+  "regression",
+  "smoke",
+]);
 
 export const MissionStatusSchema = z.enum(missionStatusValues);
 
@@ -127,7 +137,7 @@ export const QAReportSchema = z.object({
   id: NonEmptyString,
   mission_id: NonEmptyString,
   target_url: z.string().url().or(z.literal("")),
-  mode: z.enum(["deterministic", "ai_exploratory", "regression", "smoke", "playwright-mcp"]),
+  mode: QAReportModeSchema,
   status: z.enum(["queued", "passed", "failed", "running", "cancelled"]),
   summary: NonEmptyString,
   report_path: z.string().optional(),

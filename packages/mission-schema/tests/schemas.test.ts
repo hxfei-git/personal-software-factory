@@ -120,5 +120,10 @@ describe("mission schemas", () => {
       started_at: "2026-05-30T10:00:00.000Z",
       finished_at: "2026-05-30T10:10:00.000Z",
     }).mode).toBe("playwright-mcp");
+
+    expect(QAReportSchema.parse({
+      ...qaReportExample,
+      mode: "mock",
+    }).mode).toBe("mock");
   });
 });
