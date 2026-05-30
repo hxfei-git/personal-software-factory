@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { cp, mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
 import { join, resolve } from "node:path";
@@ -63,4 +63,47 @@ describe("psf CLI", () => {
     expect(result.stdout).toContain("Created mission mission-0001-ai-novelist-chapter-review");
   });
 
+  test("codex dry-run does not clear planned mission markdown during database sync", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-cli-db-"));
+    await cp(resolve("projects"), join(cwd, "projects"), { recursive: true });
+
+    const missionUpdates: Array<Record<string, unknown>> = [];
+    const prisma = createPrismaStub(missionUpdates);
+
+    await expect(runPsfCli(["mission:create", "ai-novelist", "增加章节审稿和自动修复流程"], { cwd, prisma })).resolves.toMatchObject({
+      exitCode: 0,
+    });
+    await expect(runPsfCli(["mission:plan", "mission-0001-ai-novelist-chapter-review"], { cwd, prisma })).resolves.toMatchObject({
+      exitCode: 0,
+    });
+    await expect(runPsfCli(["codex:dry-run", "mission-0001-ai-novelist-chapter-review"], { cwd, prisma })).resolves.toMatchObject({
+      exitCode: 0,
+    });
+
+    const codexMissionUpdate = missionUpdates.at(-1);
+    expect(codexMissionUpdate).toBeDefined();
+    expect(codexMissionUpdate).not.toHaveProperty("missionMarkdown");
+    expect(codexMissionUpdate).not.toHaveProperty("acceptanceMarkdown");
+  });
+
 });
+
+function createPrismaStub(missionUpdates: Array<Record<string, unknown>>) {
+  const upsert = async () => ({});
+
+  return {
+    $connect: async () => undefined,
+    $disconnect: async () => undefined,
+    project: { upsert },
+    mission: {
+      upsert: async (args: unknown) => {
+        const update = (args as { update: Record<string, unknown> }).update;
+        missionUpdates.push(update);
+        return {};
+      },
+    },
+    workerRun: { upsert },
+    artifact: { upsert },
+    missionEvent: { upsert },
+  };
+}

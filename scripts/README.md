@@ -23,3 +23,5 @@ The CLI is intentionally minimal for the current repository-foundation phase:
 All current commands are dry-run/mock boundaries. The CLI never calls external APIs, never pushes remotes, never modifies the real ai-novelist repository, and `codex:dry-run` never executes `codex exec`; it only writes `codex-command.sh` as an artifact for review.
 
 By default, commands attempt Prisma synchronization. If the database is unavailable, the command exits with a clear error instead of silently succeeding. For explicit local artifact-only runs, set `PSF_SKIP_DB=1`.
+
+Script TypeScript is covered by the root `pnpm typecheck` command through `pnpm typecheck:scripts`. Run `pnpm typecheck:scripts` for the focused script-only check.

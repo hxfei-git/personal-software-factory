@@ -3,6 +3,7 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createCodexDryRun } from "@psf/codex-worker";
 import { createDeterministicMissionPlan } from "@psf/mission-planner";
+import type { Artifact, MissionEvent, WorkerRun } from "@psf/mission-schema";
 import { findProjectById, scanProjectRegistry, type RegistryProject } from "@psf/project-registry";
 
 const DEFAULT_DATABASE_URL = "postgresql://psf:psf_dev_password@localhost:5432/psf?schema=public";
@@ -20,6 +21,7 @@ type JsonObject = Record<string, unknown>;
 interface PsfCliOptions {
   cwd?: string;
   syncDatabase?: boolean;
+  prisma?: PrismaLike;
 }
 
 export interface PsfCliResult {
@@ -31,6 +33,7 @@ export interface PsfCliResult {
 interface CliContext {
   cwd: string;
   syncDatabase: boolean;
+  prisma?: PrismaLike;
   stdout: string[];
   stderr: string[];
 }
@@ -53,48 +56,6 @@ interface MissionMetadata {
   codexDryRunAt?: string;
 }
 
-interface WorkerRunRecord {
-  id: string;
-  mission_id: string;
-  worker_type: string;
-  status: string;
-  mode?: string;
-  command?: string;
-  stdout_path?: string;
-  stderr_path?: string;
-  started_at?: string;
-  finished_at?: string;
-  exit_code?: number;
-  input?: JsonObject;
-  output?: JsonObject;
-  error?: string;
-  logs?: string[];
-  metadata?: JsonObject;
-  created_at?: string;
-  updated_at?: string;
-}
-
-interface ArtifactRecord {
-  id: string;
-  mission_id: string;
-  type: string;
-  path: string;
-  worker_run_id?: string;
-  content?: string;
-  mime_type?: string;
-  size: number;
-  metadata?: JsonObject;
-  created_at: string;
-}
-
-interface MissionEventRecord {
-  id: string;
-  mission_id: string;
-  type: string;
-  message: string;
-  payload?: JsonObject;
-  created_at: string;
-}
 
 interface PrismaLike {
   $connect(): Promise<void>;
@@ -124,6 +85,9 @@ export async function runPsfCli(argv: string[], options: PsfCliOptions = {}): Pr
     stdout: [],
     stderr: [],
   };
+  if (options.prisma) {
+    context.prisma = options.prisma;
+  }
 
   try {
     const [command, ...args] = argv;
@@ -342,8 +306,12 @@ async function syncDatabase(context: CliContext, operation: (prisma: PrismaLike)
 
   let prisma: PrismaLike | undefined;
   try {
-    const db = await import("@psf/db");
-    prisma = db.prisma as PrismaLike;
+    if (context.prisma) {
+      prisma = context.prisma;
+    } else {
+      const db = await import("@psf/db");
+      prisma = db.prisma as PrismaLike;
+    }
     await prisma.$connect();
     await operation(prisma);
   } catch (error) {
@@ -387,14 +355,12 @@ async function upsertMission(
   metadata: MissionMetadata,
   documents: { missionMarkdown?: string; acceptanceMarkdown?: string } = {},
 ): Promise<void> {
-  const data = {
+  const baseData = {
     id: metadata.id,
     projectId: metadata.projectId,
     title: metadata.title,
     slug: metadata.slug,
     rawRequest: metadata.rawRequest,
-    missionMarkdown: documents.missionMarkdown ?? null,
-    acceptanceMarkdown: documents.acceptanceMarkdown ?? null,
     status: metadata.status,
     priority: metadata.priority,
     riskLevel: metadata.riskLevel,
@@ -404,11 +370,23 @@ async function upsertMission(
     currentAttempt: 0,
     maxAttempts: 3,
   };
+  const documentUpdate = {
+    ...(documents.missionMarkdown === undefined ? {} : { missionMarkdown: documents.missionMarkdown }),
+    ...(documents.acceptanceMarkdown === undefined ? {} : { acceptanceMarkdown: documents.acceptanceMarkdown }),
+  };
 
-  await prisma.mission.upsert({ where: { id: metadata.id }, create: data, update: data });
+  await prisma.mission.upsert({
+    where: { id: metadata.id },
+    create: {
+      ...baseData,
+      missionMarkdown: documents.missionMarkdown ?? null,
+      acceptanceMarkdown: documents.acceptanceMarkdown ?? null,
+    },
+    update: { ...baseData, ...documentUpdate },
+  });
 }
 
-async function upsertWorkerRun(prisma: PrismaLike, workerRun: WorkerRunRecord): Promise<void> {
+async function upsertWorkerRun(prisma: PrismaLike, workerRun: WorkerRun): Promise<void> {
   const data = {
     id: workerRun.id,
     missionId: workerRun.mission_id,
@@ -431,7 +409,7 @@ async function upsertWorkerRun(prisma: PrismaLike, workerRun: WorkerRunRecord): 
   await prisma.workerRun.upsert({ where: { id: workerRun.id }, create: data, update: data });
 }
 
-async function upsertArtifact(prisma: PrismaLike, artifact: ArtifactRecord): Promise<void> {
+async function upsertArtifact(prisma: PrismaLike, artifact: Artifact): Promise<void> {
   const data = {
     id: artifact.id,
     missionId: artifact.mission_id,
@@ -448,7 +426,7 @@ async function upsertArtifact(prisma: PrismaLike, artifact: ArtifactRecord): Pro
   await prisma.artifact.upsert({ where: { id: artifact.id }, create: data, update: data });
 }
 
-async function upsertMissionEvent(prisma: PrismaLike, event: MissionEventRecord): Promise<void> {
+async function upsertMissionEvent(prisma: PrismaLike, event: MissionEvent): Promise<void> {
   const data = {
     id: event.id,
     missionId: event.mission_id,
@@ -461,7 +439,7 @@ async function upsertMissionEvent(prisma: PrismaLike, event: MissionEventRecord)
   await prisma.missionEvent.upsert({ where: { id: event.id }, create: data, update: data });
 }
 
-function rebaseArtifactPath(artifact: ArtifactRecord, missionId: string): ArtifactRecord {
+function rebaseArtifactPath(artifact: Artifact, missionId: string): Artifact {
   const fileName = artifact.path.split("/").at(-1) ?? artifact.path;
   return { ...artifact, path: `missions/${missionId}/${fileName}` };
 }
