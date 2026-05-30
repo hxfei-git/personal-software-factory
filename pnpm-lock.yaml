@@ -25,7 +25,18 @@ importers:
 
   apps/orchestrator-api: {}
 
-  packages/mission-schema: {}
+  packages/mission-schema:
+    dependencies:
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(tsx@4.22.3)
 
   packages/project-passport: {}
 
@@ -779,6 +790,9 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+
 snapshots:
 
   '@esbuild/aix-ppc64@0.27.7':
@@ -1355,3 +1369,5 @@ snapshots:
     dependencies:
       siginfo: 2.0.0
       stackback: 0.0.2
+
+  zod@3.25.76: {}
