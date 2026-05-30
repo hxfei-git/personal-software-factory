@@ -5,6 +5,7 @@ Prisma/PostgreSQL persistence package for Personal Software Factory.
 ## Responsibilities
 
 - Own Prisma schema and migrations.
+- Store core resource fields used by Planner, Codex dry-run, QA, artifacts, approvals, and bugs.
 - Export the shared Prisma client wrapper.
 - Provide seed data for `ai-novelist` and a sample Mission.
 - Keep persistence separate from Orchestrator API routes.
@@ -21,6 +22,10 @@ Prisma/PostgreSQL persistence package for Personal Software Factory.
 - Approval
 - Deployment
 - Monitor
+
+## Core Resource Migration
+
+Migration `000002_core_resources` expands worker runs, artifacts, approvals, bugs, and QA runs with nullable/defaulted columns so existing rows remain valid while later API and worker phases can persist dry-run resource data.
 
 ## Local Commands
 

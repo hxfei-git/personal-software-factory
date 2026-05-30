@@ -2,7 +2,7 @@
 
 Shared runtime schemas and TypeScript types for Personal Software Factory.
 
-This package is the contract layer used by the Orchestrator API, future Hub Web, Codex Worker, QA Worker, and tests. It uses Zod for runtime validation and exports inferred TypeScript types.
+This package is the contract layer used by the Orchestrator API, future Hub Web, Planner, Codex Worker, QA Worker, and tests. It uses Zod for runtime validation and exports inferred TypeScript types.
 
 ## Exports
 
@@ -18,6 +18,12 @@ This package is the contract layer used by the Orchestrator API, future Hub Web,
 - `WorkerRunSchema` and `WorkerRun`.
 - `IntegrationStatusSchema` and `IntegrationStatus`.
 - Example objects for each schema in `src/examples.ts`.
+
+## Core Resource Contracts
+
+The shared resource schemas include Phase 4.5-7 dry-run fields for Planner and worker orchestration: expanded worker types and modes, structured worker input/output/logs, inline artifact content and metadata, approval request/decision metadata, QA run counters/timestamps, and bug source/fix-direction fields.
+
+Artifact types are constrained to planned resource values such as `mission`, `acceptance`, `codex_prompt`, `qa_report`, `bugs_json`, `playwright_trace`, `generated_test`, `log`, and `other`.
 
 ## Mission Statuses
 

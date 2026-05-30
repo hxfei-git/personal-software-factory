@@ -38,7 +38,7 @@ describe("mission schemas", () => {
     expect(MissionEventSchema.parse(missionEventExample).type).toBe("mission.created");
     expect(BugReportSchema.parse(bugReportExample).severity).toBe("P1");
     expect(QAReportSchema.parse(qaReportExample).status).toBe("passed");
-    expect(ArtifactSchema.parse(artifactExample).type).toBe("qa-report");
+    expect(ArtifactSchema.parse(artifactExample).type).toBe("qa_report");
     expect(ApprovalSchema.parse(approvalExample).status).toBe("pending");
     expect(WorkerRunSchema.parse(workerRunExample).status).toBe("succeeded");
     expect(IntegrationStatusSchema.parse(integrationStatusExample).provider).toBe("github");
@@ -58,5 +58,60 @@ describe("mission schemas", () => {
       commands: undefined,
     });
     expect(result.success).toBe(false);
+  });
+
+  it("accepts expanded Approval fields", () => {
+    const approval = ApprovalSchema.parse({
+      ...approvalExample,
+      requested_by: "planner",
+      decided_by: "local-user",
+      decision: "approved for dry-run",
+      decided_at: "2026-05-30T10:05:00.000Z",
+    });
+    expect(approval.status).toBe("pending");
+    expect(approval.requested_by).toBe("planner");
+  });
+
+  it("accepts expanded WorkerRun dry-run fields", () => {
+    const workerRun = WorkerRunSchema.parse({
+      ...workerRunExample,
+      worker_type: "planner",
+      mode: "dry-run",
+      input: { missionId: "mission-sample-001" },
+      output: { files: ["mission.md"] },
+      error: "",
+      logs: ["planner started"],
+      created_at: "2026-05-30T10:00:00.000Z",
+      updated_at: "2026-05-30T10:00:00.000Z",
+    });
+    expect(workerRun.mode).toBe("dry-run");
+  });
+
+  it("accepts expanded Artifact, BugReport, and QAReport values", () => {
+    expect(ArtifactSchema.parse({
+      ...artifactExample,
+      type: "codex_prompt",
+      worker_run_id: "worker-run-sample-001",
+      content: "# Prompt",
+      metadata: { storage: "inline-small-text" },
+    }).type).toBe("codex_prompt");
+
+    expect(BugReportSchema.parse({
+      ...bugReportExample,
+      status: "in_progress",
+      suggested_fix_direction: "Disable repeated submit while generation is running.",
+      source: "qa-worker",
+    }).status).toBe("in_progress");
+
+    expect(QAReportSchema.parse({
+      ...qaReportExample,
+      mode: "playwright-mcp",
+      status: "queued",
+      staging_url: "http://127.0.0.1:8000",
+      passed: 0,
+      failed: 0,
+      started_at: "2026-05-30T10:00:00.000Z",
+      finished_at: "2026-05-30T10:10:00.000Z",
+    }).mode).toBe("playwright-mcp");
   });
 });

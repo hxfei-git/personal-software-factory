@@ -1,0 +1,30 @@
+ALTER TABLE "worker_runs"
+  ADD COLUMN "mode" TEXT NOT NULL DEFAULT 'dry-run',
+  ADD COLUMN "input" JSONB NOT NULL DEFAULT '{}',
+  ADD COLUMN "output" JSONB NOT NULL DEFAULT '{}',
+  ADD COLUMN "error" TEXT,
+  ADD COLUMN "logs" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  ADD COLUMN "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ADD COLUMN "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE "artifacts"
+  ADD COLUMN "worker_run_id" TEXT,
+  ADD COLUMN "content" TEXT,
+  ADD COLUMN "metadata" JSONB NOT NULL DEFAULT '{}';
+
+ALTER TABLE "approvals"
+  ADD COLUMN "requested_by" TEXT,
+  ADD COLUMN "decided_by" TEXT,
+  ADD COLUMN "decision" TEXT,
+  ADD COLUMN "decided_at" TIMESTAMP(3);
+
+ALTER TABLE "bugs"
+  ADD COLUMN "suggested_fix_direction" TEXT,
+  ADD COLUMN "source" TEXT NOT NULL DEFAULT 'manual';
+
+ALTER TABLE "qa_runs"
+  ADD COLUMN "staging_url" TEXT,
+  ADD COLUMN "passed" INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN "failed" INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN "started_at" TIMESTAMP(3),
+  ADD COLUMN "finished_at" TIMESTAMP(3);

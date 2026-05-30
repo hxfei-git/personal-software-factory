@@ -82,13 +82,20 @@ model WorkerRun {
   missionId  String    @map("mission_id")
   workerType String    @map("worker_type")
   status     String
+  mode       String    @default("dry-run")
   command    String?
   stdoutPath String?   @map("stdout_path")
   stderrPath String?   @map("stderr_path")
   startedAt  DateTime? @map("started_at")
   finishedAt DateTime? @map("finished_at")
   exitCode   Int?      @map("exit_code")
+  input      Json      @default("{}")
+  output     Json      @default("{}")
+  error      String?
+  logs       String[]  @default([])
   metadata   Json
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
 
   mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
 
@@ -97,18 +104,23 @@ model WorkerRun {
 }
 
 model QARun {
-  id             String   @id
-  missionId      String   @map("mission_id")
-  targetUrl      String   @map("target_url")
+  id             String    @id
+  missionId      String    @map("mission_id")
+  targetUrl      String    @map("target_url")
   mode           String
   status         String
   summary        String
-  reportPath     String?  @map("report_path")
-  screenshotsDir String?  @map("screenshots_dir")
-  tracePath      String?  @map("trace_path")
-  bugsJsonPath   String?  @map("bugs_json_path")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  reportPath     String?   @map("report_path")
+  screenshotsDir String?   @map("screenshots_dir")
+  tracePath      String?   @map("trace_path")
+  bugsJsonPath   String?   @map("bugs_json_path")
+  stagingUrl     String?   @map("staging_url")
+  passed         Int       @default(0)
+  failed         Int       @default(0)
+  startedAt      DateTime? @map("started_at")
+  finishedAt     DateTime? @map("finished_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
   bugs    Bug[]
@@ -118,23 +130,25 @@ model QARun {
 }
 
 model Bug {
-  id                 String   @id
-  missionId          String   @map("mission_id")
-  qaRunId            String?  @map("qa_run_id")
-  title              String
-  severity           String
-  status             String
-  reproductionSteps  String[] @map("reproduction_steps")
-  expectedResult     String   @map("expected_result")
-  actualResult       String   @map("actual_result")
-  evidence           Json
-  suggestedFix       String?  @map("suggested_fix")
-  regressionTestPath String?  @map("regression_test_path")
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  id                    String   @id
+  missionId             String   @map("mission_id")
+  qaRunId               String?  @map("qa_run_id")
+  title                 String
+  severity              String
+  status                String
+  reproductionSteps     String[] @map("reproduction_steps")
+  expectedResult        String   @map("expected_result")
+  actualResult          String   @map("actual_result")
+  evidence              Json
+  suggestedFix          String?  @map("suggested_fix")
+  regressionTestPath    String?  @map("regression_test_path")
+  suggestedFixDirection String?  @map("suggested_fix_direction")
+  source                String   @default("manual")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
 
   mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
-  qaRun   QARun?   @relation(fields: [qaRunId], references: [id], onDelete: SetNull)
+  qaRun   QARun?  @relation(fields: [qaRunId], references: [id], onDelete: SetNull)
 
   @@index([missionId])
   @@index([qaRunId])
@@ -142,13 +156,16 @@ model Bug {
 }
 
 model Artifact {
-  id        String   @id
-  missionId String   @map("mission_id")
-  type      String
-  path      String
-  mimeType  String?  @map("mime_type")
-  size      Int
-  createdAt DateTime @default(now()) @map("created_at")
+  id          String   @id
+  missionId   String   @map("mission_id")
+  type        String
+  path        String
+  workerRunId String?  @map("worker_run_id")
+  content     String?
+  mimeType    String?  @map("mime_type")
+  size        Int
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
 
   mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
 
@@ -157,15 +174,19 @@ model Artifact {
 }
 
 model Approval {
-  id         String    @id
-  missionId  String    @map("mission_id")
-  type       String
-  status     String
-  reason     String
-  payload    Json
-  createdAt  DateTime  @default(now()) @map("created_at")
-  approvedAt DateTime? @map("approved_at")
-  rejectedAt DateTime? @map("rejected_at")
+  id          String    @id
+  missionId   String    @map("mission_id")
+  type        String
+  status      String
+  reason      String
+  payload     Json
+  requestedBy String?   @map("requested_by")
+  decidedBy   String?   @map("decided_by")
+  decision    String?
+  decidedAt   DateTime? @map("decided_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  approvedAt  DateTime? @map("approved_at")
+  rejectedAt  DateTime? @map("rejected_at")
 
   mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
 

@@ -5,6 +5,26 @@ const NonEmptyString = z.string().min(1);
 const DateTimeString = z.string().datetime({ offset: true });
 const JsonObject = z.record(z.unknown());
 const CommandValueSchema = z.union([NonEmptyString, z.array(NonEmptyString).min(1)]);
+const WorkerTypeSchema = z.enum(["codex", "qa", "deploy", "monitor", "planner", "integration", "orchestrator"]);
+const WorkerRunStatusSchema = z.enum(["queued", "running", "succeeded", "failed", "cancelled", "skipped"]);
+const WorkerRunModeSchema = z.enum(["dry-run", "mock", "real"]);
+const ArtifactTypeSchema = z.enum([
+  "mission",
+  "acceptance",
+  "technical_notes",
+  "risk_notes",
+  "codex_prompt",
+  "codex_command",
+  "dev_summary",
+  "qa_report",
+  "bugs_json",
+  "fix_mission",
+  "playwright_trace",
+  "screenshot",
+  "generated_test",
+  "log",
+  "other",
+]);
 
 export const MissionStatusSchema = z.enum(missionStatusValues);
 
@@ -90,13 +110,15 @@ export const BugReportSchema = z.object({
   qa_run_id: z.string().optional(),
   title: NonEmptyString,
   severity: z.enum(["P0", "P1", "P2", "P3"]),
-  status: z.enum(["open", "fixed", "accepted", "wont_fix"]),
+  status: z.enum(["open", "in_progress", "fixed", "accepted", "wont_fix"]),
   reproduction_steps: z.array(NonEmptyString).min(1),
   expected_result: NonEmptyString,
   actual_result: NonEmptyString,
   evidence: JsonObject.default({}),
   suggested_fix: z.string().optional(),
   regression_test_path: z.string().optional(),
+  suggested_fix_direction: z.string().optional(),
+  source: z.string().optional(),
   created_at: DateTimeString,
   updated_at: DateTimeString,
 });
@@ -105,13 +127,18 @@ export const QAReportSchema = z.object({
   id: NonEmptyString,
   mission_id: NonEmptyString,
   target_url: z.string().url().or(z.literal("")),
-  mode: z.enum(["deterministic", "ai_exploratory", "regression", "smoke"]),
-  status: z.enum(["passed", "failed", "running", "cancelled"]),
+  mode: z.enum(["deterministic", "ai_exploratory", "regression", "smoke", "playwright-mcp"]),
+  status: z.enum(["queued", "passed", "failed", "running", "cancelled"]),
   summary: NonEmptyString,
   report_path: z.string().optional(),
   screenshots_dir: z.string().optional(),
   trace_path: z.string().optional(),
   bugs_json_path: z.string().optional(),
+  staging_url: z.string().optional(),
+  passed: z.number().int().nonnegative().optional(),
+  failed: z.number().int().nonnegative().optional(),
+  started_at: DateTimeString.optional(),
+  finished_at: DateTimeString.optional(),
   bugs: z.array(BugReportSchema).default([]),
   created_at: DateTimeString,
   updated_at: DateTimeString,
@@ -120,10 +147,13 @@ export const QAReportSchema = z.object({
 export const ArtifactSchema = z.object({
   id: NonEmptyString,
   mission_id: NonEmptyString,
-  type: NonEmptyString,
+  type: ArtifactTypeSchema,
   path: NonEmptyString,
+  worker_run_id: z.string().optional(),
+  content: z.string().optional(),
   mime_type: z.string().optional(),
   size: z.number().int().nonnegative(),
+  metadata: JsonObject.default({}),
   created_at: DateTimeString,
 });
 
@@ -141,6 +171,10 @@ export const ApprovalSchema = z.object({
   status: z.enum(["pending", "approved", "rejected", "cancelled"]),
   reason: NonEmptyString,
   payload: JsonObject.default({}),
+  requested_by: z.string().optional(),
+  decided_by: z.string().optional(),
+  decision: z.string().optional(),
+  decided_at: DateTimeString.optional(),
   created_at: DateTimeString,
   approved_at: DateTimeString.optional(),
   rejected_at: DateTimeString.optional(),
@@ -149,15 +183,22 @@ export const ApprovalSchema = z.object({
 export const WorkerRunSchema = z.object({
   id: NonEmptyString,
   mission_id: NonEmptyString,
-  worker_type: z.enum(["codex", "qa", "orchestrator", "deploy", "monitor"]),
-  status: z.enum(["queued", "running", "succeeded", "failed", "cancelled"]),
+  worker_type: WorkerTypeSchema,
+  status: WorkerRunStatusSchema,
+  mode: WorkerRunModeSchema.optional(),
   command: z.string().optional(),
   stdout_path: z.string().optional(),
   stderr_path: z.string().optional(),
   started_at: DateTimeString.optional(),
   finished_at: DateTimeString.optional(),
   exit_code: z.number().int().optional(),
+  input: JsonObject.default({}),
+  output: JsonObject.default({}),
+  error: z.string().optional(),
+  logs: z.array(z.string()).default([]),
   metadata: JsonObject.default({}),
+  created_at: DateTimeString.optional(),
+  updated_at: DateTimeString.optional(),
 });
 
 export const IntegrationStatusSchema = z.object({
