@@ -8,6 +8,18 @@ importers:
 
   .:
     devDependencies:
+      '@psf/codex-worker':
+        specifier: workspace:*
+        version: link:workers/codex-worker
+      '@psf/db':
+        specifier: workspace:*
+        version: link:packages/db
+      '@psf/mission-planner':
+        specifier: workspace:*
+        version: link:packages/mission-planner
+      '@psf/project-registry':
+        specifier: workspace:*
+        version: link:packages/project-registry
       '@types/node':
         specifier: ^25.9.1
         version: 25.9.1

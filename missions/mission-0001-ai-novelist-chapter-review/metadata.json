@@ -1,0 +1,17 @@
+{
+  "id": "mission-0001-ai-novelist-chapter-review",
+  "projectId": "ai-novelist",
+  "title": "增加章节审稿和自动修复流程",
+  "slug": "ai-novelist-chapter-review",
+  "rawRequest": "增加章节审稿和自动修复流程",
+  "status": "planned",
+  "priority": "P2",
+  "riskLevel": "medium",
+  "branchName": "psf/mission-0001-ai-novelist-chapter-review",
+  "missionDir": "missions/mission-0001-ai-novelist-chapter-review",
+  "dryRun": true,
+  "createdAt": "2026-05-30T16:49:08.049Z",
+  "updatedAt": "2026-05-30T16:52:39.960Z",
+  "plannedAt": "2026-05-30T16:52:34.806Z",
+  "codexDryRunAt": "2026-05-30T16:52:39.960Z"
+}

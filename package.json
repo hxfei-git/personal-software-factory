@@ -7,6 +7,7 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "check": "pnpm typecheck && pnpm test",
+    "psf": "tsx scripts/psf.ts",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "lint": "turbo run lint",
@@ -23,6 +24,10 @@
     "pnpm": ">=9.0.0"
   },
   "devDependencies": {
+    "@psf/codex-worker": "workspace:*",
+    "@psf/db": "workspace:*",
+    "@psf/mission-planner": "workspace:*",
+    "@psf/project-registry": "workspace:*",
     "@types/node": "^25.9.1",
     "tsx": "^4.19.0",
     "turbo": "^2.5.0",
