@@ -21,7 +21,8 @@
     "dev:api": "pnpm --filter @psf/orchestrator-api dev",
     "dev": "pnpm dev:api",
     "test:e2e": "node scripts/run-playwright-smoke.mjs",
-    "test:e2e:smoke": "node scripts/run-playwright-smoke.mjs"
+    "test:e2e:smoke": "node scripts/run-playwright-smoke.mjs",
+    "dev:hub": "pnpm --filter @psf/hub dev"
   },
   "engines": {
     "node": ">=20.0.0",
