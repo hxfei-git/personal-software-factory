@@ -20,7 +20,7 @@ The CLI is intentionally minimal for the current repository-foundation phase:
 - `mission:plan` reads the mission metadata, Project Passport, and QA charter, then writes deterministic planner artifacts under `missions/<mission-id>/`.
 - `codex:dry-run` reads the plan artifacts and project `AGENTS.md`, then writes Codex dry-run artifacts under the same mission directory.
 
-All current commands are dry-run/mock boundaries. The CLI never calls external APIs, never pushes remotes, never modifies the real ai-novelist repository, and `codex:dry-run` never executes `codex exec`; it only writes `codex-command.sh` as an artifact for review.
+All current commands are dry-run/mock boundaries. The CLI never calls external APIs, never pushes remotes, never modifies the real ai-novelist repository, and `codex:dry-run` never executes `codex exec`. It writes `codex-command.sh` as a non-executable review artifact; the reviewed command is stored as comments only and running the file exits without invoking Codex.
 
 By default, commands attempt Prisma synchronization. If the database is unavailable, the command exits with a clear error instead of silently succeeding. For explicit local artifact-only runs, set `PSF_SKIP_DB=1`.
 

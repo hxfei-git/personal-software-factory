@@ -5,7 +5,7 @@
 - 后续 API 集成必须保持规划包可替换为 LLM-backed planner。
 
 ## 数据风险
-- 当前规划阶段不写入数据库。
+- CLI dry-run 阶段会同步 Project、Mission、WorkerRun、Artifact 和 MissionEvent 到 Prisma；不会执行生产业务写入或外部服务。
 - 后续阶段如涉及状态变更，必须生成 MissionEvent 并保留审计线索。
 
 ## AI 输出风险
