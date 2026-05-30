@@ -2,12 +2,23 @@
   "name": "@psf/codex-worker",
   "version": "0.1.0",
   "private": true,
-  "description": "Personal Software Factory Codex Worker scaffold.",
+  "type": "module",
+  "description": "Personal Software Factory Codex Worker dry-run generator.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
-    "check": "node -e \"console.log('@psf/codex-worker scaffold ready')\"",
-    "typecheck": "node -e \"console.log('@psf/codex-worker has no TypeScript implementation in Phase 1')\"",
-    "test": "node -e \"console.log('@psf/codex-worker has no tests in Phase 1')\"",
-    "lint": "node -e \"console.log('@psf/codex-worker lint scaffold ready')\"",
-    "build": "node -e \"console.log('@psf/codex-worker build scaffold ready')\""
+    "check": "pnpm typecheck && pnpm test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@psf/mission-schema": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
   }
 }
