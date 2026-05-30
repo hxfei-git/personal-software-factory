@@ -189,21 +189,7 @@ describe("psf CLI", () => {
   });
 
   test("integrations status lists configured state for supported providers", async () => {
-    const result = await withEnv(
-      {
-        GITHUB_TOKEN: undefined,
-        COOLIFY_API_URL: undefined,
-        COOLIFY_TOKEN: undefined,
-        UPTIME_KUMA_URL: undefined,
-        UPTIME_KUMA_USERNAME: undefined,
-        UPTIME_KUMA_PASSWORD: undefined,
-        PLANE_API_URL: undefined,
-        PLANE_TOKEN: undefined,
-        PLANE_WORKSPACE_SLUG: undefined,
-        PLANE_PROJECT_ID: undefined,
-      },
-      () => runPsfCli(["integrations:status"], { syncDatabase: false }),
-    );
+    const result = await withIntegrationEnv({}, () => runPsfCli(["integrations:status"], { syncDatabase: false }));
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('"externalName": "github"');
@@ -218,12 +204,24 @@ describe("psf CLI", () => {
     expect(result.stdout).toContain('"missingEnv"');
   });
 
+  test("integrations status rejects extra arguments", async () => {
+    const result = await withIntegrationEnv({}, () => runPsfCli(["integrations:status", "extra"], { syncDatabase: false }));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("USAGE");
+    expect(result.stderr).toContain("Usage: pnpm psf integrations:status");
+  });
+
   test("integrations dry-run supports the uptime-kuma external provider name", async () => {
-    const result = await runPsfCli(["integrations:dry-run", "uptime-kuma"], { syncDatabase: false });
+    const result = await withIntegrationEnv({}, () =>
+      runPsfCli(["integrations:dry-run", "uptime-kuma"], { syncDatabase: false }),
+    );
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('"externalName": "uptime-kuma"');
     expect(result.stdout).toContain('"mode": "dry-run"');
+    expect(result.stdout).toContain('"configured": false');
+    expect(result.stdout).toContain('"realEnabled": false');
     expect(result.stdout).toContain('"realNetworkCall": false');
     expect(result.stdout).toContain('"safeToRun": true');
   });
@@ -231,7 +229,7 @@ describe("psf CLI", () => {
   test("integrations dry-run does not leak provider tokens to stdout or stderr", async () => {
     const secret = "ghp_cli_secret_token";
 
-    const result = await withEnv({ GITHUB_TOKEN: secret }, () =>
+    const result = await withIntegrationEnv({ GITHUB_TOKEN: secret }, () =>
       runPsfCli(["integrations:dry-run", "github"], { syncDatabase: false }),
     );
 
@@ -258,6 +256,27 @@ async function createExampleWorkspace(prefix: string): Promise<string> {
   const cwd = await mkdtemp(join(tmpdir(), prefix));
   await cp(resolve("projects"), join(cwd, "projects"), { recursive: true });
   return cwd;
+}
+
+const integrationEnvDefaults: Record<string, string | undefined> = {
+  ENABLE_REAL_GITHUB: undefined,
+  ENABLE_REAL_COOLIFY: undefined,
+  ENABLE_REAL_UPTIME_KUMA: undefined,
+  ENABLE_REAL_PLANE: undefined,
+  GITHUB_TOKEN: undefined,
+  COOLIFY_API_URL: undefined,
+  COOLIFY_TOKEN: undefined,
+  UPTIME_KUMA_URL: undefined,
+  UPTIME_KUMA_USERNAME: undefined,
+  UPTIME_KUMA_PASSWORD: undefined,
+  PLANE_API_URL: undefined,
+  PLANE_TOKEN: undefined,
+  PLANE_WORKSPACE_SLUG: undefined,
+  PLANE_PROJECT_ID: undefined,
+};
+
+async function withIntegrationEnv<T>(env: Record<string, string | undefined>, callback: () => Promise<T>): Promise<T> {
+  return withEnv({ ...integrationEnvDefaults, ...env }, callback);
 }
 
 async function withEnv<T>(env: Record<string, string | undefined>, callback: () => Promise<T>): Promise<T> {

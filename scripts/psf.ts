@@ -127,7 +127,7 @@ export async function runPsfCli(argv: string[], options: PsfCliOptions = {}): Pr
         await loopDryRunCommand(context, args);
         break;
       case "integrations:status":
-        integrationsStatusCommand(context);
+        integrationsStatusCommand(context, args);
         break;
       case "integrations:dry-run":
         integrationsDryRunCommand(context, args);
@@ -144,7 +144,11 @@ export async function runPsfCli(argv: string[], options: PsfCliOptions = {}): Pr
   }
 }
 
-function integrationsStatusCommand(context: CliContext): void {
+function integrationsStatusCommand(context: CliContext, args: string[]): void {
+  if (args.length > 0) {
+    throw new PsfCliError("USAGE", "Usage: pnpm psf integrations:status");
+  }
+
   const statuses = listIntegrationStatuses({ env: process.env });
   context.stdout.push(JSON.stringify({ integrations: statuses }, null, 2));
 }
