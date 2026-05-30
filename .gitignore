@@ -3,6 +3,9 @@ node_modules/
 .pnpm-store/
 .codegraph/
 
+# Worktrees
+.worktrees/
+
 # Build output
 dist/
 build/
