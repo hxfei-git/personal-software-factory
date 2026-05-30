@@ -28,7 +28,7 @@ Fallbacks:
 
 ## Planning Flow
 
-The API service loads the Mission, verifies its Project exists in storage, then loads the Project Passport through the Project Registry code. Route handlers do not read registry files directly.
+The API service loads the Mission and validates that the current Mission status can be planned before reading Project Passport or QA Charter files. It then verifies the Project exists in storage and loads the Project Passport through the Project Registry code. Route handlers do not read registry files directly.
 
 The service calls `createDeterministicMissionPlan` with `missionId: mission.id`, so generated planner resources belong to the existing Mission.
 
@@ -46,9 +46,9 @@ The API records the returned planner resources through storage:
 - four inline `Artifact` records: `mission`, `acceptance`, `technical_notes`, and `risk_notes`;
 - planner `MissionEvent` records including `mission.planning.started` and `mission.planning.completed`.
 
-Planning is idempotent for the same deterministic result. If a Mission is already `planned` and the expected planner WorkerRun, Artifacts, and planner Events exist, a repeated `POST /missions/:id/plan` returns the existing resources without appending duplicate planner or transition events. Planner persistence also uses deterministic IDs idempotently so duplicate writes do not surface as generic database unique-key failures.
+Planning is idempotent after resources are persisted. If a Mission is already `planned` and the expected planner WorkerRun, Artifacts, and planner Events exist, a repeated `POST /missions/:id/plan` returns the persisted planner result without appending duplicate planner or transition events. This remains true even if the repeat request sends a different title, requirement, or QA Charter; the response is reconstructed from persisted WorkerRun input and Artifact records rather than mixing new generated files with old resources. Planner persistence also uses deterministic IDs idempotently so duplicate writes do not surface as generic database unique-key failures.
 
-For the local MVP dry-run, these records are written as one planner result operation. Artifact `content` is stored inline in the database or in-memory storage; files under `missions/{missionId}/` are planned paths only until the later file-writing task.
+For the local MVP dry-run, these records are written as one planner result operation. Artifact `content` is stored inline in the database or in-memory storage; files under `missions/{missionId}/` are planned paths only until the later file-writing task. Mission event listing is ordered by `created_at` and then event `id`; Prisma persists supplied event timestamps so in-memory and database-backed ordering remain consistent.
 
 ## Response
 

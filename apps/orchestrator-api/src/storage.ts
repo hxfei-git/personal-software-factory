@@ -133,7 +133,7 @@ export function createInMemoryMissionStorage(seed: InMemoryMissionStorageSeed = 
       return event;
     },
     async listMissionEvents(missionId) {
-      return events.filter((event) => event.mission_id === missionId);
+      return events.filter((event) => event.mission_id === missionId).sort(compareMissionEvents);
     },
     async recordPlannerResult(input) {
       workerRuns.set(input.workerRun.id, workerRuns.get(input.workerRun.id) ?? input.workerRun);
@@ -290,7 +290,7 @@ export function createPrismaMissionStorage(prisma: PrismaClient): MissionStorage
       return mapMissionEvent(created);
     },
     async listMissionEvents(missionId) {
-      const events = await prisma.missionEvent.findMany({ where: { missionId }, orderBy: { createdAt: "asc" } });
+      const events = await prisma.missionEvent.findMany({ where: { missionId }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
       return events.map(mapMissionEvent);
     },
     async recordPlannerResult(input) {
@@ -677,7 +677,13 @@ function toPrismaMissionEventCreate(event: MissionEvent) {
     type: event.type,
     message: event.message,
     payload: event.payload as never,
+    createdAt: new Date(event.created_at),
   };
+}
+
+function compareMissionEvents(left: MissionEvent, right: MissionEvent): number {
+  const byCreatedAt = left.created_at.localeCompare(right.created_at);
+  return byCreatedAt === 0 ? left.id.localeCompare(right.id) : byCreatedAt;
 }
 
 function toPrismaApprovalCreate(approval: Approval) {

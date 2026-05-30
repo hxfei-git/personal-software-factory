@@ -218,8 +218,8 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     }
   }
 
-  async function getExistingPlannerResult(plan: PlannerResponsePlan) {
-    return getExistingPlannerResultFromStorage(storage, plan);
+  async function getExistingPlannerResult(missionId: string) {
+    return getExistingPlannerResultFromStorage(storage, missionId);
   }
 
   return {
@@ -280,6 +280,18 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     async planMission(id: string, body: unknown) {
       const input = parseRequest(PlanMissionRequestSchema, body ?? {});
       const mission = await getMission(id);
+      if (mission.status !== MissionStatus.received && mission.status !== MissionStatus.planning && mission.status !== MissionStatus.planned) {
+        throw invalidTransition(`Mission planning is not valid while status is ${mission.status}`);
+      }
+
+      const existing = await getExistingPlannerResult(mission.id);
+      if (mission.status === MissionStatus.planned) {
+        if (existing) {
+          return buildPersistedPlanResponse(mission, existing);
+        }
+        throw invalidTransition("Mission is already planned but planner resources are missing");
+      }
+
       const project = await storage.getProject(mission.project_id);
       if (!project) {
         throw notFound("Project", mission.project_id);
@@ -295,16 +307,6 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         priority: input.priority ?? mission.priority,
         missionId: mission.id,
       });
-      const existing = await getExistingPlannerResult(plan);
-      if (mission.status === MissionStatus.planned) {
-        if (existing) {
-          return buildPlanResponse(plan, existing);
-        }
-        throw invalidTransition("Mission is already planned but planner resources are missing");
-      }
-      if (mission.status !== MissionStatus.received && mission.status !== MissionStatus.planning) {
-        throw invalidTransition(`Mission planning is not valid while status is ${mission.status}`);
-      }
 
       let currentStatus: Mission["status"] = mission.status;
       if (currentStatus === MissionStatus.received) {
@@ -665,25 +667,29 @@ type PlannerResponsePlan = {
   events: MissionEvent[];
 };
 
-async function getExistingPlannerResultFromStorage(storage: MissionStorage, plan: PlannerResponsePlan): Promise<PlannerResultResources | null> {
-  const workerRun = await storage.getWorkerRun(plan.workerRun.id);
-  if (!workerRun || workerRun.mission_id !== plan.missionId) {
+const plannerFileNames = ["mission.md", "acceptance.md", "technical-notes.md", "risk-notes.md"] as const;
+const plannerEventIds = ["planning-started", "planning-completed"] as const;
+
+async function getExistingPlannerResultFromStorage(storage: MissionStorage, missionId: string): Promise<PlannerResultResources | null> {
+  const workerRun = await storage.getWorkerRun(`worker-run-${missionId}-planner`);
+  if (!workerRun || workerRun.mission_id !== missionId) {
     return null;
   }
 
+  const missionArtifacts = await storage.listMissionArtifacts(missionId);
   const artifacts = [];
-  for (const artifact of plan.artifacts) {
-    const existing = await storage.getArtifact(artifact.id);
-    if (!existing || existing.mission_id !== plan.missionId) {
+  for (const fileName of plannerFileNames) {
+    const existing = missionArtifacts.find((artifact) => artifact.path === `missions/${missionId}/${fileName}`);
+    if (!existing) {
       return null;
     }
     artifacts.push(existing);
   }
 
-  const missionEvents = await storage.listMissionEvents(plan.missionId);
+  const missionEvents = await storage.listMissionEvents(missionId);
   const events = [];
-  for (const event of plan.events) {
-    const existing = missionEvents.find((candidate) => candidate.id === event.id);
+  for (const idSuffix of plannerEventIds) {
+    const existing = missionEvents.find((candidate) => candidate.id === `event-${missionId}-${idSuffix}`);
     if (!existing) {
       return null;
     }
@@ -706,6 +712,25 @@ function buildPlanResponse(plan: PlannerResponsePlan, persisted: PlannerResultRe
     artifacts: persisted.artifacts.map(compactArtifact),
     events: persisted.events,
   };
+}
+
+function buildPersistedPlanResponse(mission: Mission, persisted: PlannerResultResources) {
+  return {
+    missionId: mission.id,
+    title: typeof persisted.workerRun.input.title === "string" ? persisted.workerRun.input.title : mission.title,
+    files: persisted.artifacts.map((artifact) => ({
+      name: fileNameFromPath(artifact.path),
+      path: artifact.path,
+      size: artifact.size,
+    })),
+    workerRun: persisted.workerRun,
+    artifacts: persisted.artifacts.map(compactArtifact),
+    events: persisted.events,
+  };
+}
+
+function fileNameFromPath(path: string): string {
+  return path.split("/").at(-1) ?? path;
 }
 
 function buildPlanningTransition(missionId: string, from: Mission["status"], to: Mission["status"]) {

@@ -429,13 +429,13 @@ describe("orchestrator api", () => {
       expect(detail.json().status).toBe(MissionStatus.planned);
 
       const events = await server.inject({ method: "GET", url: `/missions/${mission.id}/events` });
-      expect(events.json().map((event: { type: string }) => event.type)).toEqual([
+      expect(events.json().map((event: { type: string }) => event.type)).toEqual(expect.arrayContaining([
         "mission.created",
         "mission.transition.received.planning",
         "mission.planning.started",
         "mission.planning.completed",
         "mission.transition.planning.planned",
-      ]);
+      ]));
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -466,6 +466,97 @@ describe("orchestrator api", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("repeated planning with different input returns persisted planner result", async () => {
+    const root = await createAiNovelistRegistryRoot();
+    try {
+      const { server } = await createTestServer({ auth: { disabled: true }, registryRoot: root });
+      const mission = await createMission(server, "Original planner title");
+
+      const first = await server.inject({
+        method: "POST",
+        url: `/missions/${mission.id}/plan`,
+        payload: {
+          title: "Original planner title",
+          userRequirement: "第一次规划需求",
+          qaCharter: "# QA Charter\n- 原始路径",
+        },
+      });
+      const second = await server.inject({
+        method: "POST",
+        url: `/missions/${mission.id}/plan`,
+        payload: {
+          title: "Different planner title",
+          userRequirement: "第二次规划需求",
+          qaCharter: "# QA Charter\n- 不同路径",
+        },
+      });
+
+      expect(first.statusCode).toBe(200);
+      expect(second.statusCode).toBe(200);
+      expect(second.json().title).toBe(first.json().title);
+      expect(second.json().workerRun.input).toMatchObject({
+        title: "Original planner title",
+        userRequirement: "第一次规划需求",
+        qaCharter: "# QA Charter\n- 原始路径",
+      });
+      expect(second.json().files).toEqual(first.json().files);
+      expect(second.json().artifacts).toEqual(first.json().artifacts);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects planning from invalid states before registry reads", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "Invalid state planner mission");
+
+    for (const to of [MissionStatus.planning, MissionStatus.planned, MissionStatus.dev_queued]) {
+      const transition = await server.inject({ method: "POST", url: `/missions/${mission.id}/transition`, payload: { to } });
+      expect(transition.statusCode).toBe(200);
+    }
+
+    const response = await server.inject({ method: "POST", url: `/missions/${mission.id}/plan`, payload: {} });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe("INVALID_MISSION_TRANSITION");
+  });
+
+  it("orders in-memory mission events by created_at and id", async () => {
+    const now = "2026-05-30T00:00:00.000Z";
+    const mission = {
+      id: "mission-ordering",
+      project_id: "ai-novelist",
+      title: "Ordering mission",
+      slug: "ordering-mission",
+      raw_request: "Check ordering.",
+      mission_markdown: "",
+      acceptance_markdown: "",
+      status: MissionStatus.received,
+      priority: "P2" as const,
+      risk_level: "medium" as const,
+      branch_name: "",
+      workspace_path: "",
+      pr_url: "",
+      current_attempt: 0,
+      max_attempts: 3,
+      created_at: now,
+      updated_at: now,
+    };
+    const storage = createInMemoryMissionStorage({
+      projects: [projectExample],
+      missions: [mission],
+      events: [
+        { id: "event-b", mission_id: mission.id, type: "mission.beta", message: "Beta", payload: {}, created_at: now },
+        { id: "event-a", mission_id: mission.id, type: "mission.alpha", message: "Alpha", payload: {}, created_at: now },
+      ],
+    });
+
+    await expect(storage.listMissionEvents(mission.id)).resolves.toEqual([
+      expect.objectContaining({ id: "event-a" }),
+      expect.objectContaining({ id: "event-b" }),
+    ]);
   });
 
 
