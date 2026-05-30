@@ -46,6 +46,22 @@ const requiredSections = {
 } as const;
 
 describe("mission planner", () => {
+  it("returns deeply equal output for identical input without explicit missionId", () => {
+    const input = {
+      projectId: "ai-novelist",
+      title: "章节审稿与修复闭环",
+      userRequirement: "增加章节审稿和自动修复流程",
+      passport: projectPassportExample,
+      qaCharter: "# QA Charter\n- 打开首页\n- 新建小说项目",
+      priority: "P1" as const,
+    };
+
+    const firstPlan = createDeterministicMissionPlan(input);
+    const secondPlan = createDeterministicMissionPlan(input);
+
+    expect(firstPlan).toEqual(secondPlan);
+  });
+
   it("generates all required planning documents", () => {
     const plan = createDeterministicMissionPlan({
       projectId: "ai-novelist",

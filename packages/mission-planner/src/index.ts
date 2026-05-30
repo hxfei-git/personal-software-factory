@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { Artifact, MissionEvent, ProjectPassport, WorkerRun } from "@psf/mission-schema";
 
 export interface MissionPlannerInput {
@@ -25,6 +25,8 @@ export interface MissionPlan {
   events: MissionEvent[];
 }
 
+const stableTimestamp = "1970-01-01T00:00:00.000Z";
+
 const artifactTypesByFileName = {
   "mission.md": "mission",
   "acceptance.md": "acceptance",
@@ -33,14 +35,14 @@ const artifactTypesByFileName = {
 } as const satisfies Record<PlannedFile["name"], Artifact["type"]>;
 
 export function createDeterministicMissionPlan(input: MissionPlannerInput): MissionPlan {
-  const missionId = input.missionId ?? `mission-${randomUUID()}`;
   const title = input.title ?? input.userRequirement.slice(0, 48);
   const priority = input.priority ?? "P2";
-  const now = new Date().toISOString();
+  const missionId = input.missionId ?? buildDefaultMissionId(input, title, priority);
+  const now = stableTimestamp;
   const workerRunId = `worker-run-${missionId}-planner`;
   const files = buildFiles(input, missionId, title, priority);
   const artifacts = files.map((file, index): Artifact => ({
-    id: `artifact-${missionId}-${index + 1}`,
+    id: `artifact-${missionId}-${slugify(file.name)}`,
     mission_id: missionId,
     type: artifactTypesByFileName[file.name],
     path: `missions/${missionId}/${file.name}`,
@@ -105,6 +107,37 @@ export function createDeterministicMissionPlan(input: MissionPlannerInput): Miss
   ];
 
   return { missionId, title, files, workerRun, artifacts, events };
+}
+
+function buildDefaultMissionId(
+  input: MissionPlannerInput,
+  title: string,
+  priority: "P0" | "P1" | "P2" | "P3",
+): string {
+  const slugSource = `${input.projectId}-${title || input.userRequirement}`;
+  const slug = slugify(slugSource) || "untitled";
+  const hash = createHash("sha256")
+    .update(JSON.stringify({
+      projectId: input.projectId,
+      userRequirement: input.userRequirement,
+      passportId: input.passport.id,
+      qaCharter: input.qaCharter,
+      title,
+      priority,
+    }))
+    .digest("hex")
+    .slice(0, 12);
+
+  return `mission-${slug}-${hash}`;
+}
+
+function slugify(value: string): string {
+  return value
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
 }
 
 function buildFiles(

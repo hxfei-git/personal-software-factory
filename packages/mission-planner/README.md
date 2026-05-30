@@ -18,7 +18,7 @@ This package turns a user requirement, Project Passport, and QA Charter into loc
 - `technical-notes.md`
 - `risk-notes.md`
 
-The planner also returns schema-compatible `WorkerRun`, `Artifact`, and `MissionEvent` objects. Artifact content is inline markdown with paths under `missions/{missionId}/`.
+The planner also returns schema-compatible `WorkerRun`, `Artifact`, and `MissionEvent` objects. Artifact content is inline markdown with paths under `missions/{missionId}/`. When `missionId` is omitted, the planner derives a stable ID from the input and uses a stable default timestamp so identical inputs produce identical output.
 
 ## Commands
 
