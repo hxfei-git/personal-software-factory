@@ -1,0 +1,211 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id            String    @id
+  slug          String    @unique
+  name          String
+  description   String?
+  repoUrl       String    @map("repo_url")
+  defaultBranch String    @map("default_branch")
+  localPath     String?   @map("local_path")
+  passportPath  String?   @map("passport_path")
+  productionUrl String?   @map("production_url")
+  stagingUrl    String?   @map("staging_url")
+  status        String
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  missions    Mission[]
+  deployments Deployment[]
+  monitors    Monitor[]
+
+  @@map("projects")
+}
+
+model Mission {
+  id                 String   @id
+  projectId          String   @map("project_id")
+  title              String
+  slug               String
+  rawRequest         String   @map("raw_request")
+  missionMarkdown    String?  @map("mission_markdown")
+  acceptanceMarkdown String?  @map("acceptance_markdown")
+  status             String
+  priority           String
+  riskLevel          String   @map("risk_level")
+  branchName         String?  @map("branch_name")
+  workspacePath      String?  @map("workspace_path")
+  prUrl              String?  @map("pr_url")
+  currentAttempt     Int      @default(0) @map("current_attempt")
+  maxAttempts        Int      @default(3) @map("max_attempts")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  events      MissionEvent[]
+  workerRuns  WorkerRun[]
+  qaRuns      QARun[]
+  bugs        Bug[]
+  artifacts   Artifact[]
+  approvals   Approval[]
+  deployments Deployment[]
+
+  @@index([projectId])
+  @@index([status])
+  @@map("missions")
+}
+
+model MissionEvent {
+  id        String   @id
+  missionId String   @map("mission_id")
+  type      String
+  message   String
+  payload   Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  @@index([missionId])
+  @@index([createdAt])
+  @@map("mission_events")
+}
+
+model WorkerRun {
+  id         String    @id
+  missionId  String    @map("mission_id")
+  workerType String    @map("worker_type")
+  status     String
+  command    String?
+  stdoutPath String?   @map("stdout_path")
+  stderrPath String?   @map("stderr_path")
+  startedAt  DateTime? @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+  exitCode   Int?      @map("exit_code")
+  metadata   Json
+
+  mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  @@index([missionId])
+  @@map("worker_runs")
+}
+
+model QARun {
+  id             String   @id
+  missionId      String   @map("mission_id")
+  targetUrl      String   @map("target_url")
+  mode           String
+  status         String
+  summary        String
+  reportPath     String?  @map("report_path")
+  screenshotsDir String?  @map("screenshots_dir")
+  tracePath      String?  @map("trace_path")
+  bugsJsonPath   String?  @map("bugs_json_path")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  bugs    Bug[]
+
+  @@index([missionId])
+  @@map("qa_runs")
+}
+
+model Bug {
+  id                 String   @id
+  missionId          String   @map("mission_id")
+  qaRunId            String?  @map("qa_run_id")
+  title              String
+  severity           String
+  status             String
+  reproductionSteps  String[] @map("reproduction_steps")
+  expectedResult     String   @map("expected_result")
+  actualResult       String   @map("actual_result")
+  evidence           Json
+  suggestedFix       String?  @map("suggested_fix")
+  regressionTestPath String?  @map("regression_test_path")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  qaRun   QARun?   @relation(fields: [qaRunId], references: [id], onDelete: SetNull)
+
+  @@index([missionId])
+  @@index([qaRunId])
+  @@map("bugs")
+}
+
+model Artifact {
+  id        String   @id
+  missionId String   @map("mission_id")
+  type      String
+  path      String
+  mimeType  String?  @map("mime_type")
+  size      Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  @@index([missionId])
+  @@map("artifacts")
+}
+
+model Approval {
+  id         String    @id
+  missionId  String    @map("mission_id")
+  type       String
+  status     String
+  reason     String
+  payload    Json
+  createdAt  DateTime  @default(now()) @map("created_at")
+  approvedAt DateTime? @map("approved_at")
+  rejectedAt DateTime? @map("rejected_at")
+
+  mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  @@index([missionId])
+  @@map("approvals")
+}
+
+model Deployment {
+  id          String   @id
+  projectId   String   @map("project_id")
+  missionId   String?  @map("mission_id")
+  environment String
+  status      String
+  targetUrl   String?  @map("target_url")
+  provider    String
+  metadata    Json
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  mission Mission? @relation(fields: [missionId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([missionId])
+  @@map("deployments")
+}
+
+model Monitor {
+  id            String    @id
+  projectId     String    @map("project_id")
+  provider      String
+  status        String
+  url           String
+  lastCheckedAt DateTime? @map("last_checked_at")
+  metadata      Json
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("monitors")
+}

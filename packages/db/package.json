@@ -1,0 +1,27 @@
+{
+  "name": "@psf/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Prisma database package for Personal Software Factory.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "pnpm typecheck",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "pnpm typecheck",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "prisma": "DATABASE_URL=${DATABASE_URL:-postgresql://psf:psf_dev_password@localhost:5432/psf?schema=public} prisma",
+    "seed": "DATABASE_URL=${DATABASE_URL:-postgresql://psf:psf_dev_password@localhost:5432/psf?schema=public} tsx src/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.8.0"
+  },
+  "devDependencies": {
+    "prisma": "^6.8.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  }
+}
