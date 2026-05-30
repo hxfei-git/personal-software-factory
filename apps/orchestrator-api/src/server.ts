@@ -7,6 +7,7 @@ import type { MissionStorage } from "./storage.js";
 export interface BuildServerOptions {
   storage: MissionStorage;
   auth?: ApiAuthOptions;
+  registryRoot?: string;
 }
 
 export function buildServer(options: BuildServerOptions): FastifyInstance {
@@ -15,7 +16,10 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     ...(process.env.PSF_API_TOKEN === undefined ? {} : { token: process.env.PSF_API_TOKEN }),
     disabled: process.env.PSF_AUTH_DISABLED === "true" || process.env.NODE_ENV === "test",
   });
-  const services = createMissionServices(options.storage);
+  const registryRoot = options.registryRoot ?? process.env.PSF_PROJECTS_ROOT;
+  const services = createMissionServices(options.storage, {
+    ...(registryRoot === undefined ? {} : { registryRoot }),
+  });
 
   server.setErrorHandler((error, _request, reply) => {
     if (error instanceof ApiError) {
@@ -28,6 +32,10 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   server.get("/health", async () => ({ status: "ok" }));
 
   server.get("/projects", async () => services.listProjects());
+  server.post("/projects/sync", async () => services.syncProjectRegistry());
+  server.get<{ Params: { projectId: string } }>("/projects/:projectId/passport", async (request) => {
+    return services.getProjectPassport(request.params.projectId);
+  });
   server.get<{ Params: { id: string } }>("/projects/:id", async (request) => services.getProject(request.params.id));
 
   server.post("/missions", async (request, reply) => {

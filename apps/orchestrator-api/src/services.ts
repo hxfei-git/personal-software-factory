@@ -11,6 +11,7 @@ import {
   type WorkerRun,
 } from "@psf/mission-schema";
 import { transitionMission as buildTransition } from "@psf/mission-core";
+import { findProjectById, scanProjectRegistry } from "@psf/project-registry";
 import { z } from "zod";
 import { badRequest, invalidTransition, notFound } from "./errors.js";
 import { ApprovalDecisionConflictError, type MissionStorage } from "./storage.js";
@@ -141,7 +142,12 @@ const CreateQARunRequestSchema = z.object({
 
 const UpdateQARunRequestSchema = CreateQARunRequestSchema.partial();
 
-export function createMissionServices(storage: MissionStorage) {
+export interface MissionServiceOptions {
+  registryRoot?: string;
+}
+
+export function createMissionServices(storage: MissionStorage, options: MissionServiceOptions = {}) {
+  const registryRoot = options.registryRoot ?? "projects";
   async function getMission(id: string) {
     const mission = await storage.getMission(id);
     if (!mission) {
@@ -178,6 +184,23 @@ export function createMissionServices(storage: MissionStorage) {
         throw notFound("Project", id);
       }
       return project;
+    },
+    async syncProjectRegistry() {
+      const registryProjects = await scanProjectRegistry(registryRoot);
+      const projects = await storage.syncProjects(registryProjects.map((entry) => entry.project));
+      return { synced: projects.length, projects };
+    },
+    async getProjectPassport(projectId: string) {
+      const project = await storage.getProject(projectId);
+      if (!project) {
+        throw notFound("Project", projectId);
+      }
+      const registryProjects = await scanProjectRegistry(registryRoot);
+      const registryProject = findProjectById(registryProjects, projectId);
+      if (!registryProject) {
+        throw notFound("ProjectPassport", projectId);
+      }
+      return registryProject.passport;
     },
     listMissions: () => storage.listMissions(),
     getMission,

@@ -1,3 +1,6 @@
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MissionStatus, projectExample } from "@psf/mission-schema";
 import type { ApiAuthOptions } from "../src/auth.js";
@@ -5,11 +8,47 @@ import { buildServer } from "../src/server.js";
 import { createInMemoryMissionStorage } from "../src/storage.js";
 
 describe("orchestrator api", () => {
-  async function createTestServer(options: { auth?: ApiAuthOptions } = {}) {
+  async function createTestServer(options: { auth?: ApiAuthOptions; registryRoot?: string } = {}) {
     const storage = createInMemoryMissionStorage({ projects: [projectExample] });
-    const server = buildServer({ storage, ...(options.auth === undefined ? {} : { auth: options.auth }) });
+    const server = buildServer({
+      storage,
+      ...(options.auth === undefined ? {} : { auth: options.auth }),
+      ...(options.registryRoot === undefined ? {} : { registryRoot: options.registryRoot }),
+    });
     await server.ready();
     return { server, storage };
+  }
+
+  async function createRegistryRoot() {
+    const root = await mkdtemp(join(tmpdir(), "psf-api-registry-"));
+    const projectDir = join(root, "sample");
+    await mkdir(projectDir);
+    await writeFile(join(projectDir, "project.passport.yaml"), [
+      "id: sample",
+      "name: Sample",
+      "description: Sample project.",
+      "repo:",
+      "  url: https://example.com/sample.git",
+      "  default_branch: main",
+      "runtime:",
+      "  kind: web",
+      "commands:",
+      "  install: pnpm install",
+      "  test: pnpm test",
+      "  build: pnpm build",
+      "  run_staging: pnpm dev",
+      "urls:",
+      "  production: \"\"",
+      "  staging: \"\"",
+      "quality_gates:",
+      "  require_build: true",
+      "core_flows:",
+      "  - id: smoke",
+      "    name: Smoke",
+      "    priority: P1",
+      "",
+    ].join("\n"));
+    return root;
   }
 
   async function createMission(server: ReturnType<typeof buildServer>, title: string) {
@@ -44,6 +83,51 @@ describe("orchestrator api", () => {
     const detail = await server.inject({ method: "GET", url: "/projects/ai-novelist" });
     expect(detail.statusCode).toBe(200);
     expect(detail.json().id).toBe("ai-novelist");
+  });
+
+  it("syncs projects from the configured registry root", async () => {
+    const root = await createRegistryRoot();
+    const { server } = await createTestServer({ auth: { disabled: true }, registryRoot: root });
+
+    const response = await server.inject({ method: "POST", url: "/projects/sync" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().synced).toBe(1);
+    expect(response.json().projects).toHaveLength(1);
+    expect(response.json().projects[0]).toMatchObject({
+      id: "sample",
+      repo_url: "https://example.com/sample.git",
+      default_branch: "main",
+      status: "active",
+    });
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("returns a normalized project passport for a registered project", async () => {
+    const root = await createRegistryRoot();
+    const { server } = await createTestServer({ auth: { disabled: true }, registryRoot: root });
+    await server.inject({ method: "POST", url: "/projects/sync" });
+
+    const response = await server.inject({ method: "GET", url: "/projects/sample/passport" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().id).toBe("sample");
+    expect(response.json().commands.install).toEqual(["pnpm install"]);
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("protects project registry sync when auth is enabled", async () => {
+    const root = await createRegistryRoot();
+    const { server } = await createTestServer({ auth: { token: "secret", disabled: false }, registryRoot: root });
+
+    const response = await server.inject({ method: "POST", url: "/projects/sync" });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json().code).toBe("UNAUTHORIZED");
+
+    await rm(root, { recursive: true, force: true });
   });
 
   it("creates and reads a mission with initial received status", async () => {

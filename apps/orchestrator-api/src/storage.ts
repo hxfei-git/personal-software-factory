@@ -22,6 +22,7 @@ export interface ResourceWriteInput<T> {
 export interface MissionStorage {
   listProjects(): Promise<Project[]>;
   getProject(id: string): Promise<Project | null>;
+  syncProjects(projects: Project[]): Promise<Project[]>;
   createMission(input: CreateMissionRecordInput): Promise<Mission>;
   listMissions(): Promise<Mission[]>;
   getMission(id: string): Promise<Mission | null>;
@@ -85,6 +86,13 @@ export function createInMemoryMissionStorage(seed: InMemoryMissionStorageSeed = 
     },
     async getProject(id) {
       return projects.get(id) ?? null;
+    },
+    async syncProjects(inputProjects) {
+      for (const project of inputProjects) {
+        const current = projects.get(project.id);
+        projects.set(project.id, current ? { ...project, created_at: current.created_at } : project);
+      }
+      return inputProjects.map((project) => projects.get(project.id) ?? project);
     },
     async createMission(input) {
       missions.set(input.mission.id, input.mission);
@@ -211,6 +219,18 @@ export function createPrismaMissionStorage(prisma: PrismaClient): MissionStorage
     async getProject(id) {
       const project = await prisma.project.findUnique({ where: { id } });
       return project ? mapProject(project) : null;
+    },
+    async syncProjects(projects) {
+      const synced = [];
+      for (const project of projects) {
+        const upserted = await prisma.project.upsert({
+          where: { id: project.id },
+          create: toPrismaProjectCreate(project),
+          update: toPrismaProjectUpdate(project),
+        });
+        synced.push(mapProject(upserted));
+      }
+      return synced;
     },
     async createMission(input) {
       const mission = await prisma.$transaction(async (tx) => {
@@ -533,6 +553,40 @@ function mapQARun(qaRun: PrismaQARunWithBugs): QAReport {
     bugs: (qaRun.bugs ?? []).map(mapBug),
     created_at: qaRun.createdAt.toISOString(),
     updated_at: qaRun.updatedAt.toISOString(),
+  };
+}
+
+function toPrismaProjectCreate(project: Project) {
+  return {
+    id: project.id,
+    slug: project.slug,
+    name: project.name,
+    description: project.description ?? null,
+    repoUrl: project.repo_url,
+    defaultBranch: project.default_branch,
+    localPath: project.local_path ?? null,
+    passportPath: project.passport_path ?? null,
+    productionUrl: project.production_url ?? null,
+    stagingUrl: project.staging_url ?? null,
+    status: project.status,
+    createdAt: new Date(project.created_at),
+    updatedAt: new Date(project.updated_at),
+  };
+}
+
+function toPrismaProjectUpdate(project: Project) {
+  return {
+    slug: project.slug,
+    name: project.name,
+    description: project.description ?? null,
+    repoUrl: project.repo_url,
+    defaultBranch: project.default_branch,
+    localPath: project.local_path ?? null,
+    passportPath: project.passport_path ?? null,
+    productionUrl: project.production_url ?? null,
+    stagingUrl: project.staging_url ?? null,
+    status: project.status,
+    updatedAt: new Date(project.updated_at),
   };
 }
 

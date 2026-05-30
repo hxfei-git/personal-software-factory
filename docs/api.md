@@ -25,6 +25,23 @@ Response:
 
 Returns registered projects from storage.
 
+### POST /projects/sync
+
+Scans the configured local Project Registry root (`PSF_PROJECTS_ROOT`, or `projects` by default), validates and normalizes `project.passport.yaml` files through `@psf/project-passport`, upserts projects into storage, and returns the synced project records. This is a write route and requires API token auth when auth is enabled.
+
+Response:
+
+```json
+{
+  "synced": 1,
+  "projects": [{ "id": "ai-novelist", "status": "active" }]
+}
+```
+
+### GET /projects/:projectId/passport
+
+Returns the normalized Project Passport for a registered project found in the configured registry root, or `404 NOT_FOUND`.
+
 ### GET /projects/:id
 
 Returns one project or `404 NOT_FOUND`.

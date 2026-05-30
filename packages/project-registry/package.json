@@ -1,27 +1,24 @@
 {
-  "name": "@psf/orchestrator-api",
+  "name": "@psf/project-registry",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Personal Software Factory Orchestrator API MVP.",
+  "description": "Local project registry scanner for Personal Software Factory.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "check": "pnpm typecheck && pnpm test",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "lint": "tsc --noEmit -p tsconfig.json",
-    "build": "tsc -p tsconfig.json",
-    "dev": "tsx src/index.ts"
+    "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@psf/db": "workspace:*",
-    "@psf/mission-core": "workspace:*",
     "@psf/mission-schema": "workspace:*",
-    "@psf/project-registry": "workspace:*",
-    "fastify": "^5.3.0",
-    "zod": "^3.25.0"
+    "@psf/project-passport": "workspace:*"
   },
   "devDependencies": {
-    "tsx": "^4.19.0",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0"
   }
