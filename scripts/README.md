@@ -24,4 +24,4 @@ All current commands are dry-run/mock boundaries. The CLI never calls external A
 
 By default, commands attempt Prisma synchronization. If the database is unavailable, the command exits with a clear error instead of silently succeeding. For explicit local artifact-only runs, set `PSF_SKIP_DB=1`.
 
-Script TypeScript is covered by the root `pnpm typecheck` command through `pnpm typecheck:scripts`. Run `pnpm typecheck:scripts` for the focused script-only check.
+Script TypeScript is covered by the root `pnpm typecheck` command through `pnpm typecheck:scripts`. Script tests are covered by the root `pnpm test` command through `pnpm test:scripts`. Run `pnpm typecheck:scripts` or `pnpm test:scripts` for focused script-only checks.
