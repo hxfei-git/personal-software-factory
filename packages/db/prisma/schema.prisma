@@ -97,7 +97,8 @@ model WorkerRun {
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
 
-  mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  mission   Mission    @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  artifacts Artifact[]
 
   @@index([missionId])
   @@map("worker_runs")
@@ -167,9 +168,11 @@ model Artifact {
   metadata    Json     @default("{}")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  mission   Mission    @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  workerRun WorkerRun? @relation(fields: [workerRunId], references: [id], onDelete: SetNull)
 
   @@index([missionId])
+  @@index([workerRunId])
   @@map("artifacts")
 }
 

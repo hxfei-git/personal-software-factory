@@ -28,3 +28,8 @@ ALTER TABLE "qa_runs"
   ADD COLUMN "failed" INTEGER NOT NULL DEFAULT 0,
   ADD COLUMN "started_at" TIMESTAMP(3),
   ADD COLUMN "finished_at" TIMESTAMP(3);
+CREATE INDEX "artifacts_worker_run_id_idx" ON "artifacts"("worker_run_id");
+
+ALTER TABLE "artifacts"
+  ADD CONSTRAINT "artifacts_worker_run_id_fkey"
+  FOREIGN KEY ("worker_run_id") REFERENCES "worker_runs"("id") ON DELETE SET NULL ON UPDATE CASCADE;

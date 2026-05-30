@@ -147,7 +147,7 @@ export const QAReportSchema = z.object({
 export const ArtifactSchema = z.object({
   id: NonEmptyString,
   mission_id: NonEmptyString,
-  type: ArtifactTypeSchema,
+  type: z.union([ArtifactTypeSchema, NonEmptyString]),
   path: NonEmptyString,
   worker_run_id: z.string().optional(),
   content: z.string().optional(),

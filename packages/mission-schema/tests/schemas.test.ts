@@ -87,6 +87,13 @@ describe("mission schemas", () => {
     expect(workerRun.mode).toBe("dry-run");
   });
 
+  it("accepts legacy Artifact type strings", () => {
+    expect(ArtifactSchema.parse({
+      ...artifactExample,
+      type: "qa-report",
+    }).type).toBe("qa-report");
+  });
+
   it("accepts expanded Artifact, BugReport, and QAReport values", () => {
     expect(ArtifactSchema.parse({
       ...artifactExample,
