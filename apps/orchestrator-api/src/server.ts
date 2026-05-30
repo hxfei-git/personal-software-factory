@@ -1,14 +1,20 @@
 import Fastify, { type FastifyInstance } from "fastify";
+import { registerApiAuth, type ApiAuthOptions } from "./auth.js";
 import { ApiError, toErrorResponse } from "./errors.js";
 import { createMissionServices } from "./services.js";
 import type { MissionStorage } from "./storage.js";
 
 export interface BuildServerOptions {
   storage: MissionStorage;
+  auth?: ApiAuthOptions;
 }
 
 export function buildServer(options: BuildServerOptions): FastifyInstance {
   const server = Fastify({ logger: false });
+  registerApiAuth(server, options.auth ?? {
+    ...(process.env.PSF_API_TOKEN === undefined ? {} : { token: process.env.PSF_API_TOKEN }),
+    disabled: process.env.PSF_AUTH_DISABLED === "true" || process.env.NODE_ENV === "test",
+  });
   const services = createMissionServices(options.storage);
 
   server.setErrorHandler((error, _request, reply) => {

@@ -21,6 +21,10 @@ export function invalidTransition(message: string): ApiError {
   return new ApiError(400, "INVALID_MISSION_TRANSITION", message);
 }
 
+export function unauthorized(message = "Missing or invalid API token"): ApiError {
+  return new ApiError(401, "UNAUTHORIZED", message);
+}
+
 export function toErrorResponse(error: ApiError): Record<string, unknown> {
   return {
     code: error.code,

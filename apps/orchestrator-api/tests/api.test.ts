@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { MissionStatus, projectExample } from "@psf/mission-schema";
+import type { ApiAuthOptions } from "../src/auth.js";
 import { buildServer } from "../src/server.js";
 import { createInMemoryMissionStorage } from "../src/storage.js";
 
 describe("orchestrator api", () => {
-  async function createTestServer() {
+  async function createTestServer(options: { auth?: ApiAuthOptions } = {}) {
     const storage = createInMemoryMissionStorage({ projects: [projectExample] });
-    const server = buildServer({ storage });
+    const server = buildServer({ storage, ...(options.auth === undefined ? {} : { auth: options.auth }) });
     await server.ready();
     return { server, storage };
   }
@@ -55,6 +56,38 @@ describe("orchestrator api", () => {
     const list = await server.inject({ method: "GET", url: "/missions" });
     expect(list.statusCode).toBe(200);
     expect(list.json()).toHaveLength(1);
+  });
+
+  it("rejects write requests without token when auth is enabled", async () => {
+    const { server } = await createTestServer({ auth: { token: "secret", disabled: false } });
+    const response = await server.inject({
+      method: "POST",
+      url: "/missions",
+      payload: { project_id: "ai-novelist", title: "Auth check", raw_request: "Check auth." },
+    });
+    expect(response.statusCode).toBe(401);
+    expect(response.json().code).toBe("UNAUTHORIZED");
+  });
+
+  it("allows write requests with a valid bearer token", async () => {
+    const { server } = await createTestServer({ auth: { token: "secret", disabled: false } });
+    const response = await server.inject({
+      method: "POST",
+      url: "/missions",
+      headers: { authorization: "Bearer secret" },
+      payload: { project_id: "ai-novelist", title: "Auth pass", raw_request: "Check auth pass." },
+    });
+    expect(response.statusCode).toBe(201);
+  });
+
+  it("allows write requests when auth is explicitly disabled", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const response = await server.inject({
+      method: "POST",
+      url: "/missions",
+      payload: { project_id: "ai-novelist", title: "Auth disabled", raw_request: "Local test." },
+    });
+    expect(response.statusCode).toBe(201);
   });
 
   it("transitions a mission and records an event", async () => {

@@ -75,9 +75,13 @@ pnpm dev:api
 
 Default local API URL: `http://127.0.0.1:3000`.
 
+## API Authentication
+
+Orchestrator API write routes require `Authorization: Bearer <PSF_API_TOKEN>` unless `PSF_AUTH_DISABLED=true`. Keep disabled auth limited to local development and automated tests; `GET /health` remains public.
+
 ## API Docs
 
-See `docs/api.md` for endpoint details.
+See `docs/api.md` for endpoint details and `docs/auth.md` for API token authentication.
 
 ## Development Order
 
