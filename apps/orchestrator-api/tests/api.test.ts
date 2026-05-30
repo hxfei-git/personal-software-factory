@@ -526,12 +526,13 @@ describe("orchestrator api", () => {
         priority: mission.priority,
         missionId: mission.id,
       });
+      const plannerEventBaseTime = Date.now() + 10_000;
       await storage.recordPlannerResult({
         workerRun: planned.workerRun,
         artifacts: planned.artifacts,
         events: planned.events.map((event, index) => ({
           ...event,
-          created_at: new Date(Date.now() + index).toISOString(),
+          created_at: new Date(plannerEventBaseTime + index).toISOString(),
         })),
       });
 
@@ -563,6 +564,12 @@ describe("orchestrator api", () => {
       expect(eventTypes.filter((type: string) => type === "mission.planning.started")).toHaveLength(1);
       expect(eventTypes.filter((type: string) => type === "mission.planning.completed")).toHaveLength(1);
       expect(eventTypes.filter((type: string) => type === "mission.transition.planning.planned")).toHaveLength(1);
+      const suffix = eventTypes.slice(eventTypes.indexOf("mission.planning.started"));
+      expect(suffix).toEqual([
+        "mission.planning.started",
+        "mission.planning.completed",
+        "mission.transition.planning.planned",
+      ]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -289,7 +289,12 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         return buildPersistedPlanResponse(mission, existing);
       }
       if (existing && mission.status === MissionStatus.planning) {
-        const completed = buildPlanningTransition(mission.id, MissionStatus.planning, MissionStatus.planned);
+        const completed = buildPlanningTransition(
+          mission.id,
+          MissionStatus.planning,
+          MissionStatus.planned,
+          nextTimestamp(existing.events.at(-1)?.created_at ?? new Date().toISOString()),
+        );
         await storage.transitionMission(mission.id, completed.status, completed.event);
         return buildPersistedPlanResponse(mission, existing);
       }
