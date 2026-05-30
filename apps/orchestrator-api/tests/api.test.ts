@@ -1061,6 +1061,108 @@ describe("orchestrator api", () => {
     expect(response.json().recommendedNextAction).toEqual(expect.any(String));
   });
 
+  it("redacts token and password values from dashboard, summary, and resource GET responses", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "Secret redaction mission");
+    const workerRun = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/worker-runs",
+      payload: {
+        workerType: "qa",
+        status: "failed",
+        mode: "dry-run",
+        input: { apiToken: "worker-input-token", nested: { password: "worker-input-password" } },
+        output: { secret: "worker-output-secret", url: "https://example.test/result?token=worker-output-query" },
+        logs: ["authorization=worker-log-auth", "password: worker-log-password"],
+        error: "token=worker-error-token",
+      },
+    })).json();
+    const artifact = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/artifacts",
+      payload: {
+        type: "qa_report",
+        path: "missions/" + mission.id + "/qa-report.md",
+        workerRunId: workerRun.id,
+        content: "token=artifact-token password=artifact-password",
+        metadata: { accessKey: "artifact-access-key" },
+      },
+    })).json();
+    const qaRun = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/qa-runs",
+      payload: {
+        status: "failed",
+        mode: "mock",
+        stagingUrl: "http://127.0.0.1:8500",
+        summary: "secret=qa-summary-secret",
+        failed: 1,
+      },
+    })).json();
+    const bug = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/bugs",
+      payload: {
+        qaRunId: qaRun.id,
+        title: "Sensitive evidence bug",
+        severity: "P1",
+        reproductionSteps: ["Open app"],
+        expectedResult: "Sensitive evidence is not returned.",
+        actualResult: "Sensitive evidence was captured.",
+        evidence: {
+          token: "bug-evidence-token",
+          url: "https://example.test/evidence?password=bug-query-password",
+          nested: { apiKey: "bug-api-key" },
+        },
+      },
+    })).json();
+    const approval = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/approvals",
+      payload: {
+        type: "SECURITY_RISK",
+        reason: "secret=approval-reason-secret",
+        payload: { password: "approval-payload-password" },
+      },
+    })).json();
+
+    const responses = await Promise.all([
+      server.inject({ method: "GET", url: "/dashboard" }),
+      server.inject({ method: "GET", url: "/missions/" + mission.id + "/summary" }),
+      server.inject({ method: "GET", url: "/missions/" + mission.id + "/artifacts" }),
+      server.inject({ method: "GET", url: "/artifacts/" + artifact.id }),
+      server.inject({ method: "GET", url: "/missions/" + mission.id + "/worker-runs" }),
+      server.inject({ method: "GET", url: "/worker-runs/" + workerRun.id }),
+      server.inject({ method: "GET", url: "/missions/" + mission.id + "/bugs" }),
+      server.inject({ method: "GET", url: "/bugs/" + bug.id }),
+      server.inject({ method: "GET", url: "/missions/" + mission.id + "/approvals" }),
+      server.inject({ method: "GET", url: "/approvals/" + approval.id }),
+      server.inject({ method: "GET", url: "/missions/" + mission.id + "/qa-runs" }),
+      server.inject({ method: "GET", url: "/qa-runs/" + qaRun.id }),
+    ]);
+
+    for (const response of responses) {
+      expect(response.statusCode).toBe(200);
+      const body = JSON.stringify(response.json());
+      expect(body).not.toContain("artifact-token");
+      expect(body).not.toContain("artifact-password");
+      expect(body).not.toContain("artifact-access-key");
+      expect(body).not.toContain("worker-input-token");
+      expect(body).not.toContain("worker-input-password");
+      expect(body).not.toContain("worker-output-secret");
+      expect(body).not.toContain("worker-output-query");
+      expect(body).not.toContain("worker-log-auth");
+      expect(body).not.toContain("worker-log-password");
+      expect(body).not.toContain("worker-error-token");
+      expect(body).not.toContain("qa-summary-secret");
+      expect(body).not.toContain("bug-evidence-token");
+      expect(body).not.toContain("bug-query-password");
+      expect(body).not.toContain("bug-api-key");
+      expect(body).not.toContain("approval-reason-secret");
+      expect(body).not.toContain("approval-payload-password");
+    }
+  });
+
   it("returns integration statuses with mandatory safety fields", async () => {
     const { server } = await createTestServer();
 

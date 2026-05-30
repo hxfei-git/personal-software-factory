@@ -209,6 +209,13 @@ export interface DashboardMetrics {
   artifactCount: number;
 }
 
+export interface HealthSignal {
+  key: string;
+  status: "ok" | "warning" | "attention" | string;
+  count: number;
+  message: string;
+}
+
 export interface DashboardResponse {
   metrics: DashboardMetrics;
   recentMissions: Mission[];
@@ -219,7 +226,7 @@ export interface DashboardResponse {
   recentArtifacts: Artifact[];
   integrationStatuses: IntegrationStatus[];
   recommendedNextActions: string[];
-  healthSignals: string[];
+  healthSignals: HealthSignal[];
 }
 
 export interface MissionSummaryResponse {

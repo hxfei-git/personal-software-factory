@@ -55,7 +55,8 @@ export function createOrchestratorClient(options: OrchestratorClientOptions = {}
       ? Object.fromEntries(init.headers.entries())
       : (init.headers as Record<string, string> | undefined) ?? {};
     Object.assign(headers, initHeaders);
-    if (token.trim() !== "") {
+    const method = (init.method ?? "GET").toUpperCase();
+    if (token.trim() !== "" && isWriteMethod(method)) {
       headers.authorization = `Bearer ${token}`;
     }
 
@@ -87,6 +88,10 @@ export function createOrchestratorClient(options: OrchestratorClientOptions = {}
 
 function normalizeBaseUrl(url: string): string {
   return url.replace(/\/+$/, "");
+}
+
+function isWriteMethod(method: string): boolean {
+  return ["POST", "PUT", "PATCH", "DELETE"].includes(method);
 }
 
 async function readJson(response: ResponseLike): Promise<unknown> {

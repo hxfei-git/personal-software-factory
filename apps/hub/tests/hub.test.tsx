@@ -148,7 +148,9 @@ const dashboard: DashboardResponse = {
     sampleIntegration(name as IntegrationStatus["name"]),
   ),
   recommendedNextActions: ["Review open P0/P1 bugs", "Approve pending releases"],
-  healthSignals: ["1 worker run failed recently"],
+  healthSignals: [
+    { key: "failed-worker-runs", status: "attention", count: 1, message: "1 worker run failed recently" },
+  ],
 };
 
 const missionSummary: MissionSummaryResponse = {
@@ -222,7 +224,7 @@ const missionSummary: MissionSummaryResponse = {
 };
 
 describe("orchestrator API client", () => {
-  it("sends configured token on GET and POST requests without leaking token values", async () => {
+  it("only sends configured token on write requests without leaking token values", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({ ok: true, json: async () => dashboard })
@@ -239,10 +241,10 @@ describe("orchestrator API client", () => {
     await client.runIntegrationDryRun("github", { mission: { missionId: "mission-1" } });
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "http://api.local/dashboard", {
-      headers: { authorization: "Bearer super-secret-token" },
+      headers: {},
     });
     expect(fetchMock).toHaveBeenNthCalledWith(2, "http://api.local/missions/mission-0001-ai-novelist-chapter-review/summary", {
-      headers: { authorization: "Bearer super-secret-token" },
+      headers: {},
     });
     expect(fetchMock).toHaveBeenNthCalledWith(3, "http://api.local/integrations/github/dry-run", {
       method: "POST",
