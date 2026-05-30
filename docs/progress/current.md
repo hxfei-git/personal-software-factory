@@ -10,7 +10,7 @@ Create repository structure, root configuration, development standards, README f
 
 ## Latest Governance Update
 
-AGENTS.md and development standards now require each task to end with a focused local git commit and relevant documentation updates. Testing guidance now prioritizes the smallest meaningful checks for critical paths before broader suites. Commit guidance now requires Chinese commit titles and Chinese commit body descriptions.
+AGENTS.md and development standards now require each task to end with a focused local git commit and relevant documentation updates. Testing guidance now prioritizes the smallest meaningful checks for critical paths before broader suites. Commit guidance now requires Chinese commit titles and Chinese commit body descriptions. The Phase 1 toolchain now has Node.js 20, pnpm, Docker, and Docker Compose installed; Docker Hub image pulls are currently timing out.
 
 ## Explicit Non-Scope
 

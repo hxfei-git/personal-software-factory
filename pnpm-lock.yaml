@@ -1,0 +1,21 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .: {}
+
+  apps/hub: {}
+
+  apps/orchestrator-api: {}
+
+  packages/mission-schema: {}
+
+  packages/project-passport: {}
+
+  workers/codex-worker: {}
+
+  workers/qa-worker: {}

@@ -42,4 +42,4 @@ Checks not completed because required tools are unavailable in the current envir
 
 ## Next Phase Entry
 
-Phase 2 may begin after the user confirms Phase 1 output and either accepts the current environment limitations or provides Node.js 20+, pnpm, and Docker for full verification.
+Phase 2 may begin after the user confirms Phase 1 output. Node.js 20, pnpm, Docker, and Docker Compose are now installed; Docker Hub image pulls for PostgreSQL and Redis are still blocked by registry network timeouts, so database container startup needs either registry access or an approved mirror configuration.
