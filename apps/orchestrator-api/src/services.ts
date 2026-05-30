@@ -285,7 +285,12 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       }
 
       const existing = await getExistingPlannerResult(mission.id);
-      if (existing && (mission.status === MissionStatus.planned || mission.status === MissionStatus.planning)) {
+      if (existing && mission.status === MissionStatus.planned) {
+        return buildPersistedPlanResponse(mission, existing);
+      }
+      if (existing && mission.status === MissionStatus.planning) {
+        const completed = buildPlanningTransition(mission.id, MissionStatus.planning, MissionStatus.planned);
+        await storage.transitionMission(mission.id, completed.status, completed.event);
         return buildPersistedPlanResponse(mission, existing);
       }
       if (mission.status === MissionStatus.planned) {
@@ -309,20 +314,28 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       });
 
       let currentStatus: Mission["status"] = mission.status;
+      let plannerEventBaseTimestamp = new Date().toISOString();
       if (currentStatus === MissionStatus.received) {
         const started = buildPlanningTransition(mission.id, MissionStatus.received, MissionStatus.planning);
         await storage.transitionMission(mission.id, started.status, started.event);
         currentStatus = started.status;
+        plannerEventBaseTimestamp = started.event.created_at;
       }
 
+      const plannerEvents = normalizePlannerEventTimestamps(plan.events, mission.id, plannerEventBaseTimestamp);
       const persisted = existing ?? await storage.recordPlannerResult({
         workerRun: plan.workerRun,
         artifacts: plan.artifacts,
-        events: plan.events,
+        events: plannerEvents,
       });
 
       if (currentStatus === MissionStatus.planning) {
-        const completed = buildPlanningTransition(mission.id, MissionStatus.planning, MissionStatus.planned);
+        const completed = buildPlanningTransition(
+          mission.id,
+          MissionStatus.planning,
+          MissionStatus.planned,
+          nextTimestamp(plannerEvents.at(-1)?.created_at ?? new Date().toISOString()),
+        );
         await storage.transitionMission(mission.id, completed.status, completed.event);
       }
 
@@ -733,17 +746,31 @@ function fileNameFromPath(path: string): string {
   return path.split("/").at(-1) ?? path;
 }
 
-function buildPlanningTransition(missionId: string, from: Mission["status"], to: Mission["status"]) {
+function normalizePlannerEventTimestamps(events: MissionEvent[], missionId: string, afterTimestamp: string): MissionEvent[] {
+  const base = new Date(afterTimestamp).getTime();
+  return events.map((event, index) => ({
+    ...event,
+    mission_id: missionId,
+    created_at: new Date(base + index + 1).toISOString(),
+  }));
+}
+
+function nextTimestamp(value: string): string {
+  return new Date(new Date(value).getTime() + 1).toISOString();
+}
+
+function buildPlanningTransition(missionId: string, from: Mission["status"], to: Mission["status"], createdAt?: string) {
   if (!canTransition(from, to)) {
     throw invalidTransition(`Invalid Mission transition from ${from} to ${to}`);
   }
-  return buildTransition({
+  const result = buildTransition({
     mission_id: missionId,
     from,
     to,
     actor: "mission-planner",
     payload: { source: "mission-planner" },
   });
+  return createdAt === undefined ? result : { ...result, event: { ...result.event, created_at: createdAt } };
 }
 
 function buildEvent(missionId: string, type: string, message: string, payload: Record<string, unknown>, createdAt = new Date().toISOString()): MissionEvent {

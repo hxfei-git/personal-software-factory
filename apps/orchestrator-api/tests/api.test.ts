@@ -2,7 +2,8 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { MissionStatus, projectExample } from "@psf/mission-schema";
+import { MissionStatus, projectExample, projectPassportExample } from "@psf/mission-schema";
+import { createDeterministicMissionPlan } from "@psf/mission-planner";
 import type { ApiAuthOptions } from "../src/auth.js";
 import { buildServer } from "../src/server.js";
 import { createInMemoryMissionStorage } from "../src/storage.js";
@@ -429,13 +430,13 @@ describe("orchestrator api", () => {
       expect(detail.json().status).toBe(MissionStatus.planned);
 
       const events = await server.inject({ method: "GET", url: `/missions/${mission.id}/events` });
-      expect(events.json().map((event: { type: string }) => event.type)).toEqual(expect.arrayContaining([
+      expect(events.json().map((event: { type: string }) => event.type)).toEqual([
         "mission.created",
         "mission.transition.received.planning",
         "mission.planning.started",
         "mission.planning.completed",
         "mission.transition.planning.planned",
-      ]));
+      ]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -513,25 +514,25 @@ describe("orchestrator api", () => {
     try {
       const { server, storage } = await createTestServer({ auth: { disabled: true }, registryRoot: root });
       const mission = await createMission(server, "Planning retry original title");
+      const toPlanning = await server.inject({ method: "POST", url: `/missions/${mission.id}/transition`, payload: { to: MissionStatus.planning } });
+      expect(toPlanning.statusCode).toBe(200);
 
-      const first = await server.inject({
-        method: "POST",
-        url: `/missions/${mission.id}/plan`,
-        payload: {
-          title: "Planning retry original title",
-          userRequirement: "第一次 planning 规划需求",
-          qaCharter: "# QA Charter\n- 原始 planning 路径",
-        },
+      const planned = createDeterministicMissionPlan({
+        projectId: mission.project_id,
+        userRequirement: "第一次 planning 规划需求",
+        passport: projectPassportExample,
+        qaCharter: "# QA Charter\n- 原始 planning 路径",
+        title: "Planning retry original title",
+        priority: mission.priority,
+        missionId: mission.id,
       });
-      expect(first.statusCode).toBe(200);
-
-      await storage.transitionMission(mission.id, MissionStatus.planning, {
-        id: "event-" + mission.id + "-force-planning-for-test",
-        mission_id: mission.id,
-        type: "mission.transition.test.planning",
-        message: "Force planning status for retry test.",
-        payload: { source: "api-test" },
-        created_at: new Date().toISOString(),
+      await storage.recordPlannerResult({
+        workerRun: planned.workerRun,
+        artifacts: planned.artifacts,
+        events: planned.events.map((event, index) => ({
+          ...event,
+          created_at: new Date(Date.now() + index).toISOString(),
+        })),
       });
 
       const second = await server.inject({
@@ -545,19 +546,23 @@ describe("orchestrator api", () => {
       });
 
       expect(second.statusCode).toBe(200);
-      expect(second.json().title).toBe(first.json().title);
+      expect(second.json().title).toBe("Planning retry original title");
       expect(second.json().workerRun.input).toMatchObject({
         title: "Planning retry original title",
         userRequirement: "第一次 planning 规划需求",
         qaCharter: "# QA Charter\n- 原始 planning 路径",
       });
-      expect(second.json().files).toEqual(first.json().files);
-      expect(second.json().artifacts).toEqual(first.json().artifacts);
+      expect(second.json().files.map((file: { name: string }) => file.name)).toEqual(planned.files.map((file) => file.name));
+      expect(second.json().artifacts.map((artifact: { id: string }) => artifact.id)).toEqual(planned.artifacts.map((artifact) => artifact.id));
+
+      const detail = await server.inject({ method: "GET", url: `/missions/${mission.id}` });
+      expect(detail.json().status).toBe(MissionStatus.planned);
 
       const events = await server.inject({ method: "GET", url: `/missions/${mission.id}/events` });
       const eventTypes = events.json().map((event: { type: string }) => event.type);
       expect(eventTypes.filter((type: string) => type === "mission.planning.started")).toHaveLength(1);
       expect(eventTypes.filter((type: string) => type === "mission.planning.completed")).toHaveLength(1);
+      expect(eventTypes.filter((type: string) => type === "mission.transition.planning.planned")).toHaveLength(1);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
