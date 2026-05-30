@@ -84,6 +84,38 @@ describe("orchestrator api", () => {
     return root;
   }
 
+  async function createAiNovelistRegistryRootWithoutQaCharter() {
+    const root = await mkdtemp(join(tmpdir(), "psf-api-registry-"));
+    const projectDir = join(root, "ai-novelist");
+    await mkdir(projectDir);
+    await writeFile(join(projectDir, "project.passport.yaml"), [
+      "id: ai-novelist",
+      "name: AI 小说助手",
+      "description: Sample ai-novelist passport without QA charter.",
+      "repo:",
+      "  url: https://github.com/hxfei-git/ai-novelist.git",
+      "  default_branch: main",
+      "runtime:",
+      "  kind: web",
+      "commands:",
+      "  install: pnpm install",
+      "  test: pnpm test",
+      "  build: pnpm build",
+      "  run_staging: pnpm dev",
+      "urls:",
+      "  production: \"\"",
+      "  staging: \"\"",
+      "quality_gates:",
+      "  require_build: true",
+      "core_flows:",
+      "  - id: review_chapter",
+      "    name: 自动审稿",
+      "    priority: P0",
+      "",
+    ].join("\n"));
+    return root;
+  }
+
   async function createMission(server: ReturnType<typeof buildServer>, title: string) {
     const response = await server.inject({
       method: "POST",
@@ -358,6 +390,79 @@ describe("orchestrator api", () => {
       expect(events.json().map((event: { type: string }) => event.type)).toEqual(
         expect.arrayContaining(["mission.planning.started", "mission.planning.completed"]),
       );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("plans with empty body defaults and missing qa charter fallback", async () => {
+    const root = await createAiNovelistRegistryRootWithoutQaCharter();
+    try {
+      const { server } = await createTestServer({ auth: { disabled: true }, registryRoot: root });
+      const mission = await createMission(server, "Default planner inputs");
+
+      const response = await server.inject({ method: "POST", url: `/missions/${mission.id}/plan`, payload: {} });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().title).toBe(mission.title);
+      expect(response.json().workerRun.input).toMatchObject({
+        userRequirement: mission.raw_request,
+        title: mission.title,
+        priority: mission.priority,
+        qaCharter: "",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("planning advances a received mission through planning to planned", async () => {
+    const root = await createAiNovelistRegistryRoot();
+    try {
+      const { server } = await createTestServer({ auth: { disabled: true }, registryRoot: root });
+      const mission = await createMission(server, "Stateful planner mission");
+
+      const response = await server.inject({ method: "POST", url: `/missions/${mission.id}/plan`, payload: {} });
+
+      expect(response.statusCode).toBe(200);
+      const detail = await server.inject({ method: "GET", url: `/missions/${mission.id}` });
+      expect(detail.json().status).toBe(MissionStatus.planned);
+
+      const events = await server.inject({ method: "GET", url: `/missions/${mission.id}/events` });
+      expect(events.json().map((event: { type: string }) => event.type)).toEqual([
+        "mission.created",
+        "mission.transition.received.planning",
+        "mission.planning.started",
+        "mission.planning.completed",
+        "mission.transition.planning.planned",
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("repeated planning is idempotent and does not duplicate planner events", async () => {
+    const root = await createAiNovelistRegistryRoot();
+    try {
+      const { server } = await createTestServer({ auth: { disabled: true }, registryRoot: root });
+      const mission = await createMission(server, "Idempotent planner mission");
+
+      const first = await server.inject({ method: "POST", url: `/missions/${mission.id}/plan`, payload: {} });
+      const second = await server.inject({ method: "POST", url: `/missions/${mission.id}/plan`, payload: {} });
+
+      expect(first.statusCode).toBe(200);
+      expect(second.statusCode).toBe(200);
+      expect(second.json().workerRun.id).toBe(first.json().workerRun.id);
+      expect(second.json().artifacts.map((artifact: { id: string }) => artifact.id)).toEqual(
+        first.json().artifacts.map((artifact: { id: string }) => artifact.id),
+      );
+
+      const events = await server.inject({ method: "GET", url: `/missions/${mission.id}/events` });
+      const eventTypes = events.json().map((event: { type: string }) => event.type);
+      expect(eventTypes.filter((type: string) => type === "mission.planning.started")).toHaveLength(1);
+      expect(eventTypes.filter((type: string) => type === "mission.planning.completed")).toHaveLength(1);
+      expect(eventTypes.filter((type: string) => type === "mission.transition.received.planning")).toHaveLength(1);
+      expect(eventTypes.filter((type: string) => type === "mission.transition.planning.planned")).toHaveLength(1);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

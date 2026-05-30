@@ -136,12 +136,20 @@ export function createInMemoryMissionStorage(seed: InMemoryMissionStorageSeed = 
       return events.filter((event) => event.mission_id === missionId);
     },
     async recordPlannerResult(input) {
-      workerRuns.set(input.workerRun.id, input.workerRun);
+      workerRuns.set(input.workerRun.id, workerRuns.get(input.workerRun.id) ?? input.workerRun);
       for (const artifact of input.artifacts) {
-        artifacts.set(artifact.id, artifact);
+        artifacts.set(artifact.id, artifacts.get(artifact.id) ?? artifact);
       }
-      events.push(...input.events);
-      return input;
+      for (const event of input.events) {
+        if (!events.some((current) => current.id === event.id)) {
+          events.push(event);
+        }
+      }
+      return {
+        workerRun: workerRuns.get(input.workerRun.id) ?? input.workerRun,
+        artifacts: input.artifacts.map((artifact) => artifacts.get(artifact.id) ?? artifact),
+        events: input.events.map((event) => events.find((current) => current.id === event.id) ?? event),
+      };
     },
 
     async createApproval(input) {
@@ -287,14 +295,26 @@ export function createPrismaMissionStorage(prisma: PrismaClient): MissionStorage
     },
     async recordPlannerResult(input) {
       const result = await prisma.$transaction(async (tx) => {
-        const workerRun = await tx.workerRun.create({ data: toPrismaWorkerRunCreate(input.workerRun) });
+        const workerRun = await tx.workerRun.upsert({
+          where: { id: input.workerRun.id },
+          create: toPrismaWorkerRunCreate(input.workerRun),
+          update: {},
+        });
         const artifacts: PrismaArtifact[] = [];
         for (const artifact of input.artifacts) {
-          artifacts.push(await tx.artifact.create({ data: toPrismaArtifactCreate(artifact) }));
+          artifacts.push(await tx.artifact.upsert({
+            where: { id: artifact.id },
+            create: toPrismaArtifactCreate(artifact),
+            update: {},
+          }));
         }
         const events: PrismaMissionEvent[] = [];
         for (const event of input.events) {
-          events.push(await tx.missionEvent.create({ data: toPrismaMissionEventCreate(event) }));
+          events.push(await tx.missionEvent.upsert({
+            where: { id: event.id },
+            create: toPrismaMissionEventCreate(event),
+            update: {},
+          }));
         }
         return { workerRun, artifacts, events };
       });

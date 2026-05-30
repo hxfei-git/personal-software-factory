@@ -32,11 +32,21 @@ The API service loads the Mission, verifies its Project exists in storage, then 
 
 The service calls `createDeterministicMissionPlan` with `missionId: mission.id`, so generated planner resources belong to the existing Mission.
 
+For a normal low or medium risk Mission in `received`, the service advances state through the existing state machine:
+
+```text
+received -> planning -> planned
+```
+
+Those transitions create `mission.transition.received.planning` and `mission.transition.planning.planned` events. High-risk routing to `approval_required` is deferred; this endpoint currently plans the Mission and leaves approval routing to later workflow tasks.
+
 The API records the returned planner resources through storage:
 
 - one `WorkerRun` with `worker_type: planner`;
 - four inline `Artifact` records: `mission`, `acceptance`, `technical_notes`, and `risk_notes`;
 - planner `MissionEvent` records including `mission.planning.started` and `mission.planning.completed`.
+
+Planning is idempotent for the same deterministic result. If a Mission is already `planned` and the expected planner WorkerRun, Artifacts, and planner Events exist, a repeated `POST /missions/:id/plan` returns the existing resources without appending duplicate planner or transition events. Planner persistence also uses deterministic IDs idempotently so duplicate writes do not surface as generic database unique-key failures.
 
 For the local MVP dry-run, these records are written as one planner result operation. Artifact `content` is stored inline in the database or in-memory storage; files under `missions/{missionId}/` are planned paths only until the later file-writing task.
 
@@ -62,4 +72,4 @@ The response is compact and omits artifact content:
 }
 ```
 
-Missing Missions, Projects, or Project Passports return `404 NOT_FOUND`. Invalid registry reads or invalid request bodies return stable validation errors.
+Missing Missions, Projects, or Project Passports return `404 NOT_FOUND`. Invalid registry reads or invalid request bodies return stable validation errors. Calling the endpoint from a Mission state where planning is not valid returns `INVALID_MISSION_TRANSITION` rather than recording planner artifacts silently.

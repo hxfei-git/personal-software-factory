@@ -12,7 +12,7 @@ import {
   type QAReport,
   type WorkerRun,
 } from "@psf/mission-schema";
-import { transitionMission as buildTransition } from "@psf/mission-core";
+import { canTransition, transitionMission as buildTransition } from "@psf/mission-core";
 import { createDeterministicMissionPlan } from "@psf/mission-planner";
 import { ProjectRegistryError, findProjectById, scanProjectRegistry } from "@psf/project-registry";
 import { z } from "zod";
@@ -218,6 +218,10 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     }
   }
 
+  async function getExistingPlannerResult(plan: PlannerResponsePlan) {
+    return getExistingPlannerResultFromStorage(storage, plan);
+  }
+
   return {
     listProjects: () => storage.listProjects(),
     async getProject(id: string) {
@@ -291,24 +295,36 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         priority: input.priority ?? mission.priority,
         missionId: mission.id,
       });
-      const persisted = await storage.recordPlannerResult({
+      const existing = await getExistingPlannerResult(plan);
+      if (mission.status === MissionStatus.planned) {
+        if (existing) {
+          return buildPlanResponse(plan, existing);
+        }
+        throw invalidTransition("Mission is already planned but planner resources are missing");
+      }
+      if (mission.status !== MissionStatus.received && mission.status !== MissionStatus.planning) {
+        throw invalidTransition(`Mission planning is not valid while status is ${mission.status}`);
+      }
+
+      let currentStatus: Mission["status"] = mission.status;
+      if (currentStatus === MissionStatus.received) {
+        const started = buildPlanningTransition(mission.id, MissionStatus.received, MissionStatus.planning);
+        await storage.transitionMission(mission.id, started.status, started.event);
+        currentStatus = started.status;
+      }
+
+      const persisted = existing ?? await storage.recordPlannerResult({
         workerRun: plan.workerRun,
         artifacts: plan.artifacts,
         events: plan.events,
       });
 
-      return {
-        missionId: plan.missionId,
-        title: plan.title,
-        files: plan.files.map((file) => ({
-          name: file.name,
-          path: `missions/${plan.missionId}/${file.name}`,
-          size: Buffer.byteLength(file.content, "utf8"),
-        })),
-        workerRun: persisted.workerRun,
-        artifacts: persisted.artifacts.map(compactArtifact),
-        events: persisted.events,
-      };
+      if (currentStatus === MissionStatus.planning) {
+        const completed = buildPlanningTransition(mission.id, MissionStatus.planning, MissionStatus.planned);
+        await storage.transitionMission(mission.id, completed.status, completed.event);
+      }
+
+      return buildPlanResponse(plan, persisted);
     },
     async transitionMission(id: string, body: unknown) {
       const input = parseRequest(TransitionRequestSchema, body);
@@ -632,6 +648,77 @@ function parseRequest<T>(schema: ZodSchema<T>, body: unknown): T {
     throw badRequest("VALIDATION_ERROR", "Request validation failed", result.error.flatten());
   }
   return result.data;
+}
+
+type PlannerResultResources = {
+  workerRun: WorkerRun;
+  artifacts: Artifact[];
+  events: MissionEvent[];
+};
+
+type PlannerResponsePlan = {
+  missionId: string;
+  title: string;
+  files: Array<{ name: string; content: string }>;
+  workerRun: WorkerRun;
+  artifacts: Artifact[];
+  events: MissionEvent[];
+};
+
+async function getExistingPlannerResultFromStorage(storage: MissionStorage, plan: PlannerResponsePlan): Promise<PlannerResultResources | null> {
+  const workerRun = await storage.getWorkerRun(plan.workerRun.id);
+  if (!workerRun || workerRun.mission_id !== plan.missionId) {
+    return null;
+  }
+
+  const artifacts = [];
+  for (const artifact of plan.artifacts) {
+    const existing = await storage.getArtifact(artifact.id);
+    if (!existing || existing.mission_id !== plan.missionId) {
+      return null;
+    }
+    artifacts.push(existing);
+  }
+
+  const missionEvents = await storage.listMissionEvents(plan.missionId);
+  const events = [];
+  for (const event of plan.events) {
+    const existing = missionEvents.find((candidate) => candidate.id === event.id);
+    if (!existing) {
+      return null;
+    }
+    events.push(existing);
+  }
+
+  return { workerRun, artifacts, events };
+}
+
+function buildPlanResponse(plan: PlannerResponsePlan, persisted: PlannerResultResources) {
+  return {
+    missionId: plan.missionId,
+    title: plan.title,
+    files: plan.files.map((file) => ({
+      name: file.name,
+      path: `missions/${plan.missionId}/${file.name}`,
+      size: Buffer.byteLength(file.content, "utf8"),
+    })),
+    workerRun: persisted.workerRun,
+    artifacts: persisted.artifacts.map(compactArtifact),
+    events: persisted.events,
+  };
+}
+
+function buildPlanningTransition(missionId: string, from: Mission["status"], to: Mission["status"]) {
+  if (!canTransition(from, to)) {
+    throw invalidTransition(`Invalid Mission transition from ${from} to ${to}`);
+  }
+  return buildTransition({
+    mission_id: missionId,
+    from,
+    to,
+    actor: "mission-planner",
+    payload: { source: "mission-planner" },
+  });
 }
 
 function buildEvent(missionId: string, type: string, message: string, payload: Record<string, unknown>, createdAt = new Date().toISOString()): MissionEvent {
