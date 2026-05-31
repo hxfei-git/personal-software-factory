@@ -264,7 +264,8 @@ export async function runGitHubReal(input: GitHubRealInput = {}): Promise<GitHub
     return missingTransportResult(definition, input, initialOutputs);
   }
 
-  if (input.gates.allowPushBranch === true && protectedBranch(branchName)) {
+  const usesBranchNameAsSource = input.gates.allowPushBranch === true || input.gates.allowCreatePullRequest === true;
+  if (usesBranchNameAsSource && protectedBranch(branchName)) {
     manualActions.push("Choose a non-protected branch; main/master are refused by the real adapter.");
     return buildRealResult(definition, input, {
       decision: "manual_action",

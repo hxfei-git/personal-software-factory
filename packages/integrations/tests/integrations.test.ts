@@ -447,6 +447,23 @@ describe("gated real integration adapters", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("refuses protected GitHub branches for create-PR-only operations before transport is called", async () => {
+    const { calls, transport } = createTransport([{ status: 201, json: { number: 42 } }]);
+
+    const result = await runGitHubReal({
+      env: configuredEnv,
+      now: fixedNow,
+      mission: { ...missionInput, branchName: "main" },
+      transport,
+      gates: { allowNetwork: true, allowCreatePullRequest: true },
+    });
+
+    expect(result.decision).toBe("manual_action");
+    expect(result.realNetworkCall).toBe(false);
+    expect(result.message).toContain("protected branch");
+    expect(calls).toHaveLength(0);
+  });
+
   it.each([
     ["auth failure", 401, "authentication failed"],
     ["permission failure", 403, "permission denied"],
