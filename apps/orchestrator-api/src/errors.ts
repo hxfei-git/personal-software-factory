@@ -25,6 +25,10 @@ export function unauthorized(message = "Missing or invalid API token"): ApiError
   return new ApiError(401, "UNAUTHORIZED", message);
 }
 
+export function serviceUnavailable(code: string, message: string, details?: unknown): ApiError {
+  return new ApiError(503, code, message, details);
+}
+
 export function toErrorResponse(error: ApiError): Record<string, unknown> {
   return {
     code: error.code,

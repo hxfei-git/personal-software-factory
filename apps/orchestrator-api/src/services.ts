@@ -41,7 +41,7 @@ import {
   type ActionExecutionMode,
   type QueuedActionKind,
 } from "./actions.js";
-import { badRequest, invalidTransition, notFound } from "./errors.js";
+import { badRequest, invalidTransition, notFound, serviceUnavailable } from "./errors.js";
 import { ApprovalDecisionConflictError, type MissionStorage } from "./storage.js";
 
 
@@ -180,6 +180,9 @@ const IntegrationNameParamSchema = z.enum(["github", "coolify", "uptime_kuma", "
 const IntegrationDryRunRequestSchema = z.record(z.unknown());
 
 type IntegrationDryRunInput = GitHubDryRunInput | CoolifyDryRunInput | UptimeKumaDryRunInput | PlaneDryRunInput;
+
+const QUEUE_ENQUEUE_FAILED_MESSAGE = "Queue enqueue failed. Check Redis and Worker Runtime configuration.";
+const DEMO_MISSION_REQUIRED_MESSAGE = "Demo mission must exist before queued demo action. Run pnpm psf demo:seed or run the inline demo first.";
 
 export interface MissionServiceOptions {
   registryRoot?: string;
@@ -389,7 +392,39 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       jobType: job.type,
     }, now);
     await storage.createWorkerRun({ resource: wrapperWorkerRun, event });
-    await workerRuntime.enqueue(job);
+    try {
+      await workerRuntime.enqueue(job);
+    } catch {
+      const failedAt = nextTimestamp(now);
+      const failedWorkerRun: WorkerRun = {
+        ...wrapperWorkerRun,
+        status: "failed",
+        error: QUEUE_ENQUEUE_FAILED_MESSAGE,
+        output: {
+          ...wrapperOutput,
+          summary: "Queue enqueue failed before Worker Runner could consume the job.",
+          recommendedNextAction: "Check Redis and Worker Runtime configuration, then retry the dry-run action.",
+          errorCode: "QUEUE_ENQUEUE_FAILED",
+        },
+        updated_at: failedAt,
+      };
+      await storage.updateWorkerRun({
+        resource: failedWorkerRun,
+        event: buildEvent(mission.id, "worker_run.failed", "Worker run queue enqueue failed", {
+          worker_run_id: failedWorkerRun.id,
+          status: failedWorkerRun.status,
+          queueWrapper: true,
+          jobId: job.id,
+          jobType: job.type,
+          errorCode: "QUEUE_ENQUEUE_FAILED",
+        }, failedAt),
+      });
+      throw serviceUnavailable("QUEUE_ENQUEUE_FAILED", QUEUE_ENQUEUE_FAILED_MESSAGE, {
+        workerRunId: wrapperWorkerRun.id,
+        jobId: job.id,
+        jobType: job.type,
+      });
+    }
     return toQueuedActionResponse({
       missionId: mission.id,
       projectId: mission.project_id,
@@ -528,7 +563,13 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     },
     async runAiNovelistDemoAction(body: unknown) {
       if (actionExecutionMode === "queued") {
-        const mission = await getRawMission(EXAMPLE_MISSION_ID);
+        const mission = await storage.getMission(EXAMPLE_MISSION_ID);
+        if (!mission) {
+          throw badRequest("DEMO_MISSION_REQUIRED", DEMO_MISSION_REQUIRED_MESSAGE, {
+            missionId: EXAMPLE_MISSION_ID,
+            suggestedCommands: ["pnpm psf demo:seed", "pnpm psf demo:ai-novelist"],
+          });
+        }
         return sanitizeApiResponse(await queueAction(mission, body, "demo"));
       }
       return sanitizeApiResponse(await runAiNovelistDemoDryRunAction(body));

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { EXAMPLE_MISSION_ID } from "@psf/demo-workflow";
 import { MissionStatus, projectExample, projectPassportExample } from "@psf/mission-schema";
 import { createDeterministicMissionPlan } from "@psf/mission-planner";
-import { InProcessWorkerRuntime, type WorkerRuntime } from "@psf/worker-runtime";
+import { InProcessWorkerRuntime, type QueuedJobRecord, type QueueWorkerJob, type WorkerRuntime } from "@psf/worker-runtime";
 import type { ApiAuthOptions } from "../src/auth.js";
 import type { ActionExecutionMode } from "../src/actions.js";
 import { buildServer } from "../src/server.js";
@@ -28,6 +28,13 @@ describe("orchestrator api", () => {
     });
     await server.ready();
     return { server, storage };
+  }
+
+
+  class FailingEnqueueWorkerRuntime extends InProcessWorkerRuntime {
+    override async enqueue(_job: QueueWorkerJob): Promise<QueuedJobRecord> {
+      throw new Error("Redis token secret-value down");
+    }
   }
 
   async function createRegistryRoot() {
@@ -596,6 +603,71 @@ describe("orchestrator api", () => {
 
     expect(response.statusCode).toBe(404);
     expect(response.json().code).toBe("NOT_FOUND");
+  });
+
+
+  it("marks the queue wrapper failed and returns a readable error when enqueue fails", async () => {
+    const { server, storage } = await createTestServer({
+      auth: { disabled: true },
+      actionExecutionMode: "queued",
+      workerRuntime: new FailingEnqueueWorkerRuntime(),
+    });
+    await seedDemoMission(storage);
+
+    const response = await server.inject({
+      method: "POST",
+      url: `/missions/${EXAMPLE_MISSION_ID}/actions/qa-dry-run`,
+      payload: { withSampleBug: true },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({
+      code: "QUEUE_ENQUEUE_FAILED",
+      message: "Queue enqueue failed. Check Redis and Worker Runtime configuration.",
+    });
+    const responseBody = JSON.stringify(response.json());
+    expect(responseBody).not.toContain("secret-value");
+    expect(responseBody).not.toContain("Redis token");
+
+    const workerRuns = await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID);
+    expect(workerRuns).toHaveLength(1);
+    expect(workerRuns[0]).toMatchObject({
+      status: "failed",
+      error: "Queue enqueue failed. Check Redis and Worker Runtime configuration.",
+      metadata: {
+        queueWrapper: true,
+        jobType: "qa.dry_run_with_sample_bug",
+      },
+    });
+    expect(JSON.stringify(workerRuns[0])).not.toContain("secret-value");
+    expect(JSON.stringify(workerRuns[0])).not.toContain("Redis token");
+
+    const events = await storage.listMissionEvents(EXAMPLE_MISSION_ID);
+    expect(events.map((event) => event.type)).toEqual(["mission.created", "worker_run.queued", "worker_run.failed"]);
+    expect(events.at(-1)).toMatchObject({
+      type: "worker_run.failed",
+      message: "Worker run queue enqueue failed",
+    });
+  });
+
+  it("returns a clear precondition error when queued ai-novelist demo mission is missing", async () => {
+    const { server } = await createTestServer({
+      auth: { disabled: true },
+      actionExecutionMode: "queued",
+      workerRuntime: new InProcessWorkerRuntime(),
+    });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/demo/ai-novelist",
+      payload: { withSampleBug: true },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      code: "DEMO_MISSION_REQUIRED",
+      message: "Demo mission must exist before queued demo action. Run pnpm psf demo:seed or run the inline demo first.",
+    });
   });
 
   it("allows write requests with a valid bearer token", async () => {
