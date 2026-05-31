@@ -947,6 +947,36 @@ describe("Hub render helpers", () => {
     expect(text).toContain("Unit test failed");
   });
 
+  it("renders mission detail when WorkerRun metadata and output are missing", () => {
+    const fragileSummary: MissionSummaryResponse = {
+      ...missionSummary,
+      workerRuns: [
+        {
+          id: "worker-run-missing-json",
+          mission_id: "mission-0001-ai-novelist-chapter-review",
+          worker_type: "qa",
+          status: "succeeded",
+          input: {},
+          output: null as unknown as Record<string, unknown>,
+          logs: [],
+          metadata: null as unknown as Record<string, unknown>,
+          created_at: now,
+          updated_at: now,
+        },
+      ],
+    };
+
+    const text = textFromElement(renderMissionDetailView({
+      state: { status: "success", data: fragileSummary },
+    }));
+
+    expect(text).toContain("worker-run-missing-json");
+    expect(text).toContain("Child WorkerRun");
+    expect(text).toContain("qa");
+    expect(text).toContain("unknown");
+    expect(text).not.toContain("Queue wrapper");
+  });
+
   it("renders integration dry-run/mock safety state", () => {
     const text = textFromElement(renderIntegrationsView({
       state: { status: "success", data: dashboard.integrationStatuses },

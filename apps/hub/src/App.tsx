@@ -626,10 +626,12 @@ function renderWorkerRunList(title: string, workerRuns: WorkerRun[]): ReactEleme
     <section className="panel">
       <div className="panel-heading"><h2>{title}</h2></div>
       {workerRuns.length === 0 ? <p className="empty-line">No worker runs yet</p> : workerRuns.map((run) => {
+        const metadata = jsonRecordOrEmpty(run.metadata);
+        const output = jsonRecordOrEmpty(run.output);
         const queueWrapper = isQueueWrapper(run);
-        const jobId = readString(run.metadata, "jobId") ?? readString(run.output, "jobId");
-        const jobType = readString(run.metadata, "jobType") ?? readString(run.output, "jobType");
-        const childWorkerRunIds = readStringArray(run.output, "childWorkerRunIds");
+        const jobId = readString(metadata, "jobId") ?? readString(output, "jobId");
+        const jobType = readString(metadata, "jobType") ?? readString(output, "jobType");
+        const childWorkerRunIds = readStringArray(output, "childWorkerRunIds");
         return (
           <div className={queueWrapper ? "list-row worker-run-row queue-wrapper" : "list-row worker-run-row"} key={run.id}>
             <div>
@@ -765,7 +767,13 @@ function isQueuedActionResponse(result: DryRunActionResponse): result is QueuedD
 }
 
 function isQueueWrapper(run: WorkerRun): boolean {
-  return run.metadata.queueWrapper === true || run.output.queueWrapper === true || typeof run.metadata.jobId === "string";
+  const metadata = jsonRecordOrEmpty(run.metadata);
+  const output = jsonRecordOrEmpty(run.output);
+  return metadata.queueWrapper === true || output.queueWrapper === true || typeof metadata.jobId === "string";
+}
+
+function jsonRecordOrEmpty(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function readString(record: Record<string, unknown>, key: string): string | undefined {
