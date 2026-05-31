@@ -840,13 +840,52 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         throw badRequest("WORKER_RUN_NOT_CANCELLABLE", "Only queued or running queue wrapper WorkerRuns can be cancelled", { workerRunId: id, status: current.status });
       }
 
+      let cancellationResult: QueuedJobRecord;
       try {
-        await runtime.cancelJob(wrapper.jobId);
+        cancellationResult = await runtime.cancelJob(wrapper.jobId);
       } catch {
         throw serviceUnavailable("QUEUE_RUNTIME_UNAVAILABLE", QUEUE_RUNTIME_UNAVAILABLE_MESSAGE, { workerRunId: id, jobId: wrapper.jobId, jobType: wrapper.jobType });
       }
 
       const now = new Date().toISOString();
+      if (cancellationResult.status !== "cancelled") {
+        const metadata = mergeJsonObject(current.metadata, {
+          queueWrapper: true,
+          jobId: wrapper.jobId,
+          jobType: wrapper.jobType,
+          cancellationRequested: true,
+          cancellationRequestedAt: now,
+          jobStatus: cancellationResult.status,
+        });
+        const output = mergeJsonObject(current.output, {
+          jobId: wrapper.jobId,
+          jobType: wrapper.jobType,
+          cancellationRequested: true,
+          cancellationRequestedAt: now,
+          jobStatus: cancellationResult.status,
+          summary: "Queue wrapper WorkerRun cancellation was requested; active jobs stop cooperatively.",
+          recommendedNextAction: "Refresh WorkerRun status after the Worker Runner observes the cancellation request.",
+        });
+        const workerRun: WorkerRun = {
+          ...current,
+          metadata,
+          output,
+          updated_at: now,
+        };
+        return sanitizeApiResponse(await storage.updateWorkerRun({
+          resource: workerRun,
+          event: buildEvent(current.mission_id, "worker_run.cancellation_requested", "Queue wrapper worker run cancellation requested", {
+            worker_run_id: id,
+            status: workerRun.status,
+            queueWrapper: true,
+            jobId: wrapper.jobId,
+            jobType: wrapper.jobType,
+            jobStatus: cancellationResult.status,
+            cancellationRequested: true,
+          }, now),
+        }));
+      }
+
       const output = mergeJsonObject(current.output, {
         jobId: wrapper.jobId,
         jobType: wrapper.jobType,

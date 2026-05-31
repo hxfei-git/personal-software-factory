@@ -68,6 +68,28 @@ describe("orchestrator api", () => {
     }
   }
 
+  class ActiveCancelWorkerRuntime extends InProcessWorkerRuntime {
+    override async cancelJob(jobId: string): Promise<QueuedJobRecord> {
+      const job = buildWorkerJob({
+        id: jobId,
+        missionId: EXAMPLE_MISSION_ID,
+        projectId: "ai-novelist",
+        workerRunId: "worker-run-active-cancel",
+        type: "qa.dry_run",
+        payload: {},
+      });
+      return {
+        job,
+        status: "active",
+        attemptsMade: 1,
+        createdAt: job.createdAt,
+        updatedAt: job.createdAt,
+        startedAt: job.createdAt,
+        error: "Active job cancellation is cooperative; cancellation was requested but the job was not force-killed.",
+      };
+    }
+  }
+
   async function createRegistryRoot() {
     const root = await mkdtemp(join(tmpdir(), "psf-api-registry-"));
     const projectDir = join(root, "sample");
@@ -791,6 +813,53 @@ describe("orchestrator api", () => {
     expect(await workerRuntime.getJobStatus(jobId)).toBe("cancelled");
     const events = await storage.listMissionEvents(EXAMPLE_MISSION_ID);
     expect(events.map((event) => event.type)).toContain("worker_run.cancelled");
+  });
+
+  it("records cooperative cancellation request without marking active jobs cancelled", async () => {
+    const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime: new ActiveCancelWorkerRuntime() });
+    await seedDemoMission(storage);
+    const wrapper = (await server.inject({
+      method: "POST",
+      url: `/missions/${EXAMPLE_MISSION_ID}/worker-runs`,
+      payload: {
+        workerType: "orchestrator",
+        status: "running",
+        mode: "dry-run",
+        metadata: { queueWrapper: true, jobId: "job-active-cancel", jobType: "qa.dry_run" },
+        output: { queueWrapper: true, jobId: "job-active-cancel", jobType: "qa.dry_run" },
+      },
+    })).json();
+
+    const response = await server.inject({ method: "POST", url: `/worker-runs/${wrapper.id}/cancel` });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      id: wrapper.id,
+      status: "running",
+      metadata: {
+        queueWrapper: true,
+        jobId: "job-active-cancel",
+        jobType: "qa.dry_run",
+        cancellationRequested: true,
+        jobStatus: "active",
+      },
+      output: {
+        jobId: "job-active-cancel",
+        jobType: "qa.dry_run",
+        cancellationRequested: true,
+        jobStatus: "active",
+      },
+    });
+    expect(response.json().output.cancellationRequestedAt).toEqual(expect.any(String));
+    expect(response.json().output.cancelledAt).toBeUndefined();
+
+    const events = await storage.listMissionEvents(EXAMPLE_MISSION_ID);
+    expect(events.map((event) => event.type)).toContain("worker_run.cancellation_requested");
+    expect(events.at(-1)).toMatchObject({
+      type: "worker_run.cancellation_requested",
+      message: "Queue wrapper worker run cancellation requested",
+      payload: { jobStatus: "active", cancellationRequested: true },
+    });
   });
 
   it("rejects cancel for non-wrapper and completed-history WorkerRuns", async () => {
