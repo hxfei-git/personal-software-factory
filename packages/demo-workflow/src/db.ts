@@ -1,6 +1,9 @@
+import { rm, stat } from "node:fs/promises";
+import { resolve } from "node:path";
 import type { Artifact, BugReport, MissionEvent, QAReport, WorkerRun } from "@psf/mission-schema";
 import type { RegistryProject } from "@psf/project-registry";
-import { DEFAULT_DATABASE_URL } from "./constants.js";
+import { DEFAULT_DATABASE_URL, EXAMPLE_MISSION_ID } from "./constants.js";
+import { relativeToCwd, resolveInside } from "./paths.js";
 import type { MissionMetadata } from "./files.js";
 
 export interface PrismaLike {
@@ -242,4 +245,143 @@ function redactSecretText(value: string): string {
   return value
     .replace(/:\/\/([^:@/\s]+):([^@/\s]+)@/g, "://$1:[redacted]@")
     .replace(/([?&][^=&#\s]*(?:token|password|passwd|pwd|secret|key|auth|credential|session|jwt|bearer)[^=&#\s]*=)[^&#\s]*/gi, "$1[redacted]");
+}
+
+
+export interface DemoResetOptions {
+  cwd?: string;
+  missionId?: string;
+  confirm?: boolean;
+  skipDb?: boolean;
+}
+
+export interface DemoResetResult {
+  deleted: boolean;
+  requiresConfirmation: boolean;
+  missionId: string;
+  deletedPaths: string[];
+  deletedDatabaseRecords: string[];
+  message: string;
+}
+
+interface DeleteManyDelegate {
+  deleteMany(args: { where: { missionId: string } }): Promise<{ count: number }>;
+}
+
+interface MissionDeleteManyDelegate {
+  deleteMany(args: { where: { id: string } }): Promise<{ count: number }>;
+}
+
+interface ResetPrismaLike {
+  $connect(): Promise<void>;
+  $disconnect(): Promise<void>;
+  bug: DeleteManyDelegate;
+  qARun: DeleteManyDelegate;
+  artifact: DeleteManyDelegate;
+  workerRun: DeleteManyDelegate;
+  missionEvent: DeleteManyDelegate;
+  approval: DeleteManyDelegate;
+  deployment: DeleteManyDelegate;
+  mission: MissionDeleteManyDelegate;
+}
+
+export async function resetDemoData(options: DemoResetOptions = {}): Promise<DemoResetResult> {
+  const cwd = resolve(options.cwd ?? process.cwd());
+  const missionId = options.missionId ?? EXAMPLE_MISSION_ID;
+  assertResettableMissionId(missionId);
+
+  if (!options.confirm) {
+    return {
+      deleted: false,
+      requiresConfirmation: true,
+      missionId,
+      deletedPaths: [],
+      deletedDatabaseRecords: [],
+      message: `Confirmation required before deleting demo mission data for ${missionId}.`,
+    };
+  }
+
+  const missionPath = resolveInside(resolve(cwd, "missions"), missionId);
+  const deletedPaths: string[] = [];
+  if (await pathExists(missionPath)) {
+    await rm(missionPath, { recursive: true, force: true });
+    deletedPaths.push(relativeToCwd(cwd, missionPath));
+  }
+
+  const deletedDatabaseRecords = options.skipDb ? [] : await deleteScopedDemoRecords(missionId);
+  const deleted = deletedPaths.length > 0 || deletedDatabaseRecords.length > 0;
+
+  return {
+    deleted,
+    requiresConfirmation: false,
+    missionId,
+    deletedPaths,
+    deletedDatabaseRecords,
+    message: deleted
+      ? `Deleted scoped demo data for ${missionId}.`
+      : `No scoped demo data found for ${missionId}.`,
+  };
+}
+
+async function deleteScopedDemoRecords(missionId: string): Promise<string[]> {
+  process.env.DATABASE_URL ||= DEFAULT_DATABASE_URL;
+  let prisma: ResetPrismaLike | undefined;
+  const deleted: string[] = [];
+
+  try {
+    const db = await import("@psf/db");
+    prisma = db.prisma as unknown as ResetPrismaLike;
+    await prisma.$connect();
+
+    for (const [name, action] of [
+      ["bugs", () => prisma?.bug.deleteMany({ where: { missionId } })],
+      ["qaRuns", () => prisma?.qARun.deleteMany({ where: { missionId } })],
+      ["artifacts", () => prisma?.artifact.deleteMany({ where: { missionId } })],
+      ["workerRuns", () => prisma?.workerRun.deleteMany({ where: { missionId } })],
+      ["missionEvents", () => prisma?.missionEvent.deleteMany({ where: { missionId } })],
+      ["approvals", () => prisma?.approval.deleteMany({ where: { missionId } })],
+      ["deployments", () => prisma?.deployment.deleteMany({ where: { missionId } })],
+      ["missions", () => prisma?.mission.deleteMany({ where: { id: missionId } })],
+    ] as const) {
+      const result = await action();
+      if (result && result.count > 0) {
+        deleted.push(`${name}:${result.count}`);
+      }
+    }
+
+    return deleted;
+  } catch (error) {
+    throw new Error([
+      `Database reset failed for ${missionId}. Use --skip-db for file-only demo reset if local Postgres is unavailable.`,
+      `DATABASE_URL=${redactDatabaseUrl(process.env.DATABASE_URL)}`,
+      `Cause: ${redactSecretText(errorMessage(error))}`,
+    ].join(" "));
+  } finally {
+    if (prisma) {
+      await prisma.$disconnect().catch(() => undefined);
+    }
+  }
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function assertResettableMissionId(missionId: string): void {
+  if (missionId === EXAMPLE_MISSION_ID || /^demo-[a-z0-9][a-z0-9-]*$/.test(missionId)) {
+    return;
+  }
+  throw new Error(`Refusing to reset non-demo mission: ${missionId}`);
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }

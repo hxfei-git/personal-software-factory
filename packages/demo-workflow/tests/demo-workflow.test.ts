@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, stat } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -7,8 +7,11 @@ import {
   DEFAULT_DEMO_API_URL,
   DEFAULT_DEMO_HUB_URL,
   EXAMPLE_MISSION_ID,
+  formatDoctorResult,
   getDemoBoundary,
+  resetDemoData,
   runAiNovelistDemo,
+  runDoctor,
   syncDemoResources,
 } from "../src/index.js";
 
@@ -211,4 +214,64 @@ describe("ai-novelist local demo workflow", () => {
     expect(message).toContain("[redacted]");
   });
 
+});
+
+
+describe("demo doctor and reset", () => {
+  it("doctor reports warnings without leaking token values", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-doctor-"));
+    await mkdir(join(cwd, "projects", "ai-novelist"), { recursive: true });
+    await mkdir(join(cwd, "apps", "hub"), { recursive: true });
+    await mkdir(join(cwd, "apps", "orchestrator-api"), { recursive: true });
+    await mkdir(join(cwd, "packages"), { recursive: true });
+    await mkdir(join(cwd, "workers"), { recursive: true });
+    await mkdir(join(cwd, "missions"), { recursive: true });
+    await cp(
+      resolve("../..", "projects", "ai-novelist", "project.passport.yaml"),
+      join(cwd, "projects", "ai-novelist", "project.passport.yaml"),
+    );
+    await writeFile(join(cwd, ".env.example"), "PSF_API_TOKEN=example\n", "utf8");
+
+    const result = await runDoctor({
+      cwd,
+      env: { PSF_API_TOKEN: "super-secret-token", ENABLE_REAL_CODEX: "1" },
+      checkDatabase: false,
+    });
+    const human = formatDoctorResult(result);
+    const json = formatDoctorResult(result, true);
+
+    expect(result.status).toBe("warning");
+    expect(JSON.stringify(result)).not.toContain("super-secret-token");
+    expect(human).not.toContain("super-secret-token");
+    expect(json).not.toContain("super-secret-token");
+    expect(result.checks.some((check) => check.key === "enable-real-codex")).toBe(true);
+  });
+
+  it("demo reset refuses to delete without confirmation and protects non-demo ids", async () => {
+    await expect(resetDemoData({ cwd: "/tmp", confirm: false, missionId: EXAMPLE_MISSION_ID, skipDb: true })).resolves.toMatchObject({
+      deleted: false,
+      requiresConfirmation: true,
+    });
+    await expect(resetDemoData({ cwd: "/tmp", confirm: true, missionId: "mission-real-production", skipDb: true })).rejects.toThrow("Refusing to reset non-demo mission");
+  });
+
+  it("demo reset deletes only the scoped mission directory after confirmation", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-demo-reset-"));
+    await mkdir(join(cwd, "missions", EXAMPLE_MISSION_ID), { recursive: true });
+    await mkdir(join(cwd, "missions", "mission-real-production"), { recursive: true });
+    await writeFile(join(cwd, "missions", EXAMPLE_MISSION_ID, "metadata.json"), "{}\n", "utf8");
+    await writeFile(join(cwd, "missions", "mission-real-production", "metadata.json"), "{}\n", "utf8");
+
+    const result = await resetDemoData({ cwd, confirm: true, missionId: EXAMPLE_MISSION_ID, skipDb: true });
+
+    expect(result).toMatchObject({
+      deleted: true,
+      requiresConfirmation: false,
+      missionId: EXAMPLE_MISSION_ID,
+      deletedDatabaseRecords: [],
+    });
+    expect(result.deletedPaths).toEqual([`missions/${EXAMPLE_MISSION_ID}`]);
+    await expect(stat(join(cwd, "missions", EXAMPLE_MISSION_ID))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(join(cwd, "missions", "mission-real-production"))).resolves.toBeTruthy();
+  });
 });
