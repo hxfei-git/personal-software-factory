@@ -50,7 +50,7 @@ function containsLineSeparator(command: string): boolean {
 }
 
 function containsDangerousSequence(command: string): boolean {
-  return /(?:^|\s|--\s*)rm\s+-(?:[^\s]*r[^\s]*f|[^\s]*f[^\s]*r)\s+(?:\/|\*)/.test(command);
+  return /(?:^|\s|--\s*)rm\s+-(?:[^\s]*r[^\s]*f|[^\s]*f[^\s]*r)\s+(?:\/|\*|\.{1,2})(?:\s|$)/.test(command);
 }
 
 function containsPathTraversal(command: string): boolean {
