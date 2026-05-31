@@ -17,6 +17,9 @@ importers:
       '@psf/db':
         specifier: workspace:*
         version: link:packages/db
+      '@psf/demo-workflow':
+        specifier: workspace:*
+        version: link:packages/demo-workflow
       '@psf/integrations':
         specifier: workspace:*
         version: link:packages/integrations
@@ -150,6 +153,40 @@ importers:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
+
+  packages/demo-workflow:
+    dependencies:
+      '@psf/auto-fix-loop':
+        specifier: workspace:*
+        version: link:../auto-fix-loop
+      '@psf/codex-worker':
+        specifier: workspace:*
+        version: link:../../workers/codex-worker
+      '@psf/db':
+        specifier: workspace:*
+        version: link:../db
+      '@psf/integrations':
+        specifier: workspace:*
+        version: link:../integrations
+      '@psf/mission-planner':
+        specifier: workspace:*
+        version: link:../mission-planner
+      '@psf/mission-schema':
+        specifier: workspace:*
+        version: link:../mission-schema
+      '@psf/project-registry':
+        specifier: workspace:*
+        version: link:../project-registry
+      '@psf/qa-worker':
+        specifier: workspace:*
+        version: link:../../workers/qa-worker
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@25.9.1)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
 
   packages/integrations:
     devDependencies:
