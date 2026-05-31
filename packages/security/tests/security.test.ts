@@ -162,6 +162,9 @@ describe("command policy", () => {
     "pnpm test --config=../../outside/vitest.config.ts",
     "npm run test --config=../../outside/vitest.config.ts",
     "pytest -q ../../outside/test_evil.py",
+    "pnpm test --config=/tmp/evil.config.ts",
+    "npm run test -- --config=/tmp/evil.config.ts",
+    "pytest /etc",
   ])("blocks unsafe command %s", (command) => {
     const result = evaluateCommandPolicy({
       command,
@@ -205,6 +208,12 @@ describe("path guards", () => {
     "project/secrets/config.json",
     "project/credentials/config.json",
     "project/tokens/file.txt",
+    "project/api_key/config.json",
+    "project/api-key/config.json",
+    "project/authorization/config.json",
+    "project/cookie/config.json",
+    "project/session/config.json",
+    "project/jwt/config.json",
   ])("rejects unsafe path %s", (candidate) => {
     expect(() => resolveSafeWorkspacePath(workspaceRoot, candidate)).toThrow(/path|forbidden|workspace/i);
   });

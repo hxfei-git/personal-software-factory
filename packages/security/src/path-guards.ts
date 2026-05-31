@@ -19,6 +19,15 @@ const FORBIDDEN_SEGMENTS = new Set([
   "tokens",
   "password",
   "passwords",
+  "authorization",
+  "cookie",
+  "cookies",
+  "session",
+  "sessions",
+  "jwt",
+  "api_key",
+  "api-key",
+  "apikey",
 ]);
 
 function realpath(candidate: string): string {

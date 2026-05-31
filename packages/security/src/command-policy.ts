@@ -57,6 +57,11 @@ function containsPathTraversal(command: string): boolean {
   return command.includes("../") || command.includes("..\\");
 }
 
+function containsAbsolutePathArgument(command: string): boolean {
+  return /(?:^|\s)(?:--[\w.-]+=)?\/[A-Za-z0-9._/-]*(?:\s|$)/.test(command) ||
+    /(?:^|\s)(?:--[\w.-]+=)?[A-Za-z]:[\\/][^\s]*(?:\s|$)/.test(command);
+}
+
 export function evaluateCommandPolicy(input: CommandPolicyInput): CommandPolicyResult {
   const normalizedCommand = normalizeCommand(input.command);
 
@@ -90,6 +95,10 @@ export function evaluateCommandPolicy(input: CommandPolicyInput): CommandPolicyR
 
   if (containsPathTraversal(normalizedCommand)) {
     return deny(normalizedCommand, "Path traversal arguments are blocked.");
+  }
+
+  if (containsAbsolutePathArgument(normalizedCommand)) {
+    return deny(normalizedCommand, "Absolute path arguments are blocked.");
   }
 
   if (/^chmod\s+777\b.*\s\/(?:\s|$)/.test(normalizedCommand) || /^chmod\s+777\s+-R\s+\//.test(normalizedCommand)) {
