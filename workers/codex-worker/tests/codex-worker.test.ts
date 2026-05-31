@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -71,6 +72,23 @@ async function createFakeCodexExecutable(exitCode: 0 | 1): Promise<string> {
   await chmod(executable, 0o755);
 
   return executable;
+}
+
+async function createShellExecutable(lines: string[]): Promise<string> {
+  const root = await mkdtemp(path.join(os.tmpdir(), "psf-fake-codex-"));
+  const executable = path.join(root, "fake-codex.sh");
+  await writeFile(executable, ["#!/usr/bin/env bash", ...lines, ""].join("\n"), "utf8");
+  await chmod(executable, 0o755);
+  return executable;
+}
+
+function gitBranchExists(cwd: string, branchName: string): boolean {
+  try {
+    execFileSync("git", ["rev-parse", "--verify", branchName], { cwd, stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function realRequest(overrides: Partial<Parameters<typeof CodexExecutionRequestSchema.parse>[0]> = {}) {
@@ -301,4 +319,152 @@ describe("real Codex runner gated mode", () => {
       expect(await readFile(stderrArtifact?.path ?? "", "utf8")).toContain("[REDACTED]");
     });
   });
+
+  it("redacts raw secret-like environment values from result output and artifact files", async () => {
+    const repo = await createTempGitRepo();
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const executable = await createShellExecutable([
+      "echo \"stdout $PSF_API_TOKEN\"",
+      "echo \"stderr $PLANE_API_TOKEN\" >&2",
+      "exit 0",
+    ]);
+    const rawApiSecret = "raw-env-secret-value";
+    const rawPlaneSecret = "raw-plane-secret-value";
+    const runner = new RealCodexRunner({
+      env: {
+        ENABLE_REAL_CODEX: "1",
+        CODEX_EXECUTABLE: executable,
+        PSF_WORKSPACE_ROOT: workspaceRoot,
+        PSF_REAL_CODEX_MAX_RUNTIME_MS: "10000",
+        PSF_API_TOKEN: rawApiSecret,
+        PLANE_API_TOKEN: rawPlaneSecret,
+      },
+    });
+
+    await runFromMonorepoRoot(async () => {
+      const result = await runner.run(realRequest({
+        repoUrl: repo,
+        workspaceRoot,
+        branchName: "agent/ai-novelist-env-redaction",
+      }));
+
+      expect(result.status).toBe("succeeded");
+      expect(result.stdout).toContain("[REDACTED]");
+      expect(result.stderr).toContain("[REDACTED]");
+      expect(JSON.stringify(result)).not.toContain(rawApiSecret);
+      expect(JSON.stringify(result)).not.toContain(rawPlaneSecret);
+
+      for (const artifact of result.artifacts) {
+        expect(artifact.content ?? "").not.toContain(rawApiSecret);
+        expect(artifact.content ?? "").not.toContain(rawPlaneSecret);
+        const fileContent = await readFile(artifact.path, "utf8");
+        expect(fileContent).not.toContain(rawApiSecret);
+        expect(fileContent).not.toContain(rawPlaneSecret);
+      }
+    });
+  });
+
+  it.each([
+    { envKey: "CODEX_SANDBOX", envValue: "danger-full-access", reason: /sandbox/i },
+    { envKey: "CODEX_APPROVAL_MODE", envValue: "never", reason: /approval/i },
+  ] as const)("blocks unsafe $envKey=$envValue before spawning", async ({ envKey, envValue, reason }) => {
+    const repo = await createTempGitRepo();
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const executable = await createFakeCodexExecutable(0);
+    let spawned = false;
+    const runner = new RealCodexRunner({
+      env: {
+        ENABLE_REAL_CODEX: "1",
+        CODEX_EXECUTABLE: executable,
+        PSF_WORKSPACE_ROOT: workspaceRoot,
+        PSF_REAL_CODEX_MAX_RUNTIME_MS: "10000",
+        [envKey]: envValue,
+      },
+      spawnCodex: async () => {
+        spawned = true;
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    const result = await runner.run(realRequest({
+      repoUrl: repo,
+      workspaceRoot,
+      branchName: `agent/ai-novelist-${envKey.toLowerCase()}`,
+    }));
+
+    expect(["blocked", "manual_action"]).toContain(result.status);
+    expect(result.reason).toMatch(reason);
+    expect(result.executed).toBe(false);
+    expect(spawned).toBe(false);
+  });
+
+  it("preflights blocked commands before creating a worktree or agent branch", async () => {
+    const repo = await createTempGitRepo();
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const executable = await createFakeCodexExecutable(0);
+    const missionId = "dangerous-command-mission";
+    const branchName = "agent/ai-novelist-dangerous-command-mission";
+    const expectedWorkspacePath = path.join(workspaceRoot, "ai-novelist", missionId);
+    let spawned = false;
+    const runner = new RealCodexRunner({
+      env: {
+        ENABLE_REAL_CODEX: "1",
+        CODEX_EXECUTABLE: executable,
+        PSF_WORKSPACE_ROOT: workspaceRoot,
+        PSF_REAL_CODEX_MAX_RUNTIME_MS: "10000",
+      },
+      spawnCodex: async () => {
+        spawned = true;
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    const result = await runner.run(realRequest({
+      missionId,
+      repoUrl: repo,
+      workspaceRoot,
+      branchName,
+      commands: ["rm -rf /"],
+    }));
+
+    expect(["blocked", "manual_action"]).toContain(result.status);
+    expect(result.executed).toBe(false);
+    expect(spawned).toBe(false);
+    expect(existsSync(expectedWorkspacePath)).toBe(false);
+    expect(gitBranchExists(repo, branchName)).toBe(false);
+  });
+
+  it("escalates timed out Codex processes that ignore SIGTERM", async () => {
+    const repo = await createTempGitRepo();
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const executable = await createShellExecutable([
+      "trap '' TERM",
+      "echo started",
+      "sleep 2",
+      "echo should-not-finish",
+    ]);
+    const runner = new RealCodexRunner({
+      env: {
+        ENABLE_REAL_CODEX: "1",
+        CODEX_EXECUTABLE: executable,
+        PSF_WORKSPACE_ROOT: workspaceRoot,
+        PSF_REAL_CODEX_MAX_RUNTIME_MS: "1000",
+      },
+    });
+
+    const startedAt = Date.now();
+    const result = await runFromMonorepoRoot(() => runner.run(realRequest({
+      repoUrl: repo,
+      workspaceRoot,
+      branchName: "agent/ai-novelist-timeout",
+      timeoutMs: 100,
+    })));
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(result.status).toBe("failed");
+    expect(result.exitCode).toBe(124);
+    expect(result.stderr).toMatch(/timed out/i);
+    expect(elapsedMs).toBeLessThan(1_000);
+  }, 5_000);
+
 });

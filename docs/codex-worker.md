@@ -102,7 +102,11 @@ Real runner request validation is handled by `CodexExecutionRequestSchema`. Requ
 
 ## Real Runner Artifacts
 
-When a gated real run executes an explicit executable, stdout and stderr are redacted with `@psf/security` before being returned or persisted. The runner uses `@psf/artifact-store` for prompt, command, stdout, stderr, dev summary, diff summary, and local commit summary artifacts. Push is disabled, and no external provider APIs are called.
+When a gated real run executes an explicit executable, prompt, command, stdout, stderr, diff summary, and local commit summary are redacted with `@psf/security` before being returned or persisted. Secret-like environment variable values, such as token/password/secret/authorization/cookie/session/JWT/API-key values, are passed as extra redaction secrets so a mock or real executable cannot leak raw env values into results or artifacts. The runner uses `@psf/artifact-store` for prompt, command, stdout, stderr, dev summary, diff summary, and local commit summary artifacts. Push is disabled, and no external provider APIs are called.
+
+## Real Runner Gates
+
+Before workspace leasing, the runner blocks unsafe CLI policy and project commands. `CODEX_SANDBOX` is limited to `workspace-write` or `read-only`, and `CODEX_APPROVAL_MODE` is limited to `on-request`. Project commands are checked with the shared command policy before any worktree or agent branch is created, then checked again inside the leased workspace. Timed-out child processes receive `SIGTERM`, then `SIGKILL`, with a hard fallback so ignored termination does not hang the worker.
 
 ## Current Non-Goals
 

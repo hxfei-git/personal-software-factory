@@ -17,6 +17,63 @@ import { leaseCodexWorkspace, type CodexWorkspaceLeaseReady } from "./workspace.
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_NOW = "2026-05-30T10:00:00.000Z";
+const SAFE_CODEX_SANDBOXES = new Set(["workspace-write", "read-only"]);
+const SAFE_CODEX_APPROVAL_MODE = "on-request";
+const SECRET_ENV_KEY_PATTERN = /(?:token|password|secret|authorization|credential|cookie|session|jwt|api[_-]?key|apikey)/i;
+
+function collectEnvSecretValues(env: Record<string, string | undefined>): string[] {
+  return Object.entries(env)
+    .filter(([key, value]) => SECRET_ENV_KEY_PATTERN.test(key) && typeof value === "string" && value.length > 0)
+    .map(([, value]) => value as string);
+}
+
+function redactOutput(input: string, extraSecrets: string[]): string {
+  return redactText(input, extraSecrets);
+}
+
+function configuredSandbox(env: Record<string, string | undefined>): string {
+  return env.CODEX_SANDBOX ?? "workspace-write";
+}
+
+function configuredApprovalMode(env: Record<string, string | undefined>): string {
+  return env.CODEX_APPROVAL_MODE ?? SAFE_CODEX_APPROVAL_MODE;
+}
+
+function validateCodexCliPolicy(env: Record<string, string | undefined>): string | undefined {
+  const sandbox = configuredSandbox(env);
+  if (!SAFE_CODEX_SANDBOXES.has(sandbox)) {
+    return `CODEX_SANDBOX=${sandbox} is blocked; allowed values are workspace-write or read-only.`;
+  }
+
+  const approvalMode = configuredApprovalMode(env);
+  if (approvalMode !== SAFE_CODEX_APPROVAL_MODE) {
+    return `CODEX_APPROVAL_MODE=${approvalMode} is blocked; only on-request is allowed.`;
+  }
+
+  return undefined;
+}
+
+function workspaceRootFor(input: CodexExecutionRequest, env: Record<string, string | undefined>): string {
+  return path.resolve(input.workspaceRoot ?? env.PSF_WORKSPACE_ROOT ?? "workspaces");
+}
+
+function preflightCommands(input: CodexExecutionRequest, workspaceRoot: string): string | undefined {
+  for (const command of input.commands) {
+    try {
+      assertCommandAllowed({
+        command,
+        cwd: workspaceRoot,
+        workspaceRoot,
+        allowNetwork: false,
+        allowGitPush: false,
+        timeoutMs: input.timeoutMs,
+      });
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
+  return undefined;
+}
 
 export type CodexExecutionStatus = "blocked" | "manual_action" | "succeeded" | "failed";
 
@@ -106,16 +163,17 @@ function resultFor(
   reason: string,
   options: CodexRunnerOptions,
   fields: Partial<CodexExecutionResult> = {},
+  extraSecrets: string[] = [],
 ): CodexExecutionResult {
   const createdAt = now(options);
   const workerStatus: WorkerRun["status"] = status === "succeeded" ? "succeeded" : status === "failed" ? "failed" : "skipped";
   const workerRun = fields.workerRun ?? createWorkerRun(input, {
     status: workerStatus,
-    error: status === "succeeded" ? "" : redactText(reason),
+    error: status === "succeeded" ? "" : redactOutput(reason, extraSecrets),
     output: {
       executed: fields.executed ?? false,
       status,
-      reason: redactText(reason),
+      reason: redactOutput(reason, extraSecrets),
     },
     metadata: {
       realNetworkCall: false,
@@ -129,12 +187,12 @@ function resultFor(
   return {
     status,
     executed: fields.executed ?? false,
-    reason: redactText(reason),
+    reason: redactOutput(reason, extraSecrets),
     workerRun,
     artifacts: fields.artifacts ?? [],
-    events: fields.events ?? [createEvent(input, `codex.${status}`, redactText(reason), { workerRunId: workerRun.id }, createdAt)],
-    stdout: redactText(fields.stdout ?? ""),
-    stderr: redactText(fields.stderr ?? ""),
+    events: fields.events ?? [createEvent(input, `codex.${status}`, redactOutput(reason, extraSecrets), { workerRunId: workerRun.id }, createdAt)],
+    stdout: redactOutput(fields.stdout ?? "", extraSecrets),
+    stderr: redactOutput(fields.stderr ?? "", extraSecrets),
     exitCode: fields.exitCode,
     workspacePath: fields.workspacePath,
     branchName: fields.branchName,
@@ -175,7 +233,7 @@ function renderCommand(executable: string, args: string[]): string {
   return [executable, ...args].map((part) => `'${part.replaceAll("'", "'\"'\"'")}'`).join(" ");
 }
 
-async function saveCodexArtifacts(input: CodexExecutionRequest, runId: string, artifacts: Array<[string, string, string]>): Promise<Artifact[]> {
+async function saveCodexArtifacts(input: CodexExecutionRequest, runId: string, artifacts: Array<[string, string, string]>, extraSecrets: string[]): Promise<Artifact[]> {
   const saved: Artifact[] = [];
   for (const [type, name, content] of artifacts) {
     saved.push(await saveTextArtifact({
@@ -183,36 +241,89 @@ async function saveCodexArtifacts(input: CodexExecutionRequest, runId: string, a
       workerRunId: runId,
       type,
       name,
-      content,
+      content: redactOutput(content, extraSecrets),
       metadata: { generatedBy: "codex-worker", mode: input.mode, realNetworkCall: false },
     }));
   }
   return saved;
 }
 
-async function gitSummary(cwd: string, args: string[]): Promise<string> {
+async function gitSummary(cwd: string, args: string[], extraSecrets: string[]): Promise<string> {
   try {
     const { stdout, stderr } = await execFileAsync("git", args, { cwd, timeout: 30_000, maxBuffer: 1024 * 1024 });
-    return redactText([stdout.trim(), stderr.trim()].filter(Boolean).join("\n"));
+    return redactOutput([stdout.trim(), stderr.trim()].filter(Boolean).join("\n"), extraSecrets);
   } catch (error) {
-    return redactText(error instanceof Error ? error.message : String(error));
+    return redactOutput(error instanceof Error ? error.message : String(error), extraSecrets);
   }
 }
 
 async function defaultSpawnCodex(input: SpawnCodexInput): Promise<SpawnCodexResult> {
   return new Promise((resolve, reject) => {
+    const useProcessGroup = process.platform !== "win32";
     const child = spawn(input.executable, input.args, {
       cwd: input.cwd,
       env: { ...process.env, ...input.env },
       stdio: ["ignore", "pipe", "pipe"],
+      detached: useProcessGroup,
     });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let settled = false;
+    let sigkillTimer: NodeJS.Timeout | undefined;
+    let hardFallbackTimer: NodeJS.Timeout | undefined;
 
-    const timer = setTimeout(() => {
+    function clearTimers(): void {
+      clearTimeout(timeoutTimer);
+      if (sigkillTimer) {
+        clearTimeout(sigkillTimer);
+      }
+      if (hardFallbackTimer) {
+        clearTimeout(hardFallbackTimer);
+      }
+    }
+
+    function killChild(signal: NodeJS.Signals): void {
+      try {
+        if (useProcessGroup && child.pid) {
+          process.kill(-child.pid, signal);
+          return;
+        }
+        child.kill(signal);
+      } catch {
+        try {
+          child.kill(signal);
+        } catch {
+          // Process may already be gone; close/hard fallback will settle the promise.
+        }
+      }
+    }
+
+    function finish(result: SpawnCodexResult): void {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimers();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      resolve(result);
+    }
+
+    const timeoutTimer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
+      killChild("SIGTERM");
+      sigkillTimer = setTimeout(() => {
+        killChild("SIGKILL");
+      }, 100);
+      hardFallbackTimer = setTimeout(() => {
+        finish({
+          exitCode: 124,
+          stdout,
+          stderr: `${stderr}
+Process timed out after ${input.timeoutMs}ms and did not exit after SIGTERM/SIGKILL escalation.`,
+        });
+      }, 500);
     }, input.timeoutMs);
 
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -222,15 +333,19 @@ async function defaultSpawnCodex(input: SpawnCodexInput): Promise<SpawnCodexResu
       stderr += chunk.toString("utf8");
     });
     child.on("error", (error) => {
-      clearTimeout(timer);
+      if (settled) {
+        return;
+      }
+      clearTimers();
+      settled = true;
       reject(error);
     });
     child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({
+      finish({
         exitCode: timedOut ? 124 : code ?? 1,
         stdout,
-        stderr: timedOut ? `${stderr}\nProcess timed out after ${input.timeoutMs}ms.` : stderr,
+        stderr: timedOut ? `${stderr}
+Process timed out after ${input.timeoutMs}ms.` : stderr,
       });
     });
   });
@@ -263,18 +378,19 @@ export class RealCodexRunner implements CodexRunner {
 
   async run(rawInput: CodexExecutionRequest): Promise<CodexExecutionResult> {
     const input = CodexExecutionRequestSchema.parse(rawInput);
+    const extraSecrets = collectEnvSecretValues(this.env);
 
     if (input.mode !== "real") {
-      return resultFor(input, "blocked", "RealCodexRunner only accepts mode=real requests.", this.options);
+      return resultFor(input, "blocked", "RealCodexRunner only accepts mode=real requests.", this.options, {}, extraSecrets);
     }
 
     if (this.env.ENABLE_REAL_CODEX !== "1") {
-      return resultFor(input, "blocked", "Real Codex execution requires ENABLE_REAL_CODEX=1.", this.options);
+      return resultFor(input, "blocked", "Real Codex execution requires ENABLE_REAL_CODEX=1.", this.options, {}, extraSecrets);
     }
 
     const approval = evaluateApprovalPolicy("real_codex_execution", input.approvalIds);
     if (!approval.allowed) {
-      return resultFor(input, "blocked", approval.reason, this.options);
+      return resultFor(input, "blocked", approval.reason, this.options, {}, extraSecrets);
     }
 
     try {
@@ -285,35 +401,46 @@ export class RealCodexRunner implements CodexRunner {
         hasApproval: approval.allowed,
       });
     } catch (error) {
-      return resultFor(input, "blocked", error instanceof Error ? error.message : String(error), this.options);
+      return resultFor(input, "blocked", error instanceof Error ? error.message : String(error), this.options, {}, extraSecrets);
     }
 
     const maxRuntimeMs = Number.parseInt(this.env.PSF_REAL_CODEX_MAX_RUNTIME_MS ?? "300000", 10);
     if (input.timeoutMs > maxRuntimeMs) {
-      return resultFor(input, "blocked", `Requested timeout ${input.timeoutMs}ms exceeds PSF_REAL_CODEX_MAX_RUNTIME_MS=${maxRuntimeMs}.`, this.options);
+      return resultFor(input, "blocked", `Requested timeout ${input.timeoutMs}ms exceeds PSF_REAL_CODEX_MAX_RUNTIME_MS=${maxRuntimeMs}.`, this.options, {}, extraSecrets);
+    }
+
+    const cliPolicyFailure = validateCodexCliPolicy(this.env);
+    if (cliPolicyFailure) {
+      return resultFor(input, "blocked", cliPolicyFailure, this.options, {}, extraSecrets);
+    }
+
+    const requestedWorkspaceRoot = workspaceRootFor(input, this.env);
+    const commandPolicyFailure = preflightCommands(input, requestedWorkspaceRoot);
+    if (commandPolicyFailure) {
+      return resultFor(input, "manual_action", commandPolicyFailure, this.options, {}, extraSecrets);
     }
 
     const executable = this.env.CODEX_EXECUTABLE;
     if (!executable) {
-      return resultFor(input, "manual_action", "CODEX_EXECUTABLE must point to an explicit executable path; PATH lookup is disabled.", this.options);
+      return resultFor(input, "manual_action", "CODEX_EXECUTABLE must point to an explicit executable path; PATH lookup is disabled.", this.options, {}, extraSecrets);
     }
     if (!path.isAbsolute(executable)) {
-      return resultFor(input, "manual_action", "CODEX_EXECUTABLE must be an absolute executable path; PATH lookup is disabled.", this.options);
+      return resultFor(input, "manual_action", "CODEX_EXECUTABLE must be an absolute executable path; PATH lookup is disabled.", this.options, {}, extraSecrets);
     }
 
     try {
       assertNotForbiddenPath(executable);
       await access(executable);
     } catch (error) {
-      return resultFor(input, "manual_action", error instanceof Error ? error.message : String(error), this.options);
+      return resultFor(input, "manual_action", error instanceof Error ? error.message : String(error), this.options, {}, extraSecrets);
     }
 
     const lease = await leaseCodexWorkspace({
       ...input,
-      workspaceRoot: input.workspaceRoot ?? this.env.PSF_WORKSPACE_ROOT,
+      workspaceRoot: requestedWorkspaceRoot,
     });
     if (lease.status !== "ready") {
-      return resultFor(input, "manual_action", lease.reason, this.options);
+      return resultFor(input, "manual_action", lease.reason, this.options, {}, extraSecrets);
     }
 
     for (const command of input.commands) {
@@ -330,21 +457,21 @@ export class RealCodexRunner implements CodexRunner {
         return resultFor(input, "manual_action", error instanceof Error ? error.message : String(error), this.options, {
           workspacePath: lease.workspacePath,
           branchName: lease.branchName,
-        });
+        }, extraSecrets);
       }
     }
 
     const runId = workerRunId(input, "real");
-    const prompt = redactText(renderPrompt(input, lease));
+    const prompt = redactOutput(renderPrompt(input, lease), extraSecrets);
     const args = [
       "exec",
       "--sandbox",
-      this.env.CODEX_SANDBOX ?? "workspace-write",
+      configuredSandbox(this.env),
       "--ask-for-approval",
-      this.env.CODEX_APPROVAL_MODE ?? "on-request",
+      configuredApprovalMode(this.env),
       prompt,
     ];
-    const command = redactText(renderCommand(executable, args));
+    const command = redactOutput(renderCommand(executable, args), extraSecrets);
     const startedAt = now(this.options);
 
     let spawned: SpawnCodexResult;
@@ -364,11 +491,11 @@ export class RealCodexRunner implements CodexRunner {
       };
     }
 
-    const stdout = redactText(spawned.stdout);
-    const stderr = redactText(spawned.stderr);
-    const diffSummary = await gitSummary(lease.workspacePath, ["diff", "--stat"]);
-    const statusSummary = await gitSummary(lease.workspacePath, ["status", "--short"]);
-    const commitSummary = await gitSummary(lease.workspacePath, ["log", "-1", "--pretty=format:%H %s"]);
+    const stdout = redactOutput(spawned.stdout, extraSecrets);
+    const stderr = redactOutput(spawned.stderr, extraSecrets);
+    const diffSummary = await gitSummary(lease.workspacePath, ["diff", "--stat"], extraSecrets);
+    const statusSummary = await gitSummary(lease.workspacePath, ["status", "--short"], extraSecrets);
+    const commitSummary = await gitSummary(lease.workspacePath, ["log", "-1", "--pretty=format:%H %s"], extraSecrets);
     const devSummary = [
       "# Codex Worker Real Runner Summary",
       "",
@@ -391,7 +518,7 @@ export class RealCodexRunner implements CodexRunner {
       ["dev_summary", "dev-summary.md", devSummary],
       ["codex_diff_summary", "diff-summary.txt", [diffSummary, statusSummary].filter(Boolean).join("\n") || "No local diff."],
       ["codex_local_commit_summary", "local-commit-summary.txt", commitSummary || "No local commit summary available."],
-    ]);
+    ], extraSecrets);
 
     const finishedAt = now(this.options);
     const status: CodexExecutionStatus = spawned.exitCode === 0 ? "succeeded" : "failed";
@@ -417,8 +544,8 @@ export class RealCodexRunner implements CodexRunner {
         realNetworkCall: false,
         pushed: false,
         executableConfigured: true,
-        sandbox: this.env.CODEX_SANDBOX ?? "workspace-write",
-        approvalMode: this.env.CODEX_APPROVAL_MODE ?? "on-request",
+        sandbox: configuredSandbox(this.env),
+        approvalMode: configuredApprovalMode(this.env),
       },
       created_at: startedAt,
       updated_at: finishedAt,

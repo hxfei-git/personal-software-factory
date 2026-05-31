@@ -49,7 +49,8 @@ Real mode returns `blocked` or `manual_action` unless all of these are true:
 4. `PSF_WORKSPACE_ROOT` or request `workspaceRoot` is available and passes path guards.
 5. The repository is a local git repository with an `origin` remote.
 6. The execution branch is under `agent/` and is not `main` or `master`.
-7. Requested commands pass the shared command policy.
-8. `timeoutMs` does not exceed `PSF_REAL_CODEX_MAX_RUNTIME_MS`.
+7. `CODEX_SANDBOX` is `workspace-write` or `read-only`, and `CODEX_APPROVAL_MODE` is `on-request`.
+8. Requested commands pass the shared command policy before workspace leasing.
+9. `timeoutMs` does not exceed `PSF_REAL_CODEX_MAX_RUNTIME_MS`.
 
-The runner persists redacted prompt, command, stdout, stderr, dev summary, diff summary, and local commit summary artifacts through `@psf/artifact-store`. It does not push, deploy, create PRs, or call external APIs.
+The runner persists redacted prompt, command, stdout, stderr, dev summary, diff summary, and local commit summary artifacts through `@psf/artifact-store`. Secret-like environment variable values are included as extra redaction inputs. Timed-out executable processes are escalated from `SIGTERM` to `SIGKILL` with a hard fallback. It does not push, deploy, create PRs, or call external APIs.
