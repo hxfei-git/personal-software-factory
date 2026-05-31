@@ -9,6 +9,7 @@ import {
   EXAMPLE_MISSION_ID,
   getDemoBoundary,
   runAiNovelistDemo,
+  syncDemoResources,
 } from "../src/index.js";
 
 describe("@psf/demo-workflow scaffold", () => {
@@ -92,4 +93,122 @@ describe("ai-novelist local demo workflow", () => {
     expect(report).toContain(`missions/${EXAMPLE_MISSION_ID}/qa-report.md`);
     expect(report).not.toMatch(/TOKEN|PASSWORD|SECRET|ghp_/i);
   });
+
+  it("redacts secret-bearing QA target URLs before writing dry-run artifacts", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-demo-redacted-url-"));
+    await cp(resolve("../..", "projects"), join(cwd, "projects"), { recursive: true });
+    const previousQaTestUrl = process.env.QA_TEST_URL;
+    const previousStagingUrl = process.env.STAGING_URL;
+    process.env.QA_TEST_URL = "https://user:pass@example.test/path?token=abc&safe=ok";
+    delete process.env.STAGING_URL;
+
+    try {
+      await runAiNovelistDemo({
+        cwd,
+        skipDb: true,
+        withSampleBug: true,
+        now: "2026-05-31T12:00:00.000Z",
+      });
+    } finally {
+      if (previousQaTestUrl === undefined) {
+        delete process.env.QA_TEST_URL;
+      } else {
+        process.env.QA_TEST_URL = previousQaTestUrl;
+      }
+      if (previousStagingUrl === undefined) {
+        delete process.env.STAGING_URL;
+      } else {
+        process.env.STAGING_URL = previousStagingUrl;
+      }
+    }
+
+    const qaReport = await readFile(join(cwd, "missions", EXAMPLE_MISSION_ID, "qa-report.md"), "utf8");
+    const qaSummary = await readFile(join(cwd, "missions", EXAMPLE_MISSION_ID, "qa-summary.json"), "utf8");
+    const bugs = await readFile(join(cwd, "missions", EXAMPLE_MISSION_ID, "bugs.json"), "utf8");
+    const artifacts = [qaReport, qaSummary, bugs].join("\n");
+
+    expect(qaReport).toContain("https://example.test/path?token=[redacted]&safe=ok");
+    expect(artifacts).not.toContain("token=abc");
+    expect(artifacts).not.toContain("user:pass");
+    expect(artifacts).not.toContain(":pass@");
+    expect(artifacts).not.toContain("pass@example");
+    expect(artifacts).toContain("[redacted]");
+  });
+
+  it("redacts database sync error causes", async () => {
+    const now = "2026-05-31T12:00:00.000Z";
+    const resources = {
+      project: {
+        project: {
+          id: "ai-novelist",
+          slug: "ai-novelist",
+          name: "AI Novelist",
+          repo_url: "https://example.test/repo.git",
+          default_branch: "main",
+          status: "active" as const,
+          created_at: now,
+          updated_at: now,
+        },
+        passport: {
+          id: "ai-novelist",
+          name: "AI Novelist",
+          repo: { url: "https://example.test/repo.git", default_branch: "main" },
+          runtime: { kind: "node" },
+          commands: { install: "pnpm install", test: "pnpm test", build: "pnpm build", run_staging: "pnpm dev" },
+          urls: { production: "", staging: "" },
+          quality_gates: {},
+          core_flows: [{ id: "generate", name: "Generate", priority: "P1" as const }],
+        },
+        passportPath: "projects/ai-novelist/project.passport.yaml",
+      },
+      metadata: {
+        id: EXAMPLE_MISSION_ID,
+        projectId: "ai-novelist",
+        title: "Demo",
+        slug: "demo",
+        rawRequest: "Demo",
+        status: "planned" as const,
+        priority: "P2" as const,
+        riskLevel: "medium" as const,
+        branchName: `psf/${EXAMPLE_MISSION_ID}`,
+        missionDir: `missions/${EXAMPLE_MISSION_ID}`,
+        dryRun: true as const,
+        createdAt: now,
+        updatedAt: now,
+      },
+      workerRuns: [],
+      artifacts: [],
+      events: [],
+      qaRuns: [],
+      bugs: [],
+    };
+    let message = "";
+
+    try {
+      await syncDemoResources({
+        ...resources,
+        prisma: {
+          $connect: async () => {
+            throw new Error("failed for postgresql://psf:secret@localhost:5432/psf?token=abc");
+          },
+          $disconnect: async () => undefined,
+          project: { upsert: async () => undefined },
+          mission: { upsert: async () => undefined },
+          workerRun: { upsert: async () => undefined },
+          artifact: { upsert: async () => undefined },
+          missionEvent: { upsert: async () => undefined },
+          qARun: { upsert: async () => undefined },
+          bug: { upsert: async () => undefined },
+        },
+      });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toContain("Database sync failed");
+    expect(message).not.toContain("secret");
+    expect(message).not.toContain("token=abc");
+    expect(message).toContain("[redacted]");
+  });
+
 });

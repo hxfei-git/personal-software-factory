@@ -69,7 +69,7 @@ export async function syncDemoResources(input: SyncDemoResourcesInput): Promise<
     throw new Error([
       "Database sync failed. Start the local Postgres service or use PSF_SKIP_DB=1 / --skip-db for artifact-only dry-runs.",
       `DATABASE_URL=${redactDatabaseUrl(process.env.DATABASE_URL)}`,
-      `Cause: ${errorMessage(error)}`,
+      `Cause: ${redactSecretText(errorMessage(error))}`,
     ].join(" "));
   } finally {
     if (prisma) {
@@ -235,5 +235,11 @@ export function redactDatabaseUrl(value: string | undefined): string {
   if (!value) {
     return "<unset>";
   }
-  return value.replace(/:\/\/([^:@/]+):([^@/]+)@/, "://$1:<redacted>@");
+  return redactSecretText(value).replace(/:\/\/([^:@/]+):\[redacted\]@/, "://$1:<redacted>@");
+}
+
+function redactSecretText(value: string): string {
+  return value
+    .replace(/:\/\/([^:@/\s]+):([^@/\s]+)@/g, "://$1:[redacted]@")
+    .replace(/([?&][^=&#\s]*(?:token|password|passwd|pwd|secret|key|auth|credential|session|jwt|bearer)[^=&#\s]*=)[^&#\s]*/gi, "$1[redacted]");
 }

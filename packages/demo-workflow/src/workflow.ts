@@ -224,7 +224,7 @@ async function qaDryRunInContext(context: WorkflowContext): Promise<void> {
   const metadata = requireMetadata(context);
   const project = requireProject(context);
   const qaCharter = await readProjectFile(context.cwd, metadata.projectId, "qa-charter.md");
-  const qaTargetUrl = process.env.QA_TEST_URL || process.env.STAGING_URL;
+  const qaTargetUrl = sanitizeUrlForArtifact(process.env.QA_TEST_URL || process.env.STAGING_URL);
   const result = createQaDryRun({
     missionId: metadata.id,
     projectId: metadata.projectId,
@@ -442,4 +442,34 @@ function uniqueStrings(items: string[]): string[] {
 
 function trimTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
+function sanitizeUrlForArtifact(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(value);
+    url.username = "";
+    url.password = "";
+    for (const key of [...url.searchParams.keys()]) {
+      if (isSecretLikeKey(key)) {
+        url.searchParams.set(key, "[redacted]");
+      }
+    }
+    return url.toString().replaceAll("%5Bredacted%5D", "[redacted]");
+  } catch {
+    return redactSecretLikeText(value);
+  }
+}
+
+function redactSecretLikeText(value: string): string {
+  return value
+    .replace(/:\/\/([^:@/\s]+):([^@/\s]+)@/g, "://$1:[redacted]@")
+    .replace(/([?&][^=&#\s]*(?:token|password|passwd|pwd|secret|key|auth|credential|session|jwt|bearer)[^=&#\s]*=)[^&#\s]*/gi, "$1[redacted]");
+}
+
+function isSecretLikeKey(key: string): boolean {
+  return /token|password|passwd|pwd|secret|key|auth|credential|session|jwt|bearer/i.test(key);
 }
