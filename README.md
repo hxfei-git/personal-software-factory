@@ -2,7 +2,7 @@
 
 Personal Software Factory / 个人 AI 软件工厂 is a single-user control plane for turning natural-language software requests into structured Missions, Codex-driven development, Playwright QA, structured bug reports, approval gates, and reviewable release work.
 
-The repository currently contains the foundation through the Phase 11-15 dry-run batch: shared schemas, Prisma persistence, Mission state machine, Fastify Orchestrator API, API token auth, Project Registry, Project Passport intake for `ai-novelist`, deterministic Mission Planner, local CLI helpers, Codex Worker dry-run artifact generation, QA/fix dry-runs, Hub Web, dashboard APIs, and mock integration adapters.
+The repository currently contains the foundation through Phase 16A/16B/17A demo operations hardening: shared schemas, Prisma persistence, Mission state machine, Fastify Orchestrator API, API token auth, Project Registry, Project Passport intake for `ai-novelist`, deterministic Mission Planner, local CLI helpers, Codex Worker dry-run artifact generation, QA/fix dry-runs, Hub Web, dashboard APIs, mock integration adapters, local demo workflow, doctor, scoped demo reset, and report generation.
 
 ## Current Scope
 
@@ -15,16 +15,49 @@ Implemented:
 - `packages/project-registry`: scanner for `projects/*/project.passport.yaml` and Project metadata sync inputs.
 - `packages/mission-planner`: deterministic template planner that does not call an LLM.
 - `packages/integrations`: mock/dry-run GitHub, Coolify, Uptime Kuma, and Plane adapters. They never call real external APIs.
+- `packages/demo-workflow`: shared Phase 16A/16B/17A local ai-novelist demo workflow, doctor, reset, and report helpers.
 - `apps/orchestrator-api`: Fastify API with health, dashboard, project sync/passport, Mission planning/summary, Approval, WorkerRun, Artifact, BugReport, QARun, and Integration routes.
 - `apps/hub`: React/Vite Hub Web console for dashboard, Mission detail, QA, bugs, WorkerRun, artifact, and Integration views.
 - `workers/codex-worker`: dry-run prompt, command review artifact, and dev summary generator. It never executes Codex.
-- `scripts/psf.ts`: local dry-run CLI for registry sync, example Mission creation, planning, Codex/QA/fix dry-run artifacts, and Integration dry-runs.
+- `scripts/psf.ts`: local dry-run CLI for registry sync, example Mission creation, planning, Codex/QA/fix dry-run artifacts, Integration dry-runs, doctor, demo reset, and demo report.
 
 Not implemented yet:
 
 - Real Codex execution, repository clone/update, worktree creation, project test execution, local commits, remote push, or PR creation.
 - Real Playwright QA execution and browser report collection beyond the optional local smoke gate.
 - BullMQ queues and real external integrations with GitHub, Coolify, Uptime Kuma, Plane, or n8n.
+
+## Run The Local MVP Demo
+
+From a clean checkout:
+
+```bash
+pnpm install
+cp .env.example .env
+sudo docker compose up -d postgres redis
+pnpm db:generate
+pnpm db:migrate
+pnpm db:seed
+pnpm psf doctor
+pnpm psf demo:ai-novelist --with-sample-bug
+PSF_AUTH_DISABLED=true pnpm dev:api
+VITE_ORCHESTRATOR_API_URL=http://127.0.0.1:3000 pnpm dev:hub
+```
+
+Run `pnpm dev:api` and `pnpm dev:hub` in separate terminals. Open `http://127.0.0.1:5173` to inspect the dashboard, the fixed Mission detail for `mission-0001-ai-novelist-chapter-review`, and protected dry-run buttons.
+
+The MVP does not execute Codex, push, create PRs, deploy, create monitors, create Plane issues, or call external services.
+
+Useful follow-up commands:
+
+```bash
+pnpm psf doctor --check-db
+pnpm psf integrations:status
+pnpm psf demo:report --with-sample-bug
+pnpm psf demo:reset --skip-db
+DEMO_RESET_CONFIRM=1 pnpm psf demo:reset --skip-db
+pnpm test:scripts
+```
 
 ## Repository Layout
 
@@ -140,6 +173,11 @@ pnpm psf mission:create ai-novelist "增加章节审稿和自动修复流程"
 pnpm psf mission:plan mission-0001-ai-novelist-chapter-review
 pnpm psf codex:dry-run mission-0001-ai-novelist-chapter-review
 pnpm psf loop:dry-run mission-0001-ai-novelist-chapter-review --with-sample-bug
+pnpm psf doctor
+pnpm psf demo:seed --skip-db
+pnpm psf demo:ai-novelist --with-sample-bug
+pnpm psf demo:report --with-sample-bug
+pnpm psf demo:reset --skip-db
 pnpm psf integrations:status
 pnpm psf integrations:dry-run github
 pnpm psf integrations:dry-run coolify
@@ -185,6 +223,14 @@ pnpm test
 
 - `docs/api.md`: Orchestrator API routes and request shapes.
 - `docs/auth.md`: API token auth and local/dev/test boundaries.
+- `docs/safety.md`: Phase 16A/16B/17A dry-run and secret safety boundaries.
+- `docs/worker-permissions.md`: current dry-run worker and Hub/API permission model.
+- `docs/operations.md`: local startup, doctor, demo report, and reset operations.
+- `docs/troubleshooting.md`: local remedies for common dry-run failures.
+- `docs/local-development.md`: zero-to-local setup path.
+- `docs/health-checks.md`: doctor, API, Hub, and integration health checks.
+- `docs/final-mvp-scope.md`: current local MVP scope and exclusions.
+- `docs/next-steps.md`: recommended post-demo hardening path.
 - `docs/hub-web.md`: Hub Web startup, routes, and local demo flow.
 - `docs/integrations.md`: shared Integration dry-run contract and CLI/API commands.
 - `docs/github-integration.md`: GitHub mock PR/Issue dry-run behavior.

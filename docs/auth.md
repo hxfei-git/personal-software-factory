@@ -9,6 +9,7 @@ The Orchestrator API uses single-user bearer token authentication for write oper
 - `POST`, `PUT`, `PATCH`, and `DELETE` require `Authorization: Bearer <PSF_API_TOKEN>` when auth is enabled.
 - `GET /dashboard`, `GET /missions/:id/summary`, and `GET /integrations` are no-side-effect reads for Hub Web and do not require a token.
 - `POST /integrations/:name/dry-run`, including `POST /integrations/uptime-kuma/dry-run`, is protected because it models future external side effects even though the current implementation is still local dry-run.
+- `POST /demo/ai-novelist` and `POST /missions/:id/actions/*` dry-run actions are protected because they generate local artifacts and model future worker side effects.
 - `PSF_AUTH_DISABLED=true` bypasses write auth and must be limited to local development or automated tests.
 - `NODE_ENV=test` disables auth automatically for integration tests.
 
@@ -28,10 +29,21 @@ For any environment reachable by another user or machine, set `PSF_AUTH_DISABLED
 
 Provider tokens and passwords such as `GITHUB_TOKEN`, `COOLIFY_TOKEN`, `UPTIME_KUMA_PASSWORD`, and `PLANE_API_TOKEN` must not appear in API responses, Hub UI, logs, artifacts, PR bodies, Issue bodies, or comments. Integration adapters may use their presence to report `configured`, but values must be redacted before anything is displayed or persisted.
 
+## Phase 16A/16B/17A Local Demo Auth
+
+For the quickest local demo, start the API with:
+
+```bash
+PSF_AUTH_DISABLED=true pnpm dev:api
+```
+
+For a token-protected local demo, set the same throwaway value in `PSF_API_TOKEN` for the API and `VITE_PSF_API_TOKEN` for Hub Web. `VITE_PSF_API_TOKEN` is visible in the browser bundle, so never place real provider credentials there.
+
 ## Example
 
 ```bash
 curl http://127.0.0.1:3000/health
 curl -H "Authorization: Bearer $PSF_API_TOKEN" -X POST http://127.0.0.1:3000/projects/sync
 curl -H "Authorization: Bearer $PSF_API_TOKEN" -X POST http://127.0.0.1:3000/integrations/github/dry-run
+curl -H "Authorization: Bearer $PSF_API_TOKEN" -H "Content-Type: application/json" -X POST http://127.0.0.1:3000/demo/ai-novelist -d "{\"withSampleBug\":true}"
 ```

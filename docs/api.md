@@ -426,3 +426,20 @@ Protected. Updates a QA run and appends `qa_run.updated`.
 ```
 
 Stable error codes currently include `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_MISSION_TRANSITION`, `UNAUTHORIZED`, and `INTERNAL_SERVER_ERROR`.
+
+## Phase 16A/16B/17A Demo Surfaces
+
+Phase 16A is the local ai-novelist dry-run chain. Phase 16B exposes protected Hub/API dry-run actions. Phase 17A adds CLI doctor, reset, report, and operations docs.
+
+The API surfaces in this batch are still dry-run only. They do not execute Codex, run shell commands from the Hub, push, create PRs, deploy, create provider records, or call external services.
+
+Related CLI operations are local helpers, not API routes:
+
+```bash
+pnpm psf doctor
+pnpm psf demo:ai-novelist --with-sample-bug
+pnpm psf demo:report --with-sample-bug
+pnpm psf demo:reset --skip-db
+```
+
+Reset is intentionally CLI-only and confirmation-gated.

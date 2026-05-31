@@ -1,0 +1,128 @@
+# Troubleshooting
+
+## DB Unavailable
+
+Symptom: demo sync or migration fails with a database connection error.
+
+Remedy:
+
+```bash
+sudo docker compose up -d postgres redis
+pnpm db:generate
+pnpm db:migrate
+pnpm db:seed
+```
+
+For artifact-only dry-runs, use `--skip-db` or `PSF_SKIP_DB=1`.
+
+## API Token Failure
+
+Symptom: protected POST routes return unauthorized.
+
+Remedy: set `PSF_API_TOKEN` for the API and send `Authorization: Bearer <token>`. For local-only manual testing, `PSF_AUTH_DISABLED=true pnpm dev:api` bypasses write auth. Do not use disabled auth in shared or exposed environments.
+
+## Hub Cannot Connect API
+
+Symptom: Hub shows failed API reads or dry-run action errors.
+
+Remedy: start the API first, confirm `http://127.0.0.1:3000/health`, and start Hub with:
+
+```bash
+VITE_ORCHESTRATOR_API_URL=http://127.0.0.1:3000 pnpm dev:hub
+```
+
+For protected buttons, set `VITE_PSF_API_TOKEN` to a local throwaway token matching `PSF_API_TOKEN`, or run the API with local auth disabled.
+
+## Artifact Missing
+
+Symptom: Mission detail references are empty or an expected file is absent.
+
+Remedy:
+
+```bash
+pnpm psf demo:seed --skip-db
+pnpm psf demo:ai-novelist --with-sample-bug --skip-db
+```
+
+Then inspect `missions/mission-0001-ai-novelist-chapter-review/`.
+
+## QA Dry-Run Failure
+
+Symptom: QA dry-run action fails or produces no sample bug.
+
+Remedy: rerun the fixed demo action:
+
+```bash
+pnpm psf demo:ai-novelist --with-sample-bug --skip-db
+```
+
+This QA path is deterministic and does not launch a browser.
+
+## Auto Fix Loop Failure
+
+Symptom: `fix:dry-run` or `loop-dry-run` cannot find bug input.
+
+Remedy: run QA dry-run with a sample bug first:
+
+```bash
+pnpm psf qa:dry-run mission-0001-ai-novelist-chapter-review --with-sample-bug
+pnpm psf fix:dry-run mission-0001-ai-novelist-chapter-review
+```
+
+## Playwright Skipped
+
+Symptom: Playwright smoke reports skipped.
+
+Remedy: this is expected unless a target URL and explicit real-browser gate are provided:
+
+```bash
+QA_TEST_URL=http://127.0.0.1:8000 ENABLE_REAL_PLAYWRIGHT=1 pnpm test:e2e:smoke
+```
+
+The Phase 16A/16B/17A demo does not require real browser QA.
+
+## Integration Dry-Run Failure
+
+Symptom: an integration dry-run reports missing env or unsafe state.
+
+Remedy:
+
+```bash
+pnpm psf integrations:status
+pnpm psf integrations:dry-run github
+pnpm psf integrations:dry-run coolify
+pnpm psf integrations:dry-run uptime-kuma
+pnpm psf integrations:dry-run plane
+```
+
+Missing provider env can be acceptable in dry-run. `realNetworkCall` must remain `false`.
+
+## pnpm test Failure
+
+Symptom: test suite fails after local changes.
+
+Remedy: start with focused checks for the changed surface:
+
+```bash
+pnpm test:scripts
+pnpm --filter @psf/demo-workflow test
+```
+
+Then run broader checks when shared contracts changed:
+
+```bash
+pnpm test
+pnpm typecheck
+```
+
+## Safe Demo Reset
+
+Symptom: demo data is stale or inconsistent.
+
+Remedy: preview first, then confirm only when intentional:
+
+```bash
+pnpm psf demo:reset --skip-db
+DEMO_RESET_CONFIRM=1 pnpm psf demo:reset --skip-db
+pnpm psf demo:ai-novelist --with-sample-bug --skip-db
+```
