@@ -222,6 +222,20 @@ export class AiExploratoryQaRunner {
       });
     }
 
+    if (merged.execute !== undefined && !resolveAiExploratoryEnabled(merged.env)) {
+      return this.buildManualActionResult({
+        input: merged,
+        now,
+        workerRunId,
+        qaRunId,
+        requestedMode,
+        workerMode: "dry-run",
+        targetUrl,
+        paths,
+        logs: ["AI exploratory QA executor is disabled because ENABLE_AI_EXPLORATORY_QA is not 1."],
+      });
+    }
+
     if (merged.execute === undefined) {
       return this.buildManualActionResult({
         input: merged,

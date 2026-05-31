@@ -275,6 +275,37 @@ describe("AI Exploratory QA runner", () => {
     expect(result.qaRun.status).toBe("skipped");
   });
 
+  it("keeps disabled mock mode manual-action without calling an injected executor", async () => {
+    let executorCalled = false;
+    const runner = new AiExploratoryQaRunner();
+
+    const result = await runner.run({
+      ...input,
+      targetUrl: "http://127.0.0.1:4173",
+      mode: "mock",
+      env: { ENABLE_AI_EXPLORATORY_QA: "0" },
+      execute: async () => {
+        executorCalled = true;
+        return {
+          reportMarkdown: "# QA Report\n\nMock executor opened MCP.",
+          bugsJson: JSON.stringify({ bugs: [] }),
+          regressionSpec: "import { test } from '@playwright/test';\ntest.describe.skip('generated', () => {});\n",
+          browserOpened: true,
+          mcpConnected: true,
+          stagingVisited: true,
+        };
+      },
+    });
+
+    expect(executorCalled).toBe(false);
+    expect(result.manualActionRequired).toBe(true);
+    expect(result.browserOpened).toBe(false);
+    expect(result.mcpConnected).toBe(false);
+    expect(result.stagingVisited).toBe(false);
+    expect(result.workerRun.status).toBe("skipped");
+    expect(result.qaRun.status).toBe("skipped");
+  });
+
   it("rejects invalid AI bugs JSON before producing accepted BugReports", () => {
     const validation = validateAiExploratoryOutput({
       missionId: input.missionId,
