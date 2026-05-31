@@ -244,6 +244,37 @@ describe("AI Exploratory QA runner", () => {
     expect(QAReportSchema.parse(result.qaRun).mode).toBe("ai_exploratory");
   });
 
+  it("keeps real mode manual-action even when enabled and an executor is injected", async () => {
+    let executorCalled = false;
+    const runner = new AiExploratoryQaRunner();
+
+    const result = await runner.run({
+      ...input,
+      targetUrl: "http://127.0.0.1:4173",
+      mode: "real",
+      env: { ENABLE_AI_EXPLORATORY_QA: "1" },
+      execute: async () => {
+        executorCalled = true;
+        return {
+          reportMarkdown: "# QA Report\n\nExecuted real MCP.",
+          bugsJson: JSON.stringify({ bugs: [] }),
+          regressionSpec: "import { test } from '@playwright/test';\ntest.describe.skip('generated', () => {});\n",
+          browserOpened: true,
+          mcpConnected: true,
+          stagingVisited: true,
+        };
+      },
+    });
+
+    expect(executorCalled).toBe(false);
+    expect(result.manualActionRequired).toBe(true);
+    expect(result.browserOpened).toBe(false);
+    expect(result.mcpConnected).toBe(false);
+    expect(result.stagingVisited).toBe(false);
+    expect(result.workerRun.status).toBe("skipped");
+    expect(result.qaRun.status).toBe("skipped");
+  });
+
   it("rejects invalid AI bugs JSON before producing accepted BugReports", () => {
     const validation = validateAiExploratoryOutput({
       missionId: input.missionId,
@@ -297,6 +328,21 @@ describe("AI Exploratory QA runner", () => {
 
     expect(validation.ok).toBe(false);
     expect(validation.errors).toEqual(expect.arrayContaining(["generated-regression.spec.ts must be a Playwright TypeScript spec."]));
+    expect(validation.bugs).toEqual([]);
+  });
+
+  it("rejects generated regression specs with TypeScript parse diagnostics", () => {
+    const validation = validateAiExploratoryOutput({
+      missionId: input.missionId,
+      qaRunId: `qa-run-${input.missionId}-ai-exploratory`,
+      now: input.now,
+      reportMarkdown: "# QA Report\n\nAll good.",
+      bugsJson: JSON.stringify({ bugs: [] }),
+      regressionSpec: "import { test } from '@playwright/test'; test.describe.skip('generated', () => { const = ; });",
+    });
+
+    expect(validation.ok).toBe(false);
+    expect(validation.errors).toEqual(expect.arrayContaining([expect.stringContaining("TypeScript parse")]));
     expect(validation.bugs).toEqual([]);
   });
 

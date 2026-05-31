@@ -1,4 +1,5 @@
 import path from "node:path";
+import ts from "typescript";
 import { buildArtifactPath } from "@psf/artifact-store";
 import { BugReportSchema, type Artifact, type BugReport, type MissionEvent, type ProjectPassport, type QAReport, type WorkerRun } from "@psf/mission-schema";
 import { redactJson, redactText } from "@psf/security";
@@ -204,7 +205,10 @@ export class AiExploratoryQaRunner {
       });
     }
 
-    if (requestedMode === "real" && !resolveAiExploratoryEnabled(merged.env)) {
+    if (requestedMode === "real") {
+      const log = resolveAiExploratoryEnabled(merged.env)
+        ? "Real Playwright MCP execution path is not approved yet; AI exploratory QA remains manual-action only."
+        : "AI exploratory QA is disabled because ENABLE_AI_EXPLORATORY_QA is not 1.";
       return this.buildManualActionResult({
         input: merged,
         now,
@@ -214,7 +218,7 @@ export class AiExploratoryQaRunner {
         workerMode: "dry-run",
         targetUrl,
         paths,
-        logs: ["AI exploratory QA is disabled because ENABLE_AI_EXPLORATORY_QA is not 1."],
+        logs: [log],
       });
     }
 
@@ -225,7 +229,7 @@ export class AiExploratoryQaRunner {
         workerRunId,
         qaRunId,
         requestedMode,
-        workerMode: requestedMode === "real" ? "real" : "mock",
+        workerMode: "mock",
         targetUrl,
         paths,
         logs: ["Real Playwright MCP execution path is not approved yet; run manual exploratory QA or inject a mock executor in tests."],
@@ -251,7 +255,7 @@ export class AiExploratoryQaRunner {
         workerRunId,
         qaRunId,
         requestedMode,
-        workerMode: requestedMode === "real" ? "real" : "mock",
+        workerMode: "mock",
         targetUrl,
         paths,
         logs: [error instanceof Error ? error.message : String(error)],
@@ -274,7 +278,7 @@ export class AiExploratoryQaRunner {
         workerRunId,
         qaRunId,
         requestedMode,
-        workerMode: requestedMode === "real" ? "real" : "mock",
+        workerMode: "mock",
         targetUrl,
         paths,
         status: "failed",
@@ -305,7 +309,7 @@ export class AiExploratoryQaRunner {
       workerRunId,
       qaRunId,
       requestedMode,
-      workerMode: requestedMode === "real" ? "real" : "mock",
+      workerMode: "mock",
       targetUrl,
       paths,
       status,
@@ -372,7 +376,12 @@ export function validateAiExploratoryOutput(input: AiExploratoryOutputValidation
   const regressionSpec = redactText(stripMarkdownFence(input.regressionSpec));
   const bugs: BugReport[] = [];
 
-  if (!isLikelyTypeScriptSpec(regressionSpec)) {
+  const parseErrors = getTypeScriptParseErrors(regressionSpec);
+  const isPlaywrightTypeScriptSpec = isLikelyTypeScriptSpec(regressionSpec);
+  if (parseErrors.length > 0) {
+    errors.push(...parseErrors);
+  }
+  if (!isPlaywrightTypeScriptSpec) {
     errors.push("generated-regression.spec.ts must be a Playwright TypeScript spec.");
   }
 
@@ -723,6 +732,28 @@ function readRawBugs(parsed: unknown): unknown[] | undefined {
     return parsed.bugs;
   }
   return undefined;
+}
+
+function getTypeScriptParseErrors(source: string): string[] {
+  const output = ts.transpileModule(source, {
+    fileName: "generated-regression.spec.ts",
+    reportDiagnostics: true,
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
+  });
+
+  return (output.diagnostics ?? [])
+    .filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
+    .map((diagnostic) => {
+      const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, " ");
+      if (diagnostic.file === undefined || diagnostic.start === undefined) {
+        return `TypeScript parse error: ${message}`;
+      }
+      const position = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
+      return `TypeScript parse error at ${position.line + 1}:${position.character + 1}: ${message}`;
+    });
 }
 
 function isLikelyTypeScriptSpec(value: string): boolean {
