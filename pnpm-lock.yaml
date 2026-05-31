@@ -189,6 +189,9 @@ importers:
       '@psf/mission-schema':
         specifier: workspace:*
         version: link:../mission-schema
+      '@psf/security':
+        specifier: workspace:*
+        version: link:../security
     devDependencies:
       typescript:
         specifier: ^5.8.0

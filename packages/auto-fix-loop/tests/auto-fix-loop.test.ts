@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MissionStatus, type ProjectPassport } from "@psf/mission-schema";
-import { createAutoFixDryRun } from "../src/index.js";
+import { MissionStatus, type BugReport, type ProjectPassport, type WorkerRun } from "@psf/mission-schema";
+import { createAutoFixDryRun, runGatedRealAutoFixLoop } from "../src/index.js";
 
 const passport: ProjectPassport = {
   id: "ai-novelist",
@@ -30,6 +30,25 @@ const baseInput = {
   bugs: [],
   now: "2026-05-31T10:00:00.000Z",
 };
+
+function makeBug(overrides: Partial<BugReport> = {}): BugReport {
+  return {
+    id: "bug-sample",
+    mission_id: baseInput.missionId,
+    title: "连续点击生成按钮会重复提交",
+    severity: "P1",
+    status: "open",
+    reproduction_steps: ["打开首页", "连续点击生成按钮"],
+    expected_result: "只提交一次。",
+    actual_result: "提交多次。",
+    evidence: { source: "qa-worker" },
+    suggested_fix_direction: "加入 pending 状态锁。",
+    source: "qa-worker",
+    created_at: baseInput.now,
+    updated_at: baseInput.now,
+    ...overrides,
+  };
+}
 
 describe("auto-fix loop dry-run", () => {
   it("moves passing QA toward ready_for_review", () => {
@@ -92,5 +111,219 @@ describe("auto-fix loop dry-run", () => {
     expect(result.decision).toBe("max_attempts_exceeded");
     expect(result.nextStatus).toBe(MissionStatus.paused);
     expect(result.codexDryRun).toBeUndefined();
+  });
+});
+
+
+describe("gated real auto-fix loop", () => {
+  it("pauses without invoking runners when Mission attempts exceed the default max", async () => {
+    let codexCalls = 0;
+    let testCalls = 0;
+
+    const result = await runGatedRealAutoFixLoop({
+      ...baseInput,
+      bugs: [makeBug()],
+      currentAttempt: 4,
+      enableRealMode: true,
+      approvalIds: ["real_codex_execution"],
+      codexRunner: {
+        async run() {
+          codexCalls += 1;
+          throw new Error("must not run");
+        },
+      },
+      testRunner: {
+        async run() {
+          testCalls += 1;
+          throw new Error("must not run");
+        },
+      },
+    });
+
+    expect(result.decision).toBe("paused");
+    expect(result.nextStatus).toBe(MissionStatus.paused);
+    expect(result.recommendedNextAction).toMatch(/human/i);
+    expect(codexCalls).toBe(0);
+    expect(testCalls).toBe(0);
+  });
+
+  it("pauses without invoking runners when any bug exceeds the default max attempts", async () => {
+    let codexCalls = 0;
+
+    const result = await runGatedRealAutoFixLoop({
+      ...baseInput,
+      bugs: [makeBug()],
+      perBugAttempts: { "bug-sample": 3 },
+      enableRealMode: true,
+      approvalIds: ["real_codex_execution"],
+      codexRunner: {
+        async run() {
+          codexCalls += 1;
+          throw new Error("must not run");
+        },
+      },
+    });
+
+    expect(result.decision).toBe("paused");
+    expect(result.nextStatus).toBe(MissionStatus.paused);
+    expect(codexCalls).toBe(0);
+  });
+
+  it("blocks real mode by default and leaves Codex uncalled", async () => {
+    let codexCalls = 0;
+
+    const result = await runGatedRealAutoFixLoop({
+      ...baseInput,
+      bugs: [makeBug()],
+      approvalIds: ["real_codex_execution"],
+      codexRunner: {
+        async run() {
+          codexCalls += 1;
+          throw new Error("must not run");
+        },
+      },
+    });
+
+    expect(result.decision).toBe("blocked");
+    expect(result.workerRun.status).toBe("skipped");
+    expect(result.workerRun.metadata.realNetworkCall).toBe(false);
+    expect(result.recommendedNextAction).toMatch(/disabled/i);
+    expect(codexCalls).toBe(0);
+  });
+
+  it("requires approval before invoking a fix-mode Codex runner", async () => {
+    let codexCalls = 0;
+
+    const result = await runGatedRealAutoFixLoop({
+      ...baseInput,
+      bugs: [makeBug()],
+      enableRealMode: true,
+      codexRunner: {
+        async run() {
+          codexCalls += 1;
+          throw new Error("must not run");
+        },
+      },
+    });
+
+    expect(result.decision).toBe("blocked");
+    expect(result.recommendedNextAction).toContain("real_codex_execution");
+    expect(result.gates.approval.allowed).toBe(false);
+    expect(codexCalls).toBe(0);
+  });
+
+  it("requires regression coverage before claiming a reproducible bug is fixed", async () => {
+    let codexCalls = 0;
+
+    const result = await runGatedRealAutoFixLoop({
+      ...baseInput,
+      bugs: [makeBug()],
+      enableRealMode: true,
+      approvalIds: ["real_codex_execution"],
+      codexRunner: {
+        async run() {
+          codexCalls += 1;
+          throw new Error("must not run");
+        },
+      },
+    });
+
+    expect(result.decision).toBe("needs_human");
+    expect(result.nextStatus).toBe(MissionStatus.paused);
+    expect(result.recommendedNextAction).toMatch(/regression/i);
+    expect(codexCalls).toBe(0);
+  });
+
+  it("blocks unsafe verification commands before invoking Codex", async () => {
+    let codexCalls = 0;
+
+    const result = await runGatedRealAutoFixLoop({
+      ...baseInput,
+      bugs: [makeBug()],
+      enableRealMode: true,
+      approvalIds: ["real_codex_execution"],
+      regressionEvidence: { existingSpecPath: "tests/e2e/bug-sample.spec.ts", existingSpecContent: "test('bug-sample', async () => {})" },
+      verificationCommands: { regression: ["curl https://example.test"] },
+      codexRunner: {
+        async run() {
+          codexCalls += 1;
+          throw new Error("must not run");
+        },
+      },
+    });
+
+    expect(result.decision).toBe("manual_action");
+    expect(result.recommendedNextAction).toMatch(/Command blocked/i);
+    expect(result.gates.commands[0]?.allowed).toBe(false);
+    expect(codexCalls).toBe(0);
+  });
+
+  it("claims fixed only after gated Codex and injected tests pass with regression coverage", async () => {
+    const codexInputs: unknown[] = [];
+    const testCommands: string[] = [];
+    const codexWorkerRun: WorkerRun = {
+      id: "worker-run-codex-real-fix",
+      mission_id: baseInput.missionId,
+      worker_type: "codex",
+      status: "succeeded",
+      mode: "mock",
+      input: {},
+      output: { token: "secret-value-123", executed: false },
+      logs: ["mock codex completed with password=secret-value-123"],
+      metadata: { realNetworkCall: false },
+      created_at: baseInput.now,
+      updated_at: baseInput.now,
+    };
+
+    const result = await runGatedRealAutoFixLoop({
+      ...baseInput,
+      missionStatus: MissionStatus.regression_running,
+      bugs: [makeBug()],
+      enableRealMode: true,
+      approvalIds: ["real_codex_execution"],
+      extraSecrets: ["secret-value-123"],
+      regressionEvidence: {
+        generatedSpec: {
+          path: "tests/e2e/generated/bug-sample.spec.ts",
+          content: "import { test } from '@playwright/test';\ntest('bug-sample regression', async () => {});",
+          valid: true,
+        },
+      },
+      verificationCommands: {
+        regression: ["pytest -q"],
+        unit: ["pnpm typecheck"],
+        e2e: ["pnpm test"],
+      },
+      codexRunner: {
+        async run(input) {
+          codexInputs.push(input);
+          return {
+            status: "succeeded",
+            executed: false,
+            reason: "mock fix applied",
+            workerRun: codexWorkerRun,
+            artifacts: [],
+            events: [],
+            stdout: "fixed",
+            stderr: "",
+            exitCode: 0,
+          };
+        },
+      },
+      testRunner: {
+        async run(input) {
+          testCommands.push(input.command);
+          return { status: "passed", exitCode: 0, output: input.command + " passed" };
+        },
+      },
+    });
+
+    expect(result.decision).toBe("fixed");
+    expect(result.nextStatus).toBe(MissionStatus.qa_running);
+    expect(codexInputs).toHaveLength(1);
+    expect(codexInputs[0]).toMatchObject({ mode: "real", fixMode: true, approvalIds: ["real_codex_execution"] });
+    expect(testCommands).toEqual(["pytest -q", "pnpm typecheck", "pnpm test"]);
+    expect(JSON.stringify(result)).not.toContain("secret-value-123");
+    expect(result.workerRun.metadata.realNetworkCall).toBe(false);
   });
 });

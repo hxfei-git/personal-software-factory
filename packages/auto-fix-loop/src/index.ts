@@ -277,3 +277,20 @@ function stableSuffix(payload: Record<string, unknown>): string {
   const source = String(payload.workerRunId ?? payload.artifactId ?? payload.bugCount ?? payload.nextStatus ?? "root");
   return slugify(source).slice(0, 80) || "root";
 }
+
+export { runGatedRealAutoFixLoop } from "./real-loop.js";
+export type {
+  GatedRealAutoFixDecision,
+  GatedRealAutoFixLoopInput,
+  GatedRealAutoFixLoopResult,
+  GatedRealCodexRunner,
+  GatedRealCodexRunnerInput,
+  GatedRealCodexRunnerResult,
+  GatedRealTestRunner,
+  GatedRealTestRunnerInput,
+  GatedRealTestRunnerResult,
+  GatedRealVerificationCommands,
+  RegressionCoverageInput,
+  RegressionCoverageResult,
+  RegressionGeneratedSpecValidation,
+} from "./real-loop.js";
