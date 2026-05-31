@@ -405,6 +405,58 @@ describe("AI Exploratory QA runner", () => {
     expect(validation.bugs).toEqual([]);
   });
 
+  it("rejects generated regression specs with TypeScript semantic diagnostics", () => {
+    const validation = validateAiExploratoryOutput({
+      missionId: input.missionId,
+      qaRunId: `qa-run-${input.missionId}-ai-exploratory`,
+      now: input.now,
+      reportMarkdown: "# QA Report\n\nAll good.",
+      bugsJson: JSON.stringify({ bugs: [] }),
+      regressionSpec: [
+        "import { test } from '@playwright/test';",
+        "",
+        "test.describe.skip('AI exploratory regression', () => {",
+        "  test('captures semantic regression', async () => {",
+        "    const count: number = 'not a number';",
+        "    await Promise.resolve(count);",
+        "  });",
+        "});",
+        "",
+      ].join("\n"),
+    });
+
+    expect(validation.ok).toBe(false);
+    expect(validation.errors).toEqual(expect.arrayContaining([expect.stringContaining("TypeScript semantic")]));
+    expect(validation.bugs).toEqual([]);
+  });
+
+  it("keeps manual-action regression template valid when passport name contains quotes and escapes", async () => {
+    const runner = new AiExploratoryQaRunner();
+    const result = await runner.run({
+      ...input,
+      passport: {
+        ...input.passport,
+        name: "AI 'quoted' \\ project\nnext line",
+      },
+      targetUrl: "http://127.0.0.1:4173",
+      mode: "dry-run",
+      env: {},
+    });
+
+    const validation = validateAiExploratoryOutput({
+      missionId: input.missionId,
+      qaRunId: `qa-run-${input.missionId}-ai-exploratory`,
+      now: input.now,
+      reportMarkdown: result.files["qa-report.md"],
+      bugsJson: result.files["bugs.json"],
+      regressionSpec: result.files["generated-regression.spec.ts"],
+    });
+
+    expect(result.manualActionRequired).toBe(true);
+    expect(validation.ok).toBe(true);
+    expect(result.files["generated-regression.spec.ts"]).toContain(JSON.stringify("AI exploratory QA regression template: AI 'quoted' \\ project\nnext line"));
+  });
+
   it("accepts schema-valid redacted AI output and parses the generated regression TypeScript", () => {
     const validation = validateAiExploratoryOutput({
       missionId: input.missionId,

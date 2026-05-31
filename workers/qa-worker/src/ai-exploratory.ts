@@ -140,6 +140,35 @@ interface TargetUrlResolution {
 
 const GENERATED_BY = "qa-worker";
 const DEFAULT_NOW = "2026-05-31T10:00:00.000Z";
+const GENERATED_REGRESSION_SPEC_FILE = "generated-regression.spec.ts";
+const GENERATED_REGRESSION_SPEC_TYPES_FILE = "generated-regression-spec-types.d.ts";
+const GENERATED_REGRESSION_SPEC_TYPES = `
+declare module '@playwright/test' {
+  export type PlaywrightTestArgs = { page: Record<string, any> };
+  export type PlaywrightTestBody = (args: PlaywrightTestArgs) => unknown | Promise<unknown>;
+  export type PlaywrightSuiteBody = () => unknown | Promise<unknown>;
+
+  export interface PlaywrightDescribe {
+    (title: string, body: PlaywrightSuiteBody): void;
+    skip(title: string, body: PlaywrightSuiteBody): void;
+    only(title: string, body: PlaywrightSuiteBody): void;
+  }
+
+  export interface PlaywrightTest {
+    (title: string, body: PlaywrightTestBody): void;
+    skip(title: string, body: PlaywrightTestBody): void;
+    only(title: string, body: PlaywrightTestBody): void;
+    describe: PlaywrightDescribe;
+  }
+
+  export const test: PlaywrightTest;
+  export const expect: (actual: unknown) => any;
+}
+
+declare const process: {
+  env: Record<string, string | undefined>;
+};
+`;
 
 export class AiExploratoryQaRunner {
   constructor(private readonly defaults: Partial<Pick<AiExploratoryQaInput, "mode" | "env" | "execute">> = {}) {}
@@ -390,10 +419,10 @@ export function validateAiExploratoryOutput(input: AiExploratoryOutputValidation
   const regressionSpec = redactText(stripMarkdownFence(input.regressionSpec));
   const bugs: BugReport[] = [];
 
-  const parseErrors = getTypeScriptParseErrors(regressionSpec);
+  const typeScriptErrors = getGeneratedRegressionSpecTypeScriptErrors(regressionSpec);
   const isPlaywrightTypeScriptSpec = isLikelyTypeScriptSpec(regressionSpec);
-  if (parseErrors.length > 0) {
-    errors.push(...parseErrors);
+  if (typeScriptErrors.length > 0) {
+    errors.push(...typeScriptErrors);
   }
   if (!isPlaywrightTypeScriptSpec) {
     errors.push("generated-regression.spec.ts must be a Playwright TypeScript spec.");
@@ -725,10 +754,11 @@ function renderRejectedReport(input: AiExploratoryQaInput, errors: string[]): st
 }
 
 function renderRegressionSpecTemplate(input: AiExploratoryQaInput): string {
-  return [
+  const title = JSON.stringify(`AI exploratory QA regression template: ${input.passport.name}`);
+  const spec = [
     "import { test, expect } from '@playwright/test';",
     "",
-    `test.describe.skip('AI exploratory QA regression template: ${input.passport.name}', () => {`,
+    `test.describe.skip(${title}, () => {`,
     "  test('documents a future AI-discovered regression', async ({ page }) => {",
     "    await page.goto(process.env.QA_TEST_URL ?? process.env.STAGING_URL ?? 'http://127.0.0.1:8000');",
     "    await expect(page.locator('body')).toBeVisible();",
@@ -736,6 +766,11 @@ function renderRegressionSpecTemplate(input: AiExploratoryQaInput): string {
     "});",
     "",
   ].join("\n");
+  const errors = getGeneratedRegressionSpecTypeScriptErrors(spec);
+  if (errors.length > 0) {
+    throw new Error(`Generated AI exploratory regression template failed TypeScript validation: ${errors.join("; ")}`);
+  }
+  return spec;
 }
 
 function readRawBugs(parsed: unknown): unknown[] | undefined {
@@ -748,26 +783,71 @@ function readRawBugs(parsed: unknown): unknown[] | undefined {
   return undefined;
 }
 
-function getTypeScriptParseErrors(source: string): string[] {
-  const output = ts.transpileModule(source, {
-    fileName: "generated-regression.spec.ts",
-    reportDiagnostics: true,
-    compilerOptions: {
-      module: ts.ModuleKind.ESNext,
-      target: ts.ScriptTarget.ES2022,
-    },
-  });
+function getGeneratedRegressionSpecTypeScriptErrors(source: string): string[] {
+  const compilerOptions: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    lib: ["lib.es2022.d.ts", "lib.dom.d.ts"],
+    strict: true,
+    noEmit: true,
+    skipLibCheck: true,
+    esModuleInterop: true,
+  };
+  const sources = new Map<string, string>([
+    [GENERATED_REGRESSION_SPEC_FILE, source],
+    [GENERATED_REGRESSION_SPEC_TYPES_FILE, GENERATED_REGRESSION_SPEC_TYPES],
+  ]);
+  const host = ts.createCompilerHost(compilerOptions, true);
+  const originalGetSourceFile = host.getSourceFile.bind(host);
+  const originalReadFile = host.readFile?.bind(host);
+  const originalFileExists = host.fileExists.bind(host);
 
-  return (output.diagnostics ?? [])
-    .filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
-    .map((diagnostic) => {
-      const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, " ");
-      if (diagnostic.file === undefined || diagnostic.start === undefined) {
-        return `TypeScript parse error: ${message}`;
-      }
-      const position = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
-      return `TypeScript parse error at ${position.line + 1}:${position.character + 1}: ${message}`;
-    });
+  host.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {
+    const normalizedFileName = normalizeTypeScriptFileName(fileName);
+    const virtualSource = sources.get(normalizedFileName);
+    if (virtualSource !== undefined) {
+      return ts.createSourceFile(normalizedFileName, virtualSource, languageVersion, true, ts.ScriptKind.TS);
+    }
+    return originalGetSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
+  };
+  host.readFile = (fileName) => {
+    const virtualSource = sources.get(normalizeTypeScriptFileName(fileName));
+    return virtualSource ?? originalReadFile?.(fileName);
+  };
+  host.fileExists = (fileName) => sources.has(normalizeTypeScriptFileName(fileName)) || originalFileExists(fileName);
+  host.writeFile = () => undefined;
+
+  const program = ts.createProgram([GENERATED_REGRESSION_SPEC_FILE, GENERATED_REGRESSION_SPEC_TYPES_FILE], compilerOptions, host);
+  const sourceFile = program.getSourceFile(GENERATED_REGRESSION_SPEC_FILE);
+  if (sourceFile === undefined) {
+    return ["TypeScript parse error: generated-regression.spec.ts could not be loaded."];
+  }
+
+  return [
+    ...program.getSyntacticDiagnostics(sourceFile).map((diagnostic) => formatTypeScriptDiagnostic("parse", diagnostic)),
+    ...program.getSemanticDiagnostics(sourceFile).filter((diagnostic) => !shouldIgnoreGeneratedSpecDiagnostic(diagnostic)).map((diagnostic) => formatTypeScriptDiagnostic("semantic", diagnostic)),
+  ];
+}
+
+function normalizeTypeScriptFileName(fileName: string): string {
+  return fileName.split(path.sep).join("/");
+}
+
+function shouldIgnoreGeneratedSpecDiagnostic(diagnostic: ts.Diagnostic): boolean {
+  if (diagnostic.code !== 2307) {
+    return false;
+  }
+  return ts.flattenDiagnosticMessageText(diagnostic.messageText, " ").includes("@playwright/test");
+}
+
+function formatTypeScriptDiagnostic(kind: "parse" | "semantic", diagnostic: ts.Diagnostic): string {
+  const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, " ");
+  if (diagnostic.file === undefined || diagnostic.start === undefined) {
+    return `TypeScript ${kind} error: ${message}`;
+  }
+  const position = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
+  return `TypeScript ${kind} error at ${position.line + 1}:${position.character + 1}: ${message}`;
 }
 
 function isLikelyTypeScriptSpec(value: string): boolean {
