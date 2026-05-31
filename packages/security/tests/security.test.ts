@@ -38,6 +38,21 @@ describe("redaction", () => {
     }
   });
 
+  it("redacts URL userinfo credentials while preserving diagnostic URL parts", () => {
+    const output = redactText([
+      "DATABASE_URL=postgres://user:dbpass@example.test/app",
+      "redis://:redispass@example.test:6379/0",
+      "https://user:apitoken@example.test/path",
+    ].join("\n"));
+
+    expect(output).toContain("postgres://[REDACTED]@example.test/app");
+    expect(output).toContain("redis://[REDACTED]@example.test:6379/0");
+    expect(output).toContain("https://[REDACTED]@example.test/path");
+    expect(output).not.toContain("dbpass");
+    expect(output).not.toContain("redispass");
+    expect(output).not.toContain("apitoken");
+  });
+
   it("redacts entire quoted secret values with spaces", () => {
     const output = redactText('password="hunter 2"\napi_key=\'alpha beta\'');
 
