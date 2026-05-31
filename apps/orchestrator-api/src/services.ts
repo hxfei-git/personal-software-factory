@@ -13,7 +13,7 @@ import {
   type PlaneDryRunInput,
 } from "@psf/integrations";
 import { EXAMPLE_MISSION_ID } from "@psf/demo-workflow";
-import type { QueueWorkerJob, WorkerRuntime } from "@psf/worker-runtime";
+import type { QueueWorkerJob, QueuedJobRecord, QueueStats, WorkerRuntime } from "@psf/worker-runtime";
 import {
   MissionStatus,
   MissionStatusSchema,
@@ -104,6 +104,11 @@ const DecideApprovalRequestSchema = z.object({
 const WorkerRunStatusSchema = z.enum(["queued", "running", "succeeded", "failed", "cancelled", "skipped"]);
 const WorkerRunModeSchema = z.enum(["dry-run", "mock", "real"]);
 const WorkerTypeSchema = z.enum(["codex", "qa", "deploy", "monitor", "planner", "integration", "orchestrator"]);
+const ListWorkerRunsQuerySchema = z.object({
+  status: WorkerRunStatusSchema.optional(),
+  missionId: z.string().min(1).optional(),
+  workerType: WorkerTypeSchema.optional(),
+});
 
 const CreateWorkerRunRequestSchema = z.object({
   workerType: WorkerTypeSchema,
@@ -183,6 +188,7 @@ type IntegrationDryRunInput = GitHubDryRunInput | CoolifyDryRunInput | UptimeKum
 
 const QUEUE_ENQUEUE_FAILED_MESSAGE = "Queue enqueue failed. Check Redis and Worker Runtime configuration.";
 const DEMO_MISSION_REQUIRED_MESSAGE = "Demo mission must exist before queued demo action. Run pnpm psf demo:seed or run the inline demo first.";
+const QUEUE_RUNTIME_UNAVAILABLE_MESSAGE = "Queue runtime is unavailable. Check Redis and Worker Runtime configuration.";
 
 export interface MissionServiceOptions {
   registryRoot?: string;
@@ -790,6 +796,138 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     async getWorkerRun(id: string) {
       return sanitizeApiResponse(await getRawWorkerRun(id));
     },
+    async listWorkerRuns(query: unknown) {
+      const filter = parseRequest(ListWorkerRunsQuerySchema, query ?? {});
+      const workerRuns = await storage.listAllWorkerRuns();
+      return sanitizeApiList(workerRuns.filter((workerRun) => {
+        if (filter.status && workerRun.status !== filter.status) return false;
+        if (filter.missionId && workerRun.mission_id !== filter.missionId) return false;
+        if (filter.workerType && workerRun.worker_type !== filter.workerType) return false;
+        return true;
+      }));
+    },
+    async getQueueStatus() {
+      if (!workerRuntime) {
+        return buildUnavailableQueueStats("QUEUE_RUNTIME_UNAVAILABLE");
+      }
+      try {
+        return sanitizeApiResponse(await workerRuntime.getQueueStats());
+      } catch {
+        return buildUnavailableQueueStats("QUEUE_RUNTIME_UNAVAILABLE");
+      }
+    },
+    async getQueueJob(jobId: string) {
+      const runtime = requireWorkerRuntime(workerRuntime);
+      let job: QueuedJobRecord | null;
+      try {
+        job = await runtime.getJob(jobId);
+      } catch {
+        throw serviceUnavailable("QUEUE_RUNTIME_UNAVAILABLE", QUEUE_RUNTIME_UNAVAILABLE_MESSAGE);
+      }
+      if (!job) {
+        throw notFound("QueueJob", jobId);
+      }
+      return sanitizeApiResponse(job);
+    },
+    async cancelWorkerRun(id: string) {
+      const runtime = requireWorkerRuntime(workerRuntime);
+      const current = await getRawWorkerRun(id);
+      const wrapper = getQueueWrapperMetadata(current);
+      if (!wrapper) {
+        throw badRequest("QUEUE_WRAPPER_REQUIRED", "Only queue wrapper WorkerRuns can be cancelled", { workerRunId: id });
+      }
+      if (current.status !== "queued" && current.status !== "running") {
+        throw badRequest("WORKER_RUN_NOT_CANCELLABLE", "Only queued or running queue wrapper WorkerRuns can be cancelled", { workerRunId: id, status: current.status });
+      }
+
+      try {
+        await runtime.cancelJob(wrapper.jobId);
+      } catch {
+        throw serviceUnavailable("QUEUE_RUNTIME_UNAVAILABLE", QUEUE_RUNTIME_UNAVAILABLE_MESSAGE, { workerRunId: id, jobId: wrapper.jobId, jobType: wrapper.jobType });
+      }
+
+      const now = new Date().toISOString();
+      const output = mergeJsonObject(current.output, {
+        jobId: wrapper.jobId,
+        jobType: wrapper.jobType,
+        cancelledAt: now,
+        summary: "Queue wrapper WorkerRun cancellation was requested.",
+        recommendedNextAction: "Refresh the Mission summary and inspect WorkerRun state before retrying.",
+      });
+      const workerRun: WorkerRun = {
+        ...current,
+        status: "cancelled",
+        output,
+        updated_at: now,
+        finished_at: current.finished_at ?? now,
+      };
+      return sanitizeApiResponse(await storage.updateWorkerRun({
+        resource: workerRun,
+        event: buildEvent(current.mission_id, "worker_run.cancelled", "Queue wrapper worker run cancelled", {
+          worker_run_id: id,
+          status: workerRun.status,
+          queueWrapper: true,
+          jobId: wrapper.jobId,
+          jobType: wrapper.jobType,
+        }, now),
+      }));
+    },
+    async retryWorkerRun(id: string) {
+      const runtime = requireWorkerRuntime(workerRuntime);
+      const current = await getRawWorkerRun(id);
+      const wrapper = getQueueWrapperMetadata(current);
+      if (!wrapper) {
+        throw badRequest("QUEUE_WRAPPER_REQUIRED", "Only queue wrapper WorkerRuns can be retried", { workerRunId: id });
+      }
+      if (current.status !== "failed" && current.status !== "cancelled") {
+        throw badRequest("WORKER_RUN_NOT_RETRYABLE", "Only failed or cancelled queue wrapper WorkerRuns can be retried", { workerRunId: id, status: current.status });
+      }
+
+      let retryJob: QueuedJobRecord;
+      try {
+        retryJob = await runtime.retryJob(wrapper.jobId);
+      } catch {
+        throw serviceUnavailable("QUEUE_RUNTIME_UNAVAILABLE", QUEUE_RUNTIME_UNAVAILABLE_MESSAGE, { workerRunId: id, jobId: wrapper.jobId, jobType: wrapper.jobType });
+      }
+
+      const now = new Date().toISOString();
+      const retryAttempt = retryJob.retryAttempt ?? nextRetryAttempt(current.output);
+      const metadata = mergeJsonObject(current.metadata, {
+        queueWrapper: true,
+        jobId: retryJob.job.id,
+        previousJobId: wrapper.jobId,
+        jobType: wrapper.jobType,
+        retryAttempt,
+      });
+      const output = mergeJsonObject(current.output, {
+        jobId: retryJob.job.id,
+        previousJobId: wrapper.jobId,
+        jobType: wrapper.jobType,
+        retryAttempt,
+        summary: "Queue wrapper WorkerRun retry was queued.",
+        recommendedNextAction: "Start or refresh the Worker Runner, then refresh Mission Summary.",
+      });
+      const workerRun: WorkerRun = {
+        ...current,
+        status: "queued",
+        error: undefined,
+        metadata,
+        output,
+        updated_at: now,
+      };
+      return sanitizeApiResponse(await storage.updateWorkerRun({
+        resource: workerRun,
+        event: buildEvent(current.mission_id, "worker_run.retried", "Queue wrapper worker run retried", {
+          worker_run_id: id,
+          status: workerRun.status,
+          queueWrapper: true,
+          jobId: retryJob.job.id,
+          previousJobId: wrapper.jobId,
+          jobType: wrapper.jobType,
+          retryAttempt,
+        }, now),
+      }));
+    },
     async updateWorkerRun(id: string, body: unknown) {
       const current = await getRawWorkerRun(id);
       const input = parseRequest(UpdateWorkerRunRequestSchema, body);
@@ -971,6 +1109,52 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       return sanitizeApiResponse(await storage.updateQARun({ resource: qaRun, event }));
     },
   };
+}
+
+
+function requireWorkerRuntime(runtime?: WorkerRuntime): WorkerRuntime {
+  if (!runtime) {
+    throw badRequest("QUEUE_RUNTIME_UNAVAILABLE", "Worker runtime is not configured");
+  }
+  return runtime;
+}
+
+function buildUnavailableQueueStats(reason: string): QueueStats & { redisReachable: false; errorCode: string; message: string } {
+  return {
+    runtime: "unavailable",
+    redisConfigured: false,
+    redisReachable: false,
+    counts: { queued: 0, active: 0, completed: 0, failed: 0, cancelled: 0, delayed: 0 },
+    errorCode: reason,
+    message: QUEUE_RUNTIME_UNAVAILABLE_MESSAGE,
+  };
+}
+
+type QueueWrapperMetadata = { jobId: string; jobType: string };
+
+function getQueueWrapperMetadata(workerRun: WorkerRun): QueueWrapperMetadata | null {
+  const metadata = isRecord(workerRun.metadata) ? workerRun.metadata : {};
+  const output = isRecord(workerRun.output) ? workerRun.output : {};
+  const queueWrapper = metadata.queueWrapper === true || output.queueWrapper === true;
+  const jobId = typeof metadata.jobId === "string" ? metadata.jobId : typeof output.jobId === "string" ? output.jobId : undefined;
+  const jobType = typeof metadata.jobType === "string" ? metadata.jobType : typeof output.jobType === "string" ? output.jobType : undefined;
+  if (!queueWrapper || !jobId || !jobType) {
+    return null;
+  }
+  return { jobId, jobType };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function mergeJsonObject(value: unknown, patch: Record<string, unknown>): Record<string, unknown> {
+  return { ...(isRecord(value) ? value : {}), ...patch };
+}
+
+function nextRetryAttempt(output: unknown): number {
+  const current = isRecord(output) && typeof output.retryAttempt === "number" ? output.retryAttempt : 0;
+  return current + 1;
 }
 
 

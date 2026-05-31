@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { EXAMPLE_MISSION_ID } from "@psf/demo-workflow";
 import { MissionStatus, projectExample, projectPassportExample } from "@psf/mission-schema";
 import { createDeterministicMissionPlan } from "@psf/mission-planner";
-import { InProcessWorkerRuntime, type QueuedJobRecord, type QueueWorkerJob, type WorkerRuntime } from "@psf/worker-runtime";
+import { buildWorkerJob, InProcessWorkerRuntime, type QueuedJobRecord, type QueueStats, type QueueWorkerJob, type WorkerRuntime } from "@psf/worker-runtime";
 import type { ApiAuthOptions } from "../src/auth.js";
 import type { ActionExecutionMode } from "../src/actions.js";
 import { buildServer } from "../src/server.js";
@@ -34,6 +34,37 @@ describe("orchestrator api", () => {
   class FailingEnqueueWorkerRuntime extends InProcessWorkerRuntime {
     override async enqueue(_job: QueueWorkerJob): Promise<QueuedJobRecord> {
       throw new Error("Redis token secret-value down");
+    }
+  }
+
+  class SecretThrowingQueueRuntime extends InProcessWorkerRuntime {
+    override async getQueueStats(): Promise<QueueStats> {
+      throw new Error("Redis password queue-secret is unavailable");
+    }
+
+    override async cancelJob(_jobId: string): Promise<QueuedJobRecord> {
+      throw new Error("Redis token cancel-secret is unavailable");
+    }
+  }
+
+  class RetrySuccessWorkerRuntime extends InProcessWorkerRuntime {
+    override async retryJob(jobId: string): Promise<QueuedJobRecord> {
+      const job = buildWorkerJob({
+        missionId: EXAMPLE_MISSION_ID,
+        projectId: "ai-novelist",
+        workerRunId: "worker-run-retry-failed",
+        type: "qa.dry_run",
+        payload: { withSampleBug: true },
+      });
+      return {
+        job,
+        status: "queued",
+        attemptsMade: 0,
+        createdAt: job.createdAt,
+        updatedAt: job.createdAt,
+        retryOfJobId: jobId,
+        retryAttempt: 1,
+      };
     }
   }
 
@@ -668,6 +699,265 @@ describe("orchestrator api", () => {
       code: "DEMO_MISSION_REQUIRED",
       message: "Demo mission must exist before queued demo action. Run pnpm psf demo:seed or run the inline demo first.",
     });
+  });
+
+  it("returns queue status and job lookup for queued actions", async () => {
+    const workerRuntime = new InProcessWorkerRuntime();
+    const { server, storage } = await createTestServer({
+      auth: { disabled: true },
+      actionExecutionMode: "queued",
+      workerRuntime,
+    });
+    await seedDemoMission(storage);
+
+    const queued = await server.inject({
+      method: "POST",
+      url: `/missions/${EXAMPLE_MISSION_ID}/actions/qa-dry-run`,
+      payload: {},
+    });
+    expect(queued.statusCode).toBe(202);
+    const jobId = queued.json().jobId;
+
+    const status = await server.inject({ method: "GET", url: "/queues/status" });
+    expect(status.statusCode).toBe(200);
+    expect(status.json()).toMatchObject({
+      runtime: "in-process",
+      redisConfigured: false,
+      counts: { queued: 1 },
+    });
+
+    const job = await server.inject({ method: "GET", url: `/jobs/${jobId}` });
+    expect(job.statusCode).toBe(200);
+    expect(job.json()).toMatchObject({
+      status: "queued",
+      job: { id: jobId, type: "qa.dry_run", missionId: EXAMPLE_MISSION_ID },
+    });
+
+    const missing = await server.inject({ method: "GET", url: "/jobs/job-missing" });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().code).toBe("NOT_FOUND");
+  });
+
+  it("lists worker runs with status, missionId, and workerType filters", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "WorkerRun filter mission");
+    const otherMission = await createMission(server, "Other WorkerRun filter mission");
+    const qaRun = (await server.inject({
+      method: "POST",
+      url: `/missions/${mission.id}/worker-runs`,
+      payload: { workerType: "qa", status: "failed", mode: "dry-run" },
+    })).json();
+    await server.inject({
+      method: "POST",
+      url: `/missions/${mission.id}/worker-runs`,
+      payload: { workerType: "codex", status: "succeeded", mode: "dry-run" },
+    });
+    await server.inject({
+      method: "POST",
+      url: `/missions/${otherMission.id}/worker-runs`,
+      payload: { workerType: "qa", status: "failed", mode: "dry-run" },
+    });
+
+    const byStatus = await server.inject({ method: "GET", url: "/worker-runs?status=failed" });
+    expect(byStatus.statusCode).toBe(200);
+    expect(byStatus.json()).toHaveLength(2);
+
+    const byMissionAndType = await server.inject({ method: "GET", url: `/worker-runs?missionId=${mission.id}&workerType=qa` });
+    expect(byMissionAndType.statusCode).toBe(200);
+    expect(byMissionAndType.json()).toHaveLength(1);
+    expect(byMissionAndType.json()[0].id).toBe(qaRun.id);
+  });
+
+  it("cancels queued queue wrapper WorkerRuns and writes an event", async () => {
+    const workerRuntime = new InProcessWorkerRuntime();
+    const { server, storage } = await createTestServer({
+      auth: { disabled: true },
+      actionExecutionMode: "queued",
+      workerRuntime,
+    });
+    await seedDemoMission(storage);
+    const queued = await server.inject({ method: "POST", url: `/missions/${EXAMPLE_MISSION_ID}/actions/qa-dry-run`, payload: {} });
+    const { workerRunId, jobId } = queued.json();
+
+    const cancelled = await server.inject({ method: "POST", url: `/worker-runs/${workerRunId}/cancel` });
+
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json()).toMatchObject({
+      id: workerRunId,
+      status: "cancelled",
+      output: { jobId, jobType: "qa.dry_run" },
+    });
+    expect(cancelled.json().output.cancelledAt).toEqual(expect.any(String));
+    expect(await workerRuntime.getJobStatus(jobId)).toBe("cancelled");
+    const events = await storage.listMissionEvents(EXAMPLE_MISSION_ID);
+    expect(events.map((event) => event.type)).toContain("worker_run.cancelled");
+  });
+
+  it("rejects cancel for non-wrapper and completed-history WorkerRuns", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "Cancel validation mission");
+    const nonWrapper = (await server.inject({
+      method: "POST",
+      url: `/missions/${mission.id}/worker-runs`,
+      payload: { workerType: "qa", status: "queued", mode: "dry-run" },
+    })).json();
+
+    const nonWrapperCancel = await server.inject({ method: "POST", url: `/worker-runs/${nonWrapper.id}/cancel` });
+    expect(nonWrapperCancel.statusCode).toBe(400);
+    expect(nonWrapperCancel.json().code).toBe("QUEUE_WRAPPER_REQUIRED");
+
+    for (const status of ["succeeded", "failed"] as const) {
+      const wrapper = (await server.inject({
+        method: "POST",
+        url: `/missions/${mission.id}/worker-runs`,
+        payload: {
+          workerType: "orchestrator",
+          status,
+          mode: "dry-run",
+          metadata: { queueWrapper: true, jobId: `job-${status}`, jobType: "qa.dry_run" },
+          output: { queueWrapper: true, jobId: `job-${status}`, jobType: "qa.dry_run" },
+        },
+      })).json();
+      const response = await server.inject({ method: "POST", url: `/worker-runs/${wrapper.id}/cancel` });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe("WORKER_RUN_NOT_CANCELLABLE");
+    }
+  });
+
+  it("retries failed and cancelled queue wrapper WorkerRuns with a new job id", async () => {
+    const workerRuntime = new InProcessWorkerRuntime();
+    const { server, storage } = await createTestServer({
+      auth: { disabled: true },
+      actionExecutionMode: "queued",
+      workerRuntime,
+    });
+    await seedDemoMission(storage);
+    const queued = await server.inject({ method: "POST", url: `/missions/${EXAMPLE_MISSION_ID}/actions/qa-dry-run`, payload: {} });
+    const cancelled = await server.inject({ method: "POST", url: `/worker-runs/${queued.json().workerRunId}/cancel` });
+
+    const retryCancelled = await server.inject({ method: "POST", url: `/worker-runs/${queued.json().workerRunId}/retry` });
+    expect(retryCancelled.statusCode).toBe(200);
+    expect(retryCancelled.json()).toMatchObject({
+      id: queued.json().workerRunId,
+      status: "queued",
+      metadata: {
+        queueWrapper: true,
+        previousJobId: queued.json().jobId,
+        jobType: "qa.dry_run",
+        retryAttempt: 1,
+      },
+      output: {
+        previousJobId: queued.json().jobId,
+        jobType: "qa.dry_run",
+        retryAttempt: 1,
+      },
+    });
+    expect(retryCancelled.json().metadata.jobId).not.toBe(queued.json().jobId);
+    expect(cancelled.json().status).toBe("cancelled");
+
+    const failedStorage = createInMemoryMissionStorage({ projects: [projectExample] });
+    const failedServer = buildServer({ storage: failedStorage, auth: { disabled: true }, workerRuntime: new RetrySuccessWorkerRuntime() });
+    await failedServer.ready();
+    await seedDemoMission(failedStorage);
+    const failedWrapper = (await failedServer.inject({
+      method: "POST",
+      url: `/missions/${EXAMPLE_MISSION_ID}/worker-runs`,
+      payload: {
+        workerType: "orchestrator",
+        status: "failed",
+        mode: "dry-run",
+        metadata: { queueWrapper: true, jobId: "job-failed-original", jobType: "qa.dry_run" },
+        output: { queueWrapper: true, jobId: "job-failed-original", jobType: "qa.dry_run" },
+        error: "Queue failed safely.",
+      },
+    })).json();
+    const retryFailed = await failedServer.inject({ method: "POST", url: `/worker-runs/${failedWrapper.id}/retry` });
+    expect(retryFailed.statusCode).toBe(200);
+    expect(retryFailed.json()).toMatchObject({
+      status: "queued",
+      metadata: { previousJobId: "job-failed-original", retryAttempt: 1 },
+      output: { previousJobId: "job-failed-original", retryAttempt: 1 },
+    });
+    expect(retryFailed.json().metadata.jobId).not.toBe("job-failed-original");
+
+    const events = await storage.listMissionEvents(EXAMPLE_MISSION_ID);
+    expect(events.map((event) => event.type)).toContain("worker_run.retried");
+  });
+
+  it("rejects retry for running, succeeded, and queued wrapper WorkerRuns", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "Retry validation mission");
+
+    for (const status of ["running", "succeeded", "queued"] as const) {
+      const wrapper = (await server.inject({
+        method: "POST",
+        url: `/missions/${mission.id}/worker-runs`,
+        payload: {
+          workerType: "orchestrator",
+          status,
+          mode: "dry-run",
+          metadata: { queueWrapper: true, jobId: `job-${status}`, jobType: "qa.dry_run" },
+          output: { queueWrapper: true, jobId: `job-${status}`, jobType: "qa.dry_run" },
+        },
+      })).json();
+      const response = await server.inject({ method: "POST", url: `/worker-runs/${wrapper.id}/retry` });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe("WORKER_RUN_NOT_RETRYABLE");
+    }
+  });
+
+  it("protects worker-run cancel and retry writes when auth is enabled", async () => {
+    const { server } = await createTestServer({ auth: { token: "secret", disabled: false } });
+
+    const cancel = await server.inject({ method: "POST", url: "/worker-runs/worker-run-missing/cancel" });
+    const retry = await server.inject({ method: "POST", url: "/worker-runs/worker-run-missing/retry" });
+
+    expect(cancel.statusCode).toBe(401);
+    expect(retry.statusCode).toBe(401);
+    expect(cancel.json().code).toBe("UNAUTHORIZED");
+    expect(retry.json().code).toBe("UNAUTHORIZED");
+  });
+
+  it("does not leak runtime secret details from queue API errors", async () => {
+    const { server, storage } = await createTestServer({
+      auth: { disabled: true },
+      actionExecutionMode: "queued",
+      workerRuntime: new SecretThrowingQueueRuntime(),
+    });
+    await seedDemoMission(storage);
+
+    const status = await server.inject({ method: "GET", url: "/queues/status" });
+    expect(status.statusCode).toBe(200);
+    expect(status.json()).toMatchObject({
+      runtime: "unavailable",
+      redisReachable: false,
+      errorCode: "QUEUE_RUNTIME_UNAVAILABLE",
+    });
+
+    const wrapper = (await server.inject({
+      method: "POST",
+      url: `/missions/${EXAMPLE_MISSION_ID}/worker-runs`,
+      payload: {
+        workerType: "orchestrator",
+        status: "queued",
+        mode: "dry-run",
+        metadata: { queueWrapper: true, jobId: "job-secret-error", jobType: "qa.dry_run" },
+        output: { queueWrapper: true, jobId: "job-secret-error", jobType: "qa.dry_run" },
+      },
+    })).json();
+    const cancel = await server.inject({ method: "POST", url: `/worker-runs/${wrapper.id}/cancel` });
+    expect(cancel.statusCode).toBe(503);
+    expect(cancel.json()).toMatchObject({
+      code: "QUEUE_RUNTIME_UNAVAILABLE",
+      message: "Queue runtime is unavailable. Check Redis and Worker Runtime configuration.",
+    });
+
+    for (const body of [JSON.stringify(status.json()), JSON.stringify(cancel.json())]) {
+      expect(body).not.toContain("queue-secret");
+      expect(body).not.toContain("cancel-secret");
+      expect(body).not.toContain("password");
+      expect(body).not.toContain("token");
+    }
   });
 
   it("allows write requests with a valid bearer token", async () => {

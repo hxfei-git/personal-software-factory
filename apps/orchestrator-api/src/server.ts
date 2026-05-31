@@ -40,6 +40,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   server.get("/health", async () => ({ status: "ok" }));
   server.get("/dashboard", async () => services.getDashboard());
 
+  server.get("/queues/status", async () => services.getQueueStatus());
+  server.get<{ Params: { jobId: string } }>("/jobs/:jobId", async (request) => services.getQueueJob(request.params.jobId));
+
   server.get("/integrations", async () => services.listIntegrations());
   server.post<{ Params: { name: string } }>("/integrations/:name/dry-run", async (request) => {
     return services.runIntegrationDryRun(request.params.name, request.body);
@@ -108,6 +111,16 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   });
   server.post<{ Params: { approvalId: string } }>("/approvals/:approvalId/decision", async (request) => {
     return services.decideApproval(request.params.approvalId, request.body);
+  });
+
+  server.get<{ Querystring: { status?: string; missionId?: string; workerType?: string } }>("/worker-runs", async (request) => {
+    return services.listWorkerRuns(request.query);
+  });
+  server.post<{ Params: { id: string } }>("/worker-runs/:id/cancel", async (request) => {
+    return services.cancelWorkerRun(request.params.id);
+  });
+  server.post<{ Params: { id: string } }>("/worker-runs/:id/retry", async (request) => {
+    return services.retryWorkerRun(request.params.id);
   });
 
   server.post<{ Params: { missionId: string } }>("/missions/:missionId/worker-runs", async (request, reply) => {
