@@ -191,6 +191,52 @@ Response shape:
 }
 ```
 
+### Gated Real-Mode Action Contracts
+
+Protected routes:
+
+- `POST /missions/:id/actions/codex-real` -> `codex.real`, gate `PSF_ENABLE_REAL_CODEX=true`
+- `POST /missions/:id/actions/qa-playwright` -> `qa.playwright`, gate `PSF_ENABLE_REAL_QA_PLAYWRIGHT=true`
+- `POST /missions/:id/actions/qa-ai-exploratory` -> `qa.ai_exploratory`, gate `PSF_ENABLE_REAL_QA_AI_EXPLORATORY=true`
+- `POST /missions/:id/actions/fix-real` -> `fix.real`, gate `PSF_ENABLE_REAL_FIX=true`
+- `POST /missions/:id/actions/github-pr` -> `github.pr`, gate `PSF_ENABLE_REAL_GITHUB_PR=true`
+- `POST /missions/:id/actions/deploy-staging` -> `deploy.coolify`, gate `PSF_ENABLE_REAL_COOLIFY_DEPLOY=true`
+- `POST /missions/:id/actions/monitor-sync` -> `monitor.uptime_kuma`, gate `PSF_ENABLE_REAL_UPTIME_KUMA_SYNC=true`
+- `POST /missions/:id/actions/plane-sync` -> `plane.sync`, gate `PSF_ENABLE_REAL_PLANE_SYNC=true`
+
+These routes are contracts only in this phase. They never run Codex, Playwright, GitHub, Coolify, Uptime Kuma, Plane, pushes, PR creation, deployments, or arbitrary commands inside the API process. If `PSF_ACTION_EXECUTION_MODE` is not `queued`, or the route-specific gate is not set to exactly `true`, the API returns a blocked/manual payload and creates no WorkerRun or queue job.
+
+Blocked response shape:
+
+```json
+{
+  "accepted": false,
+  "executionMode": "queued",
+  "missionId": "mission-0001-ai-novelist-chapter-review",
+  "projectId": "ai-novelist",
+  "action": "github-pr",
+  "jobType": "github.pr",
+  "status": "blocked",
+  "dryRun": false,
+  "realEnabled": false,
+  "realNetworkCall": false,
+  "realExternalCall": false,
+  "realPush": false,
+  "realDeploy": false,
+  "recommendedNextAction": "Set PSF_ENABLE_REAL_GITHUB_PR=true and PSF_ACTION_EXECUTION_MODE=queued after approvals and worker support are ready."
+}
+```
+
+When queued mode and the route-specific gate are both enabled, the API creates the existing queue wrapper WorkerRun and enqueues only the mapped whitelisted job type. The response has `accepted: true`, `status: queued`, `mode: real` on the wrapper WorkerRun, and `realNetworkCall: false`. Worker Runner handlers for these real/gated job types are intentionally not implemented until Task 9.
+
+Request body is strict and currently accepts only an optional approval reference:
+
+```json
+{
+  "approvalId": "approval-123"
+}
+```
+
 ### POST /demo/ai-novelist
 
 Protected. Runs the local ai-novelist demo dry-run action and returns the same safety fields and generated artifact IDs as the Mission action endpoints. This route does not support reset. Reset remains CLI-only; requests containing `resetDemo: true` return `400 VALIDATION_ERROR`.

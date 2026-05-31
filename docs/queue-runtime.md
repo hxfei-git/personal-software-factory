@@ -104,9 +104,41 @@ curl -H "Authorization: Bearer $PSF_API_TOKEN" -X POST http://127.0.0.1:3000/wor
 
 Cancel supports queued or delayed jobs. Active job cancellation is cooperative and best-effort; the system records `cancellationRequested` instead of claiming a hard kill. Retry is allowed only for failed or cancelled wrapper WorkerRuns and preserves the original job type, Mission ID, Project ID, and payload while recording the new `jobId` or retry attempt.
 
+## Whitelisted Job Types
+
+The queue accepts these existing dry-run job types:
+
+- `mission.plan`
+- `codex.dry_run`
+- `qa.dry_run`
+- `qa.dry_run_with_sample_bug`
+- `fix.dry_run`
+- `loop.dry_run`
+- `demo.ai_novelist`
+- `integration.dry_run`
+
+Task 3 also reserves these real/gated job contracts:
+
+- `codex.real`
+- `qa.playwright`
+- `qa.ai_exploratory`
+- `fix.real`
+- `github.pr`
+- `deploy.coolify`
+- `monitor.uptime_kuma`
+- `plane.sync`
+
+Unknown job types are rejected by the Zod schema before enqueue. Payloads are recursively rejected when keys look like tokens, passwords, secrets, API keys, authorization headers, or credentials.
+
+## Gated Real-Mode Routes
+
+The Orchestrator API exposes explicit protected routes for real/gated contracts only; it does not expose arbitrary command submission or generic queue submission. Each route maps to one whitelisted job type and one route-specific gate. If the API is not in `PSF_ACTION_EXECUTION_MODE=queued`, or the route gate is not exactly `true`, the response is a blocked/manual payload and no WorkerRun or queue job is created.
+
+When accepted, the API only creates the queue wrapper WorkerRun and enqueues the contract job with `mode: real`. The API still sets `realNetworkCall: false`, `realExternalCall: false`, `realPush: false`, and `realDeploy: false`. Worker Runner support for these job types is scheduled for Task 9.
+
 ## Safety Boundary
 
-Queued mode is still dry-run/mock only. It does not execute Codex, push branches, create PRs, deploy, create monitors, create Plane issues, run arbitrary shell commands, or call external provider APIs. Job payloads must not contain tokens, passwords, secrets, API keys, authorization headers, or credentials.
+Queued dry-run mode remains dry-run/mock only. Gated real-mode routes currently accept or block job contracts; they do not execute Codex, push branches, create PRs, deploy, create monitors, create Plane issues, run arbitrary shell commands, or call external provider APIs. Job payloads must not contain tokens, passwords, secrets, API keys, authorization headers, or credentials.
 
 ## Preparing For Future Real Codex Work
 

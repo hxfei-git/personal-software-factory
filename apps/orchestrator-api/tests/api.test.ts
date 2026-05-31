@@ -90,6 +90,17 @@ describe("orchestrator api", () => {
     }
   }
 
+  const realActionRoutes = [
+    { path: "codex-real", jobType: "codex.real", gate: "PSF_ENABLE_REAL_CODEX" },
+    { path: "qa-playwright", jobType: "qa.playwright", gate: "PSF_ENABLE_REAL_QA_PLAYWRIGHT" },
+    { path: "qa-ai-exploratory", jobType: "qa.ai_exploratory", gate: "PSF_ENABLE_REAL_QA_AI_EXPLORATORY" },
+    { path: "fix-real", jobType: "fix.real", gate: "PSF_ENABLE_REAL_FIX" },
+    { path: "github-pr", jobType: "github.pr", gate: "PSF_ENABLE_REAL_GITHUB_PR" },
+    { path: "deploy-staging", jobType: "deploy.coolify", gate: "PSF_ENABLE_REAL_COOLIFY_DEPLOY" },
+    { path: "monitor-sync", jobType: "monitor.uptime_kuma", gate: "PSF_ENABLE_REAL_UPTIME_KUMA_SYNC" },
+    { path: "plane-sync", jobType: "plane.sync", gate: "PSF_ENABLE_REAL_PLANE_SYNC" },
+  ] as const;
+
   async function createRegistryRoot() {
     const root = await mkdtemp(join(tmpdir(), "psf-api-registry-"));
     const projectDir = join(root, "sample");
@@ -197,6 +208,29 @@ describe("orchestrator api", () => {
       return await callback();
     } finally {
       process.chdir(previous);
+    }
+  }
+
+  async function withEnv<T>(patch: Record<string, string | undefined>, callback: () => Promise<T>): Promise<T> {
+    const previous: Record<string, string | undefined> = {};
+    for (const key of Object.keys(patch)) {
+      previous[key] = process.env[key];
+      if (patch[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = patch[key];
+      }
+    }
+    try {
+      return await callback();
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
     }
   }
 
@@ -644,6 +678,112 @@ describe("orchestrator api", () => {
         payload: { withSampleBug: true },
       },
     });
+  });
+
+  it("blocks gated real action routes when their explicit real gates are disabled", async () => {
+    await withEnv({
+      PSF_ACTION_EXECUTION_MODE: "queued",
+      ...Object.fromEntries(realActionRoutes.map((route) => [route.gate, undefined])),
+    }, async () => {
+      const workerRuntime = new InProcessWorkerRuntime();
+      const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime });
+      await seedDemoMission(storage);
+
+      for (const route of realActionRoutes) {
+        const response = await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/actions/${route.path}`,
+          payload: { approvalId: "approval-real-mode" },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+          accepted: false,
+          executionMode: "queued",
+          missionId: EXAMPLE_MISSION_ID,
+          projectId: "ai-novelist",
+          status: "blocked",
+          jobType: route.jobType,
+          realEnabled: false,
+          realNetworkCall: false,
+          realExternalCall: false,
+        });
+        expect(response.json().recommendedNextAction).toContain(route.gate);
+      }
+
+      expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(0);
+      expect(await workerRuntime.listJobs()).toHaveLength(0);
+    });
+  });
+
+  it("queues only whitelisted gated real action jobs when queued mode and route gates are enabled", async () => {
+    for (const route of realActionRoutes) {
+      await withEnv({ PSF_ACTION_EXECUTION_MODE: "queued", [route.gate]: "true" }, async () => {
+        const workerRuntime = new InProcessWorkerRuntime();
+        const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime });
+        await seedDemoMission(storage);
+
+        const response = await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/actions/${route.path}`,
+          payload: { approvalId: "approval-real-mode" },
+        });
+
+        expect(response.statusCode).toBe(202);
+        const body = response.json();
+        expect(body).toMatchObject({
+          accepted: true,
+          executionMode: "queued",
+          missionId: EXAMPLE_MISSION_ID,
+          projectId: "ai-novelist",
+          status: "queued",
+          jobType: route.jobType,
+          dryRun: false,
+          realEnabled: true,
+          realNetworkCall: false,
+          realExternalCall: false,
+          realPush: false,
+          realDeploy: false,
+        });
+
+        const workerRuns = await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID);
+        expect(workerRuns).toHaveLength(1);
+        expect(workerRuns[0]).toMatchObject({
+          id: body.workerRunId,
+          mission_id: EXAMPLE_MISSION_ID,
+          worker_type: "orchestrator",
+          status: "queued",
+          mode: "real",
+          metadata: {
+            queueWrapper: true,
+            jobId: body.jobId,
+            jobType: route.jobType,
+            realNetworkCall: false,
+          },
+        });
+
+        expect(await workerRuntime.getJob(body.jobId)).toMatchObject({
+          status: "queued",
+          job: {
+            id: body.jobId,
+            missionId: EXAMPLE_MISSION_ID,
+            projectId: "ai-novelist",
+            workerRunId: body.workerRunId,
+            type: route.jobType,
+            mode: "real",
+            payload: { approvalId: "approval-real-mode" },
+          },
+        });
+      });
+    }
+  });
+
+  it("protects gated real action routes when auth is enabled", async () => {
+    const { server } = await createTestServer({ auth: { token: "secret", disabled: false } });
+    const response = await server.inject({ method: "POST", url: `/missions/${EXAMPLE_MISSION_ID}/actions/codex-real` });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json().code).toBe("UNAUTHORIZED");
   });
 
   it("rejects queued mission dry-run actions for non-demo missions without creating queue work", async () => {

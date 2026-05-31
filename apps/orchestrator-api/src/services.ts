@@ -32,14 +32,19 @@ import { z } from "zod";
 import {
   assertDemoMissionActionSupported,
   buildQueuedActionJob,
+  buildQueuedRealActionJob,
+  isGatedRealActionEnabled,
   runAiNovelistDemoAction as runAiNovelistDemoDryRunAction,
   runCodexDryRunAction as runCodexDryRunDryRunAction,
   runFixDryRunAction as runFixDryRunDryRunAction,
   runLoopDryRunAction as runLoopDryRunDryRunAction,
   runMissionPlanAction as runMissionPlanDryRunAction,
   runQaDryRunAction as runQaDryRunDryRunAction,
+  toBlockedRealActionResponse,
   toQueuedActionResponse,
+  toQueuedRealActionResponse,
   type ActionExecutionMode,
+  type GatedRealActionKind,
   type QueuedActionKind,
 } from "./actions.js";
 import { badRequest, invalidTransition, notFound, serviceUnavailable } from "./errors.js";
@@ -357,26 +362,47 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     return sanitizeApiResponse(await inlineRunner(id, body));
   }
 
-  async function queueAction(mission: Mission, body: unknown, action: QueuedActionKind) {
+  async function runGatedRealAction(id: string, body: unknown, action: GatedRealActionKind) {
+    const mission = await getRawMission(id);
+    if (actionExecutionMode !== "queued" || !isGatedRealActionEnabled(action)) {
+      return sanitizeApiResponse(toBlockedRealActionResponse({
+        action,
+        missionId: mission.id,
+        projectId: mission.project_id,
+        executionMode: actionExecutionMode,
+      }));
+    }
+    return sanitizeApiResponse(await queueAction(mission, body, action, "real"));
+  }
+
+  async function queueAction(mission: Mission, body: unknown, action: QueuedActionKind | GatedRealActionKind, mode: "dry-run" | "real" = "dry-run") {
     if (!workerRuntime) {
       throw badRequest("QUEUE_RUNTIME_UNAVAILABLE", "Worker runtime is not configured for queued actions");
     }
     const now = new Date().toISOString();
     const workerRunId = "worker-run-" + randomUUID();
-    const job = buildQueuedActionJob({
-      action,
-      missionId: mission.id,
-      projectId: mission.project_id,
-      workerRunId,
-      body,
-    });
+    const job = mode === "real"
+      ? buildQueuedRealActionJob({
+        action: action as GatedRealActionKind,
+        missionId: mission.id,
+        projectId: mission.project_id,
+        workerRunId,
+        body,
+      })
+      : buildQueuedActionJob({
+        action: action as QueuedActionKind,
+        missionId: mission.id,
+        projectId: mission.project_id,
+        workerRunId,
+        body,
+      });
     const wrapperOutput = buildQueueWrapperOutput(job);
     const wrapperWorkerRun: WorkerRun = {
       id: workerRunId,
       mission_id: mission.id,
       worker_type: "orchestrator",
       status: "queued",
-      mode: "dry-run",
+      mode: job.mode,
       input: {
         action,
         jobType: job.type,
@@ -388,6 +414,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         queueWrapper: true,
         jobId: job.id,
         jobType: job.type,
+        ...(mode === "real" ? { realEnabled: true, realNetworkCall: false, realExternalCall: false } : {}),
       },
       created_at: now,
       updated_at: now,
@@ -431,6 +458,16 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         workerRunId: wrapperWorkerRun.id,
         jobId: job.id,
         jobType: job.type,
+      });
+    }
+    if (mode === "real") {
+      return toQueuedRealActionResponse({
+        action: action as GatedRealActionKind,
+        missionId: mission.id,
+        projectId: mission.project_id,
+        executionMode: actionExecutionMode,
+        workerRunId: wrapperWorkerRun.id,
+        job,
       });
     }
     return toQueuedActionResponse({
@@ -568,6 +605,30 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     },
     async runLoopDryRunAction(id: string, body: unknown) {
       return runMissionAction(id, body, "loop", runLoopDryRunDryRunAction);
+    },
+    async runCodexRealAction(id: string, body: unknown) {
+      return runGatedRealAction(id, body, "codex-real");
+    },
+    async runQaPlaywrightAction(id: string, body: unknown) {
+      return runGatedRealAction(id, body, "qa-playwright");
+    },
+    async runQaAiExploratoryAction(id: string, body: unknown) {
+      return runGatedRealAction(id, body, "qa-ai-exploratory");
+    },
+    async runFixRealAction(id: string, body: unknown) {
+      return runGatedRealAction(id, body, "fix-real");
+    },
+    async runGithubPrAction(id: string, body: unknown) {
+      return runGatedRealAction(id, body, "github-pr");
+    },
+    async runDeployStagingAction(id: string, body: unknown) {
+      return runGatedRealAction(id, body, "deploy-staging");
+    },
+    async runMonitorSyncAction(id: string, body: unknown) {
+      return runGatedRealAction(id, body, "monitor-sync");
+    },
+    async runPlaneSyncAction(id: string, body: unknown) {
+      return runGatedRealAction(id, body, "plane-sync");
     },
     async runAiNovelistDemoAction(body: unknown) {
       if (actionExecutionMode === "queued") {
@@ -1200,6 +1261,7 @@ function nextRetryAttempt(output: unknown): number {
 
 
 function buildQueueWrapperOutput(job: QueueWorkerJob): Record<string, unknown> {
+  const realMode = job.mode === "real";
   return {
     queueWrapper: true,
     jobId: job.id,
@@ -1208,8 +1270,13 @@ function buildQueueWrapperOutput(job: QueueWorkerJob): Record<string, unknown> {
     childQARunIds: [],
     childArtifactIds: [],
     childBugReportIds: [],
-    summary: "Queued dry-run action; waiting for Worker Runner consumption.",
-    recommendedNextAction: "Start or refresh the Worker Runner, then refresh Mission Summary.",
+    summary: realMode
+      ? "Queued gated real-mode action; waiting for Worker Runner support."
+      : "Queued dry-run action; waiting for Worker Runner consumption.",
+    recommendedNextAction: realMode
+      ? "Worker Runner real handlers land in Task 9; the API has not made any external call."
+      : "Start or refresh the Worker Runner, then refresh Mission Summary.",
+    ...(realMode ? { realEnabled: true, realNetworkCall: false, realExternalCall: false } : {}),
   };
 }
 
