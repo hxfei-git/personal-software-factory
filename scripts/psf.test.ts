@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, stat } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
 import { join, resolve } from "node:path";
@@ -238,6 +238,61 @@ describe("psf CLI", () => {
     expect(result.stderr).not.toContain(secret);
   });
 
+  test("doctor json output redacts secret-bearing URLs", async () => {
+    const cwd = await createDoctorWorkspace("psf-cli-doctor-");
+    const secretUrl = "https://token-value@example.test/health?token=abc&safe=ok";
+
+    const result = await withEnv({ PSF_API_URL: secretUrl }, () =>
+      runPsfCli(["doctor", "--json", "--check-api"], { cwd, syncDatabase: false }),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('"checks"');
+    expect(result.stdout).toContain("[redacted]");
+    expect(result.stdout).not.toContain("token-value");
+    expect(result.stdout).not.toContain("token=abc");
+    expect(result.stderr).toBe("");
+  });
+
+  test("demo reset previews without DEMO_RESET_CONFIRM=1 and does not delete files", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-cli-demo-reset-"));
+    const missionDir = join(cwd, "missions", exampleMissionId);
+    await mkdir(missionDir, { recursive: true });
+    await writeFile(join(missionDir, "metadata.json"), "{}\n", "utf8");
+
+    const result = await withEnv({ DEMO_RESET_CONFIRM: undefined }, () =>
+      runPsfCli(["demo:reset", "--skip-db"], { cwd, syncDatabase: false }),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Confirmation required");
+    expect(result.stdout).toContain('"deleted": false');
+    expect(result.stdout).toContain('"requiresConfirmation": true');
+    await expect(stat(join(missionDir, "metadata.json"))).resolves.toBeTruthy();
+  });
+
+  test("demo ai-novelist dry-run prints mission URLs and boundary fields", async () => {
+    const cwd = await createExampleWorkspace("psf-cli-demo-ai-");
+
+    const result = await runPsfCli(["demo:ai-novelist", "--with-sample-bug", "--skip-db"], {
+      cwd,
+      syncDatabase: false,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(`Mission ID: ${exampleMissionId}`);
+    expect(result.stdout).toContain("API URL: http://127.0.0.1:3000");
+    expect(result.stdout).toContain("Hub URL: http://127.0.0.1:5173");
+    expect(result.stdout).toContain(`Mission Detail URL: http://127.0.0.1:5173/missions/${exampleMissionId}`);
+    expect(result.stdout).toContain("dryRun: true");
+    expect(result.stdout).toContain("realCodexExecuted: false");
+    expect(result.stdout).toContain("realExternalCall: false");
+    expect(result.stdout).toContain("realPush: false");
+    expect(result.stdout).toContain("realDeploy: false");
+    expect(await readFile(join(cwd, "missions", exampleMissionId, "bugs.json"), "utf8")).toContain("sample-duplicate-generate");
+    expect(await readFile(join(cwd, "docs", "reports", "demo-ai-novelist-report.md"), "utf8")).toContain("AI Novelist Demo Acceptance Report");
+  });
+
   test("mission commands reject unsafe mission ids", async () => {
     const cwd = await createExampleWorkspace("psf-cli-path-");
 
@@ -255,6 +310,19 @@ describe("psf CLI", () => {
 async function createExampleWorkspace(prefix: string): Promise<string> {
   const cwd = await mkdtemp(join(tmpdir(), prefix));
   await cp(resolve("projects"), join(cwd, "projects"), { recursive: true });
+  return cwd;
+}
+
+async function createDoctorWorkspace(prefix: string): Promise<string> {
+  const cwd = await mkdtemp(join(tmpdir(), prefix));
+  await mkdir(join(cwd, "projects", "ai-novelist"), { recursive: true });
+  await mkdir(join(cwd, "apps", "hub"), { recursive: true });
+  await mkdir(join(cwd, "apps", "orchestrator-api"), { recursive: true });
+  await mkdir(join(cwd, "packages"), { recursive: true });
+  await mkdir(join(cwd, "workers"), { recursive: true });
+  await mkdir(join(cwd, "missions"), { recursive: true });
+  await cp(resolve("projects", "ai-novelist", "project.passport.yaml"), join(cwd, "projects", "ai-novelist", "project.passport.yaml"));
+  await writeFile(join(cwd, ".env.example"), "PSF_API_TOKEN=example\n", "utf8");
   return cwd;
 }
 

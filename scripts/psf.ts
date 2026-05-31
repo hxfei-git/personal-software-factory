@@ -8,6 +8,16 @@ import { createQaDryRun, createSkippedPlaywrightSummary } from "@psf/qa-worker";
 import type { Artifact, BugReport, MissionEvent, QAReport, WorkerRun } from "@psf/mission-schema";
 import { findProjectById, scanProjectRegistry, type RegistryProject } from "@psf/project-registry";
 import { listIntegrationStatuses, runIntegrationDryRun, type ExternalIntegrationName } from "@psf/integrations";
+import {
+  DEMO_REPORT_PATH,
+  ensureDemoMission,
+  formatDoctorResult,
+  resetDemoData,
+  runAiNovelistDemo,
+  runDoctor,
+  type DemoBoundary,
+  type DemoWorkflowResult,
+} from "@psf/demo-workflow";
 
 const DEFAULT_DATABASE_URL = "postgresql://psf:psf_dev_password@localhost:5432/psf?schema=public";
 const EXAMPLE_PROJECT_ID = "ai-novelist";
@@ -20,7 +30,7 @@ const MISSION_ID_PATTERN = /^mission-[a-z0-9][a-z0-9-]*$/;
 const CLI_INTEGRATION_PROVIDERS = ["github", "coolify", "uptime-kuma", "plane"] as const;
 type CliIntegrationProvider = (typeof CLI_INTEGRATION_PROVIDERS)[number];
 
-type CliCommand = "projects:sync" | "mission:create" | "mission:plan" | "codex:dry-run" | "qa:dry-run" | "qa:playwright" | "fix:dry-run" | "loop:dry-run" | "integrations:status" | "integrations:dry-run";
+type CliCommand = "projects:sync" | "mission:create" | "mission:plan" | "codex:dry-run" | "qa:dry-run" | "qa:playwright" | "fix:dry-run" | "loop:dry-run" | "integrations:status" | "integrations:dry-run" | "doctor" | "demo:seed" | "demo:reset" | "demo:ai-novelist" | "demo:report";
 
 type JsonObject = Record<string, unknown>;
 
@@ -132,6 +142,21 @@ export async function runPsfCli(argv: string[], options: PsfCliOptions = {}): Pr
       case "integrations:dry-run":
         integrationsDryRunCommand(context, args);
         break;
+      case "doctor":
+        await doctorCommand(context, args);
+        break;
+      case "demo:seed":
+        await demoSeedCommand(context, args);
+        break;
+      case "demo:reset":
+        await demoResetCommand(context, args);
+        break;
+      case "demo:ai-novelist":
+        await demoAiNovelistCommand(context, args);
+        break;
+      case "demo:report":
+        await demoReportCommand(context, args);
+        break;
       default:
         throw new PsfCliError("USAGE", usage(), command ? 1 : 0);
     }
@@ -157,6 +182,59 @@ function integrationsDryRunCommand(context: CliContext, args: string[]): void {
   const provider = requireIntegrationProvider(args);
   const result = runIntegrationDryRun(provider as ExternalIntegrationName, { env: process.env });
   context.stdout.push(JSON.stringify(result, null, 2));
+}
+
+async function doctorCommand(context: CliContext, args: string[]): Promise<void> {
+  const flags = parseFlags(args, new Set(["--json", "--check-db", "--check-database", "--check-api", "--check-hub"]), "Usage: pnpm psf doctor [--json] [--check-db] [--check-api] [--check-hub]");
+  const result = await runDoctor({
+    cwd: context.cwd,
+    env: process.env,
+    json: flags.has("--json"),
+    checkDatabase: flags.has("--check-db") || flags.has("--check-database"),
+    checkApi: flags.has("--check-api"),
+    checkHub: flags.has("--check-hub"),
+  });
+  context.stdout.push(formatDoctorResult(result, flags.has("--json")).trimEnd());
+}
+
+async function demoSeedCommand(context: CliContext, args: string[]): Promise<void> {
+  parseFlags(args, new Set(["--skip-db"]), "Usage: pnpm psf demo:seed [--skip-db]");
+  const seed = await ensureDemoMission({ cwd: context.cwd, skipDb: shouldSkipDb(context, args) });
+  context.stdout.push(`Seeded demo mission ${seed.metadata.id}.`);
+  context.stdout.push(`Project ID: ${seed.metadata.projectId}`);
+  context.stdout.push(`Created: ${seed.created}`);
+  context.stdout.push(...formatBoundaryLines({ dryRun: true, realCodexExecuted: false, realExternalCall: false, realPush: false, realDeploy: false }));
+}
+
+async function demoResetCommand(context: CliContext, args: string[]): Promise<void> {
+  const flags = parseFlags(args, new Set(["--skip-db"]), "Usage: pnpm psf demo:reset [--skip-db]");
+  const result = await resetDemoData({
+    cwd: context.cwd,
+    confirm: process.env.DEMO_RESET_CONFIRM === "1",
+    skipDb: flags.has("--skip-db") || !context.syncDatabase,
+  });
+  context.stdout.push(JSON.stringify(result, null, 2));
+}
+
+async function demoAiNovelistCommand(context: CliContext, args: string[]): Promise<void> {
+  const flags = parseFlags(args, new Set(["--with-sample-bug", "--skip-db"]), "Usage: pnpm psf demo:ai-novelist [--with-sample-bug] [--skip-db]");
+  const result = await runAiNovelistDemo({
+    cwd: context.cwd,
+    withSampleBug: flags.has("--with-sample-bug"),
+    skipDb: flags.has("--skip-db") || !context.syncDatabase,
+  });
+  context.stdout.push(...formatDemoWorkflowLines(result));
+}
+
+async function demoReportCommand(context: CliContext, args: string[]): Promise<void> {
+  const flags = parseFlags(args, new Set(["--with-sample-bug", "--skip-db"]), "Usage: pnpm psf demo:report [--with-sample-bug] [--skip-db]");
+  const result = await runAiNovelistDemo({
+    cwd: context.cwd,
+    withSampleBug: flags.has("--with-sample-bug"),
+    skipDb: flags.has("--skip-db") || !context.syncDatabase,
+  });
+  context.stdout.push(`Demo report written: ${DEMO_REPORT_PATH}`);
+  context.stdout.push(...formatDemoWorkflowLines(result));
 }
 
 async function syncProjectsCommand(context: CliContext): Promise<void> {
@@ -882,6 +960,49 @@ function renderCodexCommandReviewArtifact(command: string): string {
   ].join("\n");
 }
 
+function parseFlags(args: string[], allowed: ReadonlySet<string>, usageText: string): Set<string> {
+  const flags = new Set<string>();
+  for (const arg of args) {
+    if (!allowed.has(arg)) {
+      throw new PsfCliError("USAGE", usageText);
+    }
+    flags.add(arg);
+  }
+  return flags;
+}
+
+function shouldSkipDb(context: CliContext, args: string[]): boolean {
+  return args.includes("--skip-db") || !context.syncDatabase;
+}
+
+function formatDemoWorkflowLines(result: DemoWorkflowResult): string[] {
+  return [
+    result.message,
+    `Mission ID: ${result.missionId}`,
+    `Project ID: ${result.projectId}`,
+    `API URL: ${result.apiUrl}`,
+    `Hub URL: ${result.hubUrl}`,
+    `Mission Detail URL: ${result.missionDetailUrl}`,
+    `DB synced: ${result.dbSynced}`,
+    "Boundary:",
+    ...formatBoundaryLines(result.boundary),
+    `Generated artifacts: ${result.generatedArtifacts.length}`,
+    `Worker runs: ${result.workerRunIds.length}`,
+    `QA runs: ${result.qaRunIds.length}`,
+    `Bugs: ${result.bugIds.length}`,
+  ];
+}
+
+function formatBoundaryLines(boundary: DemoBoundary): string[] {
+  return [
+    `  dryRun: ${boundary.dryRun}`,
+    `  realCodexExecuted: ${boundary.realCodexExecuted}`,
+    `  realExternalCall: ${boundary.realExternalCall}`,
+    `  realPush: ${boundary.realPush}`,
+    `  realDeploy: ${boundary.realDeploy}`,
+  ];
+}
+
 function requireIntegrationProvider(args: string[]): CliIntegrationProvider {
   const [provider, ...rest] = args;
   if (!provider || rest.length > 0 || !isCliIntegrationProvider(provider)) {
@@ -953,9 +1074,16 @@ function usage(): string {
     `  pnpm psf loop:dry-run ${EXAMPLE_MISSION_ID} --with-sample-bug`,
     "  pnpm psf integrations:status",
     "  pnpm psf integrations:dry-run github|coolify|uptime-kuma|plane",
+    "  pnpm psf doctor [--json] [--check-db] [--check-api] [--check-hub]",
+    "  pnpm psf demo:seed [--skip-db]",
+    "  pnpm psf demo:reset [--skip-db]",
+    "  DEMO_RESET_CONFIRM=1 pnpm psf demo:reset [--skip-db]",
+    "  pnpm psf demo:ai-novelist [--with-sample-bug] [--skip-db]",
+    "  pnpm psf demo:report [--with-sample-bug] [--skip-db]",
     `  pnpm psf qa:playwright ${EXAMPLE_MISSION_ID}`,
     "",
     "All commands are local dry-runs. codex and fix command artifacts never execute Codex.",
+    "demo:reset previews only unless DEMO_RESET_CONFIRM=1 is set.",
   ].join("\n");
 }
 
