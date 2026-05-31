@@ -13,13 +13,14 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
-    "@psf/demo-workflow": "workspace:*",
     "@psf/db": "workspace:*",
+    "@psf/demo-workflow": "workspace:*",
     "@psf/integrations": "workspace:*",
     "@psf/mission-core": "workspace:*",
     "@psf/mission-planner": "workspace:*",
     "@psf/mission-schema": "workspace:*",
     "@psf/project-registry": "workspace:*",
+    "@psf/worker-runtime": "workspace:*",
     "fastify": "^5.3.0",
     "zod": "^3.25.0"
   },

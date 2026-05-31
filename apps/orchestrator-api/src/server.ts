@@ -1,13 +1,17 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import { createWorkerRuntimeFromEnv, type WorkerRuntime } from "@psf/worker-runtime";
+import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { registerApiAuth, type ApiAuthOptions } from "./auth.js";
 import { ApiError, toErrorResponse } from "./errors.js";
 import { createMissionServices } from "./services.js";
+import type { ActionExecutionMode } from "./actions.js";
 import type { MissionStorage } from "./storage.js";
 
 export interface BuildServerOptions {
   storage: MissionStorage;
   auth?: ApiAuthOptions;
   registryRoot?: string;
+  actionExecutionMode?: ActionExecutionMode;
+  workerRuntime?: WorkerRuntime;
 }
 
 export function buildServer(options: BuildServerOptions): FastifyInstance {
@@ -17,8 +21,12 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     disabled: process.env.PSF_AUTH_DISABLED === "true" || process.env.NODE_ENV === "test",
   });
   const registryRoot = options.registryRoot ?? process.env.PSF_PROJECTS_ROOT;
+  const actionExecutionMode = options.actionExecutionMode ?? readActionExecutionMode(process.env.PSF_ACTION_EXECUTION_MODE);
+  const workerRuntime = options.workerRuntime ?? createWorkerRuntimeFromEnv();
   const services = createMissionServices(options.storage, {
     ...(registryRoot === undefined ? {} : { registryRoot }),
+    actionExecutionMode,
+    workerRuntime,
   });
 
   server.setErrorHandler((error, _request, reply) => {
@@ -56,23 +64,23 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     return services.planMission(request.params.id, request.body);
   });
 
-  server.post<{ Params: { id: string } }>("/missions/:id/actions/plan", async (request) => {
-    return services.runMissionPlanAction(request.params.id, request.body);
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/plan", async (request, reply) => {
+    return sendActionResponse(reply, await services.runMissionPlanAction(request.params.id, request.body));
   });
-  server.post<{ Params: { id: string } }>("/missions/:id/actions/codex-dry-run", async (request) => {
-    return services.runCodexDryRunAction(request.params.id, request.body);
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/codex-dry-run", async (request, reply) => {
+    return sendActionResponse(reply, await services.runCodexDryRunAction(request.params.id, request.body));
   });
-  server.post<{ Params: { id: string } }>("/missions/:id/actions/qa-dry-run", async (request) => {
-    return services.runQaDryRunAction(request.params.id, request.body);
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/qa-dry-run", async (request, reply) => {
+    return sendActionResponse(reply, await services.runQaDryRunAction(request.params.id, request.body));
   });
-  server.post<{ Params: { id: string } }>("/missions/:id/actions/fix-dry-run", async (request) => {
-    return services.runFixDryRunAction(request.params.id, request.body);
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/fix-dry-run", async (request, reply) => {
+    return sendActionResponse(reply, await services.runFixDryRunAction(request.params.id, request.body));
   });
-  server.post<{ Params: { id: string } }>("/missions/:id/actions/loop-dry-run", async (request) => {
-    return services.runLoopDryRunAction(request.params.id, request.body);
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/loop-dry-run", async (request, reply) => {
+    return sendActionResponse(reply, await services.runLoopDryRunAction(request.params.id, request.body));
   });
-  server.post("/demo/ai-novelist", async (request) => {
-    return services.runAiNovelistDemoAction(request.body);
+  server.post("/demo/ai-novelist", async (request, reply) => {
+    return sendActionResponse(reply, await services.runAiNovelistDemoAction(request.body));
   });
 
   server.post<{ Params: { id: string } }>("/missions/:id/transition", async (request) => {
@@ -156,4 +164,19 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   });
 
   return server;
+}
+
+function readActionExecutionMode(value: string | undefined): ActionExecutionMode {
+  return value === "queued" ? "queued" : "inline";
+}
+
+function sendActionResponse(reply: FastifyReply, response: unknown) {
+  if (isQueuedActionResponse(response)) {
+    return reply.status(202).send(response);
+  }
+  return response;
+}
+
+function isQueuedActionResponse(value: unknown): value is { executionMode: "queued" } {
+  return Boolean(value && typeof value === "object" && (value as { executionMode?: unknown }).executionMode === "queued");
 }

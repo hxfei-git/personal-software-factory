@@ -12,6 +12,8 @@ import {
   type UptimeKumaDryRunInput,
   type PlaneDryRunInput,
 } from "@psf/integrations";
+import { EXAMPLE_MISSION_ID } from "@psf/demo-workflow";
+import type { QueueWorkerJob, WorkerRuntime } from "@psf/worker-runtime";
 import {
   MissionStatus,
   MissionStatusSchema,
@@ -28,12 +30,16 @@ import { createDeterministicMissionPlan } from "@psf/mission-planner";
 import { ProjectRegistryError, findProjectById, scanProjectRegistry } from "@psf/project-registry";
 import { z } from "zod";
 import {
+  buildQueuedActionJob,
   runAiNovelistDemoAction as runAiNovelistDemoDryRunAction,
   runCodexDryRunAction as runCodexDryRunDryRunAction,
   runFixDryRunAction as runFixDryRunDryRunAction,
   runLoopDryRunAction as runLoopDryRunDryRunAction,
   runMissionPlanAction as runMissionPlanDryRunAction,
   runQaDryRunAction as runQaDryRunDryRunAction,
+  toQueuedActionResponse,
+  type ActionExecutionMode,
+  type QueuedActionKind,
 } from "./actions.js";
 import { badRequest, invalidTransition, notFound } from "./errors.js";
 import { ApprovalDecisionConflictError, type MissionStorage } from "./storage.js";
@@ -177,10 +183,14 @@ type IntegrationDryRunInput = GitHubDryRunInput | CoolifyDryRunInput | UptimeKum
 
 export interface MissionServiceOptions {
   registryRoot?: string;
+  actionExecutionMode?: ActionExecutionMode;
+  workerRuntime?: WorkerRuntime;
 }
 
 export function createMissionServices(storage: MissionStorage, options: MissionServiceOptions = {}) {
   const registryRoot = options.registryRoot ?? "projects";
+  const actionExecutionMode = options.actionExecutionMode ?? "inline";
+  const workerRuntime = options.workerRuntime;
   async function getRawMission(id: string) {
     const mission = await storage.getMission(id);
     if (!mission) {
@@ -322,6 +332,72 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     return qaRun;
   }
 
+
+  async function runMissionAction(
+    id: string,
+    body: unknown,
+    action: QueuedActionKind,
+    inlineRunner: (missionId: string, body: unknown) => Promise<unknown>,
+  ) {
+    const mission = await getRawMission(id);
+    if (actionExecutionMode === "queued") {
+      return sanitizeApiResponse(await queueAction(mission, body, action));
+    }
+    return sanitizeApiResponse(await inlineRunner(id, body));
+  }
+
+  async function queueAction(mission: Mission, body: unknown, action: QueuedActionKind) {
+    if (!workerRuntime) {
+      throw badRequest("QUEUE_RUNTIME_UNAVAILABLE", "Worker runtime is not configured for queued actions");
+    }
+    const now = new Date().toISOString();
+    const workerRunId = "worker-run-" + randomUUID();
+    const job = buildQueuedActionJob({
+      action,
+      missionId: mission.id,
+      projectId: mission.project_id,
+      workerRunId,
+      body,
+    });
+    const wrapperOutput = buildQueueWrapperOutput(job);
+    const wrapperWorkerRun: WorkerRun = {
+      id: workerRunId,
+      mission_id: mission.id,
+      worker_type: "orchestrator",
+      status: "queued",
+      mode: "dry-run",
+      input: {
+        action,
+        jobType: job.type,
+        payload: job.payload,
+      },
+      output: wrapperOutput,
+      logs: [],
+      metadata: {
+        queueWrapper: true,
+        jobId: job.id,
+        jobType: job.type,
+      },
+      created_at: now,
+      updated_at: now,
+    };
+    const event = buildEvent(mission.id, "worker_run.queued", "Worker run queued", {
+      worker_run_id: wrapperWorkerRun.id,
+      status: wrapperWorkerRun.status,
+      queueWrapper: true,
+      jobId: job.id,
+      jobType: job.type,
+    }, now);
+    await storage.createWorkerRun({ resource: wrapperWorkerRun, event });
+    await workerRuntime.enqueue(job);
+    return toQueuedActionResponse({
+      missionId: mission.id,
+      projectId: mission.project_id,
+      workerRunId: wrapperWorkerRun.id,
+      job,
+    });
+  }
+
   return {
     async getDashboard() {
       const [projects, missions, approvals, workerRuns, artifacts, bugs, qaRuns] = await Promise.all([
@@ -436,26 +512,25 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       return runIntegrationDryRun(integrationName, { ...input, env: process.env } as IntegrationDryRunInput);
     },
     async runMissionPlanAction(id: string, body: unknown) {
-      await getRawMission(id);
-      return sanitizeApiResponse(await runMissionPlanDryRunAction(id, body));
+      return runMissionAction(id, body, "plan", runMissionPlanDryRunAction);
     },
     async runCodexDryRunAction(id: string, body: unknown) {
-      await getRawMission(id);
-      return sanitizeApiResponse(await runCodexDryRunDryRunAction(id, body));
+      return runMissionAction(id, body, "codex", runCodexDryRunDryRunAction);
     },
     async runQaDryRunAction(id: string, body: unknown) {
-      await getRawMission(id);
-      return sanitizeApiResponse(await runQaDryRunDryRunAction(id, body));
+      return runMissionAction(id, body, "qa", runQaDryRunDryRunAction);
     },
     async runFixDryRunAction(id: string, body: unknown) {
-      await getRawMission(id);
-      return sanitizeApiResponse(await runFixDryRunDryRunAction(id, body));
+      return runMissionAction(id, body, "fix", runFixDryRunDryRunAction);
     },
     async runLoopDryRunAction(id: string, body: unknown) {
-      await getRawMission(id);
-      return sanitizeApiResponse(await runLoopDryRunDryRunAction(id, body));
+      return runMissionAction(id, body, "loop", runLoopDryRunDryRunAction);
     },
     async runAiNovelistDemoAction(body: unknown) {
+      if (actionExecutionMode === "queued") {
+        const mission = await getRawMission(EXAMPLE_MISSION_ID);
+        return sanitizeApiResponse(await queueAction(mission, body, "demo"));
+      }
       return sanitizeApiResponse(await runAiNovelistDemoDryRunAction(body));
     },
     async createMission(body: unknown) {
@@ -854,6 +929,21 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       const event = buildEvent(qaRun.mission_id, "qa_run.updated", "QA run updated", { qa_run_id: qaRun.id, status: qaRun.status }, now);
       return sanitizeApiResponse(await storage.updateQARun({ resource: qaRun, event }));
     },
+  };
+}
+
+
+function buildQueueWrapperOutput(job: QueueWorkerJob): Record<string, unknown> {
+  return {
+    queueWrapper: true,
+    jobId: job.id,
+    jobType: job.type,
+    childWorkerRunIds: [],
+    childQARunIds: [],
+    childArtifactIds: [],
+    childBugReportIds: [],
+    summary: "Queued dry-run action; waiting for Worker Runner consumption.",
+    recommendedNextAction: "Start or refresh the Worker Runner, then refresh Mission Summary.",
   };
 }
 

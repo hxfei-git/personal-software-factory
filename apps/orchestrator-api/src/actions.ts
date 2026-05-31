@@ -8,8 +8,12 @@ import {
   type DemoWorkflowOptions,
   type DemoWorkflowResult,
 } from "@psf/demo-workflow";
+import { buildWorkerJob, type QueueWorkerJob, type WorkerJobType } from "@psf/worker-runtime";
 import { z } from "zod";
 import { badRequest } from "./errors.js";
+
+export type ActionExecutionMode = "inline" | "queued";
+export type QueuedActionKind = "plan" | "codex" | "qa" | "fix" | "loop" | "demo";
 
 export const MissionActionRequestSchema = z.object({
   withSampleBug: z.boolean().default(false),
@@ -24,8 +28,25 @@ const demoOnlyMessage = "This dry-run action currently supports the ai-novelist 
 
 type MissionActionRunner = (options?: DemoWorkflowOptions) => Promise<DemoWorkflowResult>;
 
+export interface BuildQueuedActionJobInput {
+  action: QueuedActionKind;
+  missionId: string;
+  projectId: string;
+  workerRunId: string;
+  body: unknown;
+}
+
+export interface QueuedActionResponseInput {
+  missionId: string;
+  projectId: string;
+  workerRunId: string;
+  job: QueueWorkerJob;
+}
+
 export function toActionResponse(result: DemoWorkflowResult) {
   return {
+    accepted: true,
+    executionMode: "inline" as const,
     missionId: result.missionId,
     projectId: result.projectId,
     mode: "dry-run",
@@ -41,6 +62,41 @@ export function toActionResponse(result: DemoWorkflowResult) {
     eventIds: result.eventIds,
     missionDetailUrl: result.missionDetailUrl,
     recommendedNextAction: result.message,
+  };
+}
+
+export function buildQueuedActionJob(input: BuildQueuedActionJobInput): QueueWorkerJob {
+  const parsedBody = input.action === "demo"
+    ? parseActionRequest(DemoActionRequestSchema, input.body ?? {})
+    : parseActionRequest(MissionActionRequestSchema, input.body ?? {});
+  const jobType = resolveJobType(input.action, parsedBody.withSampleBug ?? false);
+  const payload = parsedBody.withSampleBug ? { withSampleBug: true } : {};
+
+  return buildWorkerJob({
+    missionId: input.missionId,
+    projectId: input.projectId,
+    workerRunId: input.workerRunId,
+    type: jobType,
+    mode: "dry-run",
+    payload,
+  });
+}
+
+export function toQueuedActionResponse(input: QueuedActionResponseInput) {
+  return {
+    accepted: true,
+    executionMode: "queued" as const,
+    workerRunId: input.workerRunId,
+    jobId: input.job.id,
+    missionId: input.missionId,
+    projectId: input.projectId,
+    status: "queued" as const,
+    dryRun: true,
+    realCodexExecuted: false,
+    realExternalCall: false,
+    realPush: false,
+    realDeploy: false,
+    recommendedNextAction: "WorkerRun queued. Start or refresh the Worker Runner, then refresh Mission Summary.",
   };
 }
 
@@ -86,6 +142,23 @@ function buildOptions(input: { withSampleBug?: boolean | undefined }): DemoWorkf
     skipDb: false,
     withSampleBug: input.withSampleBug ?? false,
   };
+}
+
+function resolveJobType(action: QueuedActionKind, withSampleBug: boolean): WorkerJobType {
+  switch (action) {
+    case "plan":
+      return "mission.plan";
+    case "codex":
+      return "codex.dry_run";
+    case "qa":
+      return withSampleBug ? "qa.dry_run_with_sample_bug" : "qa.dry_run";
+    case "fix":
+      return "fix.dry_run";
+    case "loop":
+      return "loop.dry_run";
+    case "demo":
+      return "demo.ai_novelist";
+  }
 }
 
 function parseActionRequest<T>(schema: z.ZodType<T>, body: unknown): T {

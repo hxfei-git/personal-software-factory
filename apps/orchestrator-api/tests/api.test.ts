@@ -5,17 +5,26 @@ import { describe, expect, it } from "vitest";
 import { EXAMPLE_MISSION_ID } from "@psf/demo-workflow";
 import { MissionStatus, projectExample, projectPassportExample } from "@psf/mission-schema";
 import { createDeterministicMissionPlan } from "@psf/mission-planner";
+import { InProcessWorkerRuntime, type WorkerRuntime } from "@psf/worker-runtime";
 import type { ApiAuthOptions } from "../src/auth.js";
+import type { ActionExecutionMode } from "../src/actions.js";
 import { buildServer } from "../src/server.js";
 import { createInMemoryMissionStorage } from "../src/storage.js";
 
 describe("orchestrator api", () => {
-  async function createTestServer(options: { auth?: ApiAuthOptions; registryRoot?: string } = {}) {
+  async function createTestServer(options: {
+    auth?: ApiAuthOptions;
+    registryRoot?: string;
+    actionExecutionMode?: ActionExecutionMode;
+    workerRuntime?: WorkerRuntime;
+  } = {}) {
     const storage = createInMemoryMissionStorage({ projects: [projectExample] });
     const server = buildServer({
       storage,
       ...(options.auth === undefined ? {} : { auth: options.auth }),
       ...(options.registryRoot === undefined ? {} : { registryRoot: options.registryRoot }),
+      ...(options.actionExecutionMode === undefined ? {} : { actionExecutionMode: options.actionExecutionMode }),
+      ...(options.workerRuntime === undefined ? {} : { workerRuntime: options.workerRuntime }),
     });
     await server.ready();
     return { server, storage };
@@ -427,6 +436,8 @@ describe("orchestrator api", () => {
 
         expect(response.statusCode).toBe(200);
         expect(response.json()).toMatchObject({
+          accepted: true,
+          executionMode: "inline",
           missionId: EXAMPLE_MISSION_ID,
           projectId: "ai-novelist",
           mode: "dry-run",
@@ -485,6 +496,8 @@ describe("orchestrator api", () => {
 
         expect(response.statusCode).toBe(200);
         expect(response.json()).toMatchObject({
+          accepted: true,
+          executionMode: "inline",
           missionId: EXAMPLE_MISSION_ID,
           mode: "dry-run",
           dryRun: true,
@@ -497,6 +510,92 @@ describe("orchestrator api", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
+  });
+
+  it("queues mission qa dry-run action without executing child workflow resources", async () => {
+    const workerRuntime = new InProcessWorkerRuntime();
+    const { server, storage } = await createTestServer({
+      auth: { disabled: true },
+      actionExecutionMode: "queued",
+      workerRuntime,
+    });
+    await seedDemoMission(storage);
+
+    const response = await server.inject({
+      method: "POST",
+      url: `/missions/${EXAMPLE_MISSION_ID}/actions/qa-dry-run`,
+      payload: { withSampleBug: true },
+    });
+
+    expect(response.statusCode).toBe(202);
+    const body = response.json();
+    expect(body).toMatchObject({
+      accepted: true,
+      executionMode: "queued",
+      missionId: EXAMPLE_MISSION_ID,
+      projectId: "ai-novelist",
+      status: "queued",
+      dryRun: true,
+      realCodexExecuted: false,
+      realExternalCall: false,
+      realPush: false,
+      realDeploy: false,
+    });
+    expect(body.workerRunId).toMatch(/^worker-run-/);
+    expect(body.jobId).toMatch(/^job-/);
+
+    const workerRuns = await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID);
+    expect(workerRuns).toHaveLength(1);
+    expect(workerRuns[0]).toMatchObject({
+      id: body.workerRunId,
+      mission_id: EXAMPLE_MISSION_ID,
+      worker_type: "orchestrator",
+      status: "queued",
+      mode: "dry-run",
+      metadata: {
+        queueWrapper: true,
+        jobId: body.jobId,
+        jobType: "qa.dry_run_with_sample_bug",
+      },
+      output: {
+        queueWrapper: true,
+        jobId: body.jobId,
+        jobType: "qa.dry_run_with_sample_bug",
+        childWorkerRunIds: [],
+        childQARunIds: [],
+        childArtifactIds: [],
+        childBugReportIds: [],
+      },
+    });
+
+    expect(await storage.listMissionQARuns(EXAMPLE_MISSION_ID)).toHaveLength(0);
+    expect(await storage.listMissionBugs(EXAMPLE_MISSION_ID)).toHaveLength(0);
+    expect(await storage.listMissionArtifacts(EXAMPLE_MISSION_ID)).toHaveLength(0);
+    const events = await storage.listMissionEvents(EXAMPLE_MISSION_ID);
+    expect(events.map((event) => event.type)).toEqual(["mission.created", "worker_run.queued"]);
+    expect(await workerRuntime.getJob(body.jobId)).toMatchObject({
+      status: "queued",
+      job: {
+        id: body.jobId,
+        missionId: EXAMPLE_MISSION_ID,
+        projectId: "ai-novelist",
+        workerRunId: body.workerRunId,
+        type: "qa.dry_run_with_sample_bug",
+        payload: { withSampleBug: true },
+      },
+    });
+  });
+
+  it("returns not found for queued mission actions when the Mission is missing", async () => {
+    const { server } = await createTestServer({
+      auth: { disabled: true },
+      actionExecutionMode: "queued",
+      workerRuntime: new InProcessWorkerRuntime(),
+    });
+    const response = await server.inject({ method: "POST", url: "/missions/mission-missing/actions/qa-dry-run", payload: {} });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json().code).toBe("NOT_FOUND");
   });
 
   it("allows write requests with a valid bearer token", async () => {

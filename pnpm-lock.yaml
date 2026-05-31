@@ -105,6 +105,9 @@ importers:
       '@psf/project-registry':
         specifier: workspace:*
         version: link:../../packages/project-registry
+      '@psf/worker-runtime':
+        specifier: workspace:*
+        version: link:../../packages/worker-runtime
       fastify:
         specifier: ^5.3.0
         version: 5.8.5
