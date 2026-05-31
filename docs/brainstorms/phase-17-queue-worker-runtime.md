@@ -36,6 +36,8 @@ Worker Runner consumes BullMQ jobs, updates the wrapper WorkerRun, calls existin
 
 Hub reads `/queues/status`, Mission Summary, WorkerRuns, and action accepted responses through Orchestrator API. It never connects to Redis directly.
 
+Dashboard, Mission Detail, and the WorkerRun list show queue wrapper WorkerRun status values: `queued`, `running`, `succeeded`, and `failed`. After a dry-run action is accepted, Hub shows the returned `workerRunId` and `jobId`; the user observes progress by refreshing Dashboard, Mission Detail, or the WorkerRun list. Mission Detail can also show child WorkerRun, QARun, Artifact, and BugReport IDs from the wrapper WorkerRun output.
+
 ## CLI Controls
 
 CLI commands inspect queue status, start a runner, consume one job for local verification, list WorkerRuns, and cancel or retry a specific wrapper WorkerRun.
@@ -43,3 +45,9 @@ CLI commands inspect queue status, start a runner, consume one job for local ver
 ## Dry-Run Boundary
 
 This phase does not execute Codex, push, create PRs, deploy, call GitHub/Coolify/Uptime Kuma/Plane, or implement Temporal/LangGraph.
+
+Real Codex execution remains out of scope because Phase 17B is validating queue behavior, Worker Runner execution, WorkerRun state changes, and MissionEvent auditability. Real Codex should wait until workspace isolation, explicit approval, command policy, timeouts, cancellation, and retry semantics are mature enough to protect the user repositories.
+
+Real GitHub, Coolify, Uptime Kuma, and Plane integrations remain out of scope because they require external tokens and can create network side effects such as PRs, deployments, monitors, or issues. Those capabilities need later approval, redaction, idempotency, and rollback protections. This phase keeps the adapters in dry-run or mock mode only.
+
+Temporal and LangGraph remain out of scope because BullMQ is sufficient to validate the local asynchronous queue, runner, and observability model. Temporal or LangGraph would add additional runtime requirements and orchestration complexity before the queue semantics are proven. They can be evaluated after the BullMQ-backed worker runtime is stable.
