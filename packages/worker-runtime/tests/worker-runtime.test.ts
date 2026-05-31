@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildWorkerJob,
   InProcessWorkerRuntime,
+  QueueWorkerJobSchema,
   WorkerJobSchema,
+  type QueuedJobRecord,
   type QueueWorkerJob,
   type WorkerJob,
 } from "../src/index.js";
@@ -33,16 +35,41 @@ const queueJob: QueueWorkerJob = {
 };
 
 describe("InProcessWorkerRuntime", () => {
-  it("validates queue worker jobs with the WorkerJobSchema", () => {
-    expect(WorkerJobSchema.parse(queueJob)).toMatchObject({
+  it("validates queue worker jobs with the QueueWorkerJobSchema", () => {
+    expect(QueueWorkerJobSchema.parse(queueJob)).toMatchObject({
       id: "job-queue-001",
       type: "qa.dry_run",
       mode: "dry-run",
     });
   });
 
+  it("keeps WorkerJobSchema as a compatibility alias", () => {
+    expect(WorkerJobSchema).toBe(QueueWorkerJobSchema);
+  });
+
   it("rejects arbitrary queue job types", () => {
-    expect(() => WorkerJobSchema.parse({ ...queueJob, type: "shell.exec" })).toThrow();
+    expect(() => QueueWorkerJobSchema.parse({ ...queueJob, type: "shell.exec" })).toThrow();
+  });
+
+  it("rejects sensitive payload keys before queue jobs can be built or enqueued", async () => {
+    expect(() => buildWorkerJob({
+      missionId: "mission-001",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-sensitive",
+      type: "qa.dry_run",
+      payload: { token: "secret" },
+    })).toThrow(/sensitive/i);
+
+    expect(() => buildWorkerJob({
+      missionId: "mission-001",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-sensitive",
+      type: "qa.dry_run",
+      payload: { config: { password: "x" } },
+    })).toThrow(/sensitive/i);
+
+    const runtime = new InProcessWorkerRuntime();
+    await expect(runtime.enqueue({ ...queueJob, payload: { authorization: "Bearer secret" } })).rejects.toThrow(/sensitive/i);
   });
 
   it("builds queue worker jobs with safe defaults", () => {
@@ -106,6 +133,16 @@ describe("InProcessWorkerRuntime", () => {
     });
   });
 
+  it("does not cancel failed or completed jobs", async () => {
+    const runtime = new InProcessWorkerRuntime();
+
+    seedInProcessJob(runtime, { ...queueJob, id: "job-failed-001" }, "failed");
+    seedInProcessJob(runtime, { ...queueJob, id: "job-completed-001" }, "completed");
+
+    await expect(runtime.cancelJob("job-failed-001")).rejects.toThrow("Cannot cancel failed or completed jobs");
+    await expect(runtime.cancelJob("job-completed-001")).rejects.toThrow("Cannot cancel failed or completed jobs");
+  });
+
   it("does not retry jobs that have not failed or been cancelled", async () => {
     const runtime = new InProcessWorkerRuntime();
 
@@ -113,6 +150,7 @@ describe("InProcessWorkerRuntime", () => {
 
     await expect(runtime.retryJob(queueJob.id)).rejects.toThrow("Only failed or cancelled jobs can be retried");
   });
+
   it("wraps successful handlers with WorkerRun and MissionEvent records", async () => {
     const runtime = new InProcessWorkerRuntime({ now: () => "2026-05-31T10:01:00.000Z" });
 
@@ -150,3 +188,14 @@ describe("InProcessWorkerRuntime", () => {
     expect(runtime.lastFailure?.events.at(-1)?.type).toBe("worker_runtime.failed");
   });
 });
+
+function seedInProcessJob(runtime: InProcessWorkerRuntime, job: QueueWorkerJob, status: QueuedJobRecord["status"]): void {
+  const record: QueuedJobRecord = {
+    job,
+    status,
+    attemptsMade: 1,
+    createdAt: job.createdAt,
+    updatedAt: job.createdAt,
+  };
+  (runtime as unknown as { jobs: Map<string, QueuedJobRecord> }).jobs.set(job.id, record);
+}

@@ -4,7 +4,7 @@ import { z } from "zod";
 export type WorkerRuntimeType = "qa" | "auto_fix" | "codex" | "planner" | "integration";
 export type WorkerRuntimeMode = "dry-run" | "mock" | "real";
 
-export const WorkerJobTypeSchema = z.enum([
+export const QueueWorkerJobTypeSchema = z.enum([
   "mission.plan",
   "codex.dry_run",
   "qa.dry_run",
@@ -15,17 +15,35 @@ export const WorkerJobTypeSchema = z.enum([
   "integration.dry_run",
 ]);
 
-export const WorkerJobStatusSchema = z.enum(["queued", "active", "completed", "failed", "cancelled", "delayed"]);
-export const WorkerJobModeSchema = z.enum(["dry-run", "mock", "real"]);
+export const QueueWorkerJobStatusSchema = z.enum([
+  "queued",
+  "active",
+  "completed",
+  "failed",
+  "cancelled",
+  "delayed",
+]);
+export const QueueWorkerJobModeSchema = z.enum(["dry-run", "mock", "real"]);
 
-export const WorkerJobSchema = z.object({
+const QueueJobPayloadSchema = z.record(z.unknown()).default({}).superRefine((payload, context) => {
+  try {
+    assertSafePayload(payload);
+  } catch (error) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: error instanceof Error ? error.message : "Sensitive payload key is not allowed",
+    });
+  }
+});
+
+export const QueueWorkerJobSchema = z.object({
   id: z.string().min(1),
   missionId: z.string().min(1),
   projectId: z.string().min(1),
   workerRunId: z.string().min(1),
-  type: WorkerJobTypeSchema,
-  mode: WorkerJobModeSchema,
-  payload: z.record(z.unknown()).default({}),
+  type: QueueWorkerJobTypeSchema,
+  mode: QueueWorkerJobModeSchema,
+  payload: QueueJobPayloadSchema,
   idempotencyKey: z.string().min(1).optional(),
   priority: z.number().int().min(0).default(5),
   attempts: z.number().int().min(1).default(2),
@@ -33,9 +51,14 @@ export const WorkerJobSchema = z.object({
   createdAt: z.string().datetime(),
 });
 
-export type WorkerJobType = z.infer<typeof WorkerJobTypeSchema>;
-export type WorkerJobStatus = z.infer<typeof WorkerJobStatusSchema>;
-export type QueueWorkerJob = z.infer<typeof WorkerJobSchema>;
+export const WorkerJobTypeSchema = QueueWorkerJobTypeSchema;
+export const WorkerJobStatusSchema = QueueWorkerJobStatusSchema;
+export const WorkerJobModeSchema = QueueWorkerJobModeSchema;
+export const WorkerJobSchema = QueueWorkerJobSchema;
+
+export type WorkerJobType = z.infer<typeof QueueWorkerJobTypeSchema>;
+export type WorkerJobStatus = z.infer<typeof QueueWorkerJobStatusSchema>;
+export type QueueWorkerJob = z.infer<typeof QueueWorkerJobSchema>;
 
 export interface QueuedJobRecord {
   job: QueueWorkerJob;
@@ -70,7 +93,7 @@ export interface BuildWorkerJobInput {
   projectId: string;
   workerRunId: string;
   type: WorkerJobType;
-  mode?: z.input<typeof WorkerJobModeSchema>;
+  mode?: z.input<typeof QueueWorkerJobModeSchema>;
   payload?: Record<string, unknown>;
   idempotencyKey?: string;
   priority?: number;
@@ -80,7 +103,8 @@ export interface BuildWorkerJobInput {
 }
 
 export function buildWorkerJob(input: BuildWorkerJobInput): QueueWorkerJob {
-  return WorkerJobSchema.parse({
+  assertSafePayload(input.payload ?? {});
+  return QueueWorkerJobSchema.parse({
     id: input.id ?? `job-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
     missionId: input.missionId,
     projectId: input.projectId,
@@ -142,7 +166,8 @@ export class InProcessWorkerRuntime implements WorkerRuntime {
   }
 
   async enqueue(job: QueueWorkerJob): Promise<QueuedJobRecord> {
-    const parsedJob = WorkerJobSchema.parse(job);
+    const parsedJob = QueueWorkerJobSchema.parse(job);
+    assertSafePayload(parsedJob.payload);
     const now = this.now();
     const record: QueuedJobRecord = {
       job: parsedJob,
@@ -165,10 +190,11 @@ export class InProcessWorkerRuntime implements WorkerRuntime {
 
   async cancelJob(jobId: string): Promise<QueuedJobRecord> {
     const record = this.requireJob(jobId);
-    if (record.status === "completed") {
-      return record;
+    if (record.status === "failed" || record.status === "completed") {
+      throw new Error("Cannot cancel failed or completed jobs");
     }
-    const updated = { ...record, status: "cancelled" as const, updatedAt: this.now(), finishedAt: this.now() };
+    const finishedAt = this.now();
+    const updated = { ...record, status: "cancelled" as const, updatedAt: finishedAt, finishedAt };
     this.jobs.set(jobId, updated);
     return updated;
   }
@@ -281,6 +307,24 @@ export class InProcessWorkerRuntime implements WorkerRuntime {
       throw new Error(`Queue job not found: ${jobId}`);
     }
     return record;
+  }
+}
+
+function assertSafePayload(value: unknown, path: string[] = []): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertSafePayload(item, [...path, String(index)]));
+    return;
+  }
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  for (const [key, childValue] of Object.entries(value)) {
+    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (["token", "password", "secret", "apikey", "authorization"].some((sensitiveKey) => normalizedKey.includes(sensitiveKey))) {
+      throw new Error(`Sensitive payload key is not allowed: ${[...path, key].join(".")}`);
+    }
+    assertSafePayload(childValue, [...path, key]);
   }
 }
 
