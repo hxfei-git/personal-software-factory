@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import { act } from "react";
 import type { ReactElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import {
   OrchestratorApiError,
   createOrchestratorClient,
+  type OrchestratorClient,
 } from "../src/api/client";
 import type {
   DashboardResponse,
@@ -11,7 +14,7 @@ import type {
   MissionDryRunAction,
   MissionSummaryResponse,
 } from "../src/api/types";
-import {
+import App, {
   renderDashboardView,
   renderIntegrationsView,
   renderMissionDetailView,
@@ -19,6 +22,304 @@ import {
 } from "../src/App";
 
 const now = "2026-05-31T00:00:00.000Z";
+
+const appMissionDetailHash = "#mission-detail?id=mission-0001-ai-novelist-chapter-review";
+
+type TestEventListener = (event: TestEvent) => void;
+
+class TestEvent {
+  readonly type: string;
+  readonly bubbles: boolean;
+  target: TestNode | null = null;
+  currentTarget: TestNode | null = null;
+  defaultPrevented = false;
+  propagationStopped = false;
+
+  constructor(type: string, init: { bubbles?: boolean } = {}) {
+    this.type = type;
+    this.bubbles = init.bubbles ?? false;
+  }
+
+  preventDefault(): void {
+    this.defaultPrevented = true;
+  }
+
+  stopPropagation(): void {
+    this.propagationStopped = true;
+  }
+}
+
+class TestNode {
+  readonly childNodes: TestNode[] = [];
+  parentNode: TestNode | null = null;
+  ownerDocument: TestDocument | null = null;
+  readonly listeners = new Map<string, Set<TestEventListener>>();
+
+  constructor(readonly nodeType: number, readonly nodeName: string) {}
+
+  appendChild<T extends TestNode>(node: T): T {
+    if (node.parentNode) {
+      node.parentNode.removeChild(node);
+    }
+    node.parentNode = this;
+    this.childNodes.push(node);
+    return node;
+  }
+
+  insertBefore<T extends TestNode>(node: T, before: TestNode | null): T {
+    if (before === null) {
+      return this.appendChild(node);
+    }
+    const index = this.childNodes.indexOf(before);
+    if (index < 0) {
+      throw new Error("Reference node is not a child");
+    }
+    if (node.parentNode) {
+      node.parentNode.removeChild(node);
+    }
+    node.parentNode = this;
+    this.childNodes.splice(index, 0, node);
+    return node;
+  }
+
+  removeChild<T extends TestNode>(node: T): T {
+    const index = this.childNodes.indexOf(node);
+    if (index < 0) {
+      throw new Error("Node is not a child");
+    }
+    this.childNodes.splice(index, 1);
+    node.parentNode = null;
+    return node;
+  }
+
+  addEventListener(type: string, listener: TestEventListener): void {
+    const listeners = this.listeners.get(type) ?? new Set<TestEventListener>();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: TestEventListener): void {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  dispatchEvent(event: TestEvent): boolean {
+    if (!event.target) {
+      event.target = this;
+    }
+    let node: TestNode | null = this;
+    while (node) {
+      event.currentTarget = node;
+      for (const listener of node.listeners.get(event.type) ?? []) {
+        listener(event);
+      }
+      if (!event.bubbles || event.propagationStopped) {
+        break;
+      }
+      node = node.parentNode;
+    }
+    return !event.defaultPrevented;
+  }
+
+  get firstChild(): TestNode | null {
+    return this.childNodes[0] ?? null;
+  }
+
+  get textContent(): string {
+    return this.childNodes.map((child) => child.textContent).join("");
+  }
+
+  set textContent(value: string) {
+    this.childNodes.length = 0;
+    if (value !== "") {
+      this.appendChild(new TestText(value, this.ownerDocument));
+    }
+  }
+}
+
+class TestText extends TestNode {
+  data: string;
+
+  constructor(data: string, ownerDocument: TestDocument | null) {
+    super(3, "#text");
+    this.data = data;
+    this.ownerDocument = ownerDocument;
+  }
+
+  get nodeValue(): string {
+    return this.data;
+  }
+
+  set nodeValue(value: string) {
+    this.data = value;
+  }
+
+  override get textContent(): string {
+    return this.data;
+  }
+
+  override set textContent(value: string) {
+    this.data = value;
+  }
+}
+
+class TestElement extends TestNode {
+  readonly attributes = new Map<string, string>();
+  readonly style: Record<string, string> = {};
+  namespaceURI = "http://www.w3.org/1999/xhtml";
+  disabled = false;
+  className = "";
+
+  constructor(readonly tagName: string, ownerDocument: TestDocument | null) {
+    super(1, tagName.toUpperCase());
+    this.ownerDocument = ownerDocument;
+  }
+
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, String(value));
+    if (name === "class") {
+      this.className = String(value);
+    }
+  }
+
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
+    if (name === "class") {
+      this.className = "";
+    }
+  }
+
+  click(): void {
+    this.dispatchEvent(new TestEvent("click", { bubbles: true }));
+  }
+}
+
+class TestDocument extends TestNode {
+  readonly documentElement: TestElement;
+  readonly body: TestElement;
+  defaultView: TestWindow | null = null;
+  activeElement: TestElement | null = null;
+
+  constructor() {
+    super(9, "#document");
+    this.ownerDocument = this;
+    this.documentElement = this.createElement("html");
+    this.body = this.createElement("body");
+    this.documentElement.appendChild(this.body);
+    this.appendChild(this.documentElement);
+  }
+
+  createElement(tagName: string): TestElement {
+    return new TestElement(tagName, this);
+  }
+
+  createElementNS(_namespace: string, tagName: string): TestElement {
+    return new TestElement(tagName, this);
+  }
+
+  createTextNode(data: string): TestText {
+    return new TestText(data, this);
+  }
+
+  createComment(data: string): TestText {
+    return new TestText(data, this);
+  }
+}
+
+interface TestWindow {
+  document: TestDocument;
+  location: { hash: string };
+  navigator: { userAgent: string };
+  Event: typeof TestEvent;
+  MouseEvent: typeof TestEvent;
+  Node: typeof TestNode;
+  Element: typeof TestElement;
+  HTMLElement: typeof TestElement;
+  HTMLButtonElement: typeof TestElement;
+  HTMLIFrameElement: typeof TestElement;
+  addEventListener: TestDocument["addEventListener"];
+  removeEventListener: TestDocument["removeEventListener"];
+  dispatchEvent: TestDocument["dispatchEvent"];
+}
+
+function installTestDom(hash: string): { container: TestElement; cleanup: () => void } {
+  const document = new TestDocument();
+  const windowObject: TestWindow = {
+    document,
+    location: { hash },
+    navigator: { userAgent: "vitest" },
+    Event: TestEvent,
+    MouseEvent: TestEvent,
+    Node: TestNode,
+    Element: TestElement,
+    HTMLElement: TestElement,
+    HTMLButtonElement: TestElement,
+    HTMLIFrameElement: TestElement,
+    addEventListener: document.addEventListener.bind(document),
+    removeEventListener: document.removeEventListener.bind(document),
+    dispatchEvent: document.dispatchEvent.bind(document),
+  };
+  document.defaultView = windowObject;
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  vi.stubGlobal("window", windowObject);
+  vi.stubGlobal("document", document);
+  vi.stubGlobal("navigator", windowObject.navigator);
+  vi.stubGlobal("Event", TestEvent);
+  vi.stubGlobal("MouseEvent", TestEvent);
+  vi.stubGlobal("Node", TestNode);
+  vi.stubGlobal("Element", TestElement);
+  vi.stubGlobal("HTMLElement", TestElement);
+  vi.stubGlobal("HTMLButtonElement", TestElement);
+  vi.stubGlobal("HTMLIFrameElement", TestElement);
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+
+  return {
+    container,
+    cleanup: () => vi.unstubAllGlobals(),
+  };
+}
+
+function findDomButtonByText(node: TestNode, label: string): TestElement {
+  if (node instanceof TestElement && node.tagName.toLowerCase() === "button" && node.textContent.includes(label)) {
+    return node;
+  }
+  for (const child of node.childNodes) {
+    try {
+      return findDomButtonByText(child, label);
+    } catch {
+      // Continue searching sibling branches.
+    }
+  }
+  throw new Error(`DOM button not found: ${label}`);
+}
+
+async function flushReactWork(): Promise<void> {
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function renderMountedApp(client: OrchestratorClient | undefined, hash: string): Promise<{ container: TestElement; root: Root; cleanup: () => void }> {
+  const dom = installTestDom(hash);
+  const root = createRoot(dom.container as unknown as Element);
+  await act(async () => {
+    root.render(client ? <App client={client} /> : <App />);
+    await flushReactWork();
+  });
+  return { ...dom, root };
+}
+
+function createMockClient(overrides: Partial<OrchestratorClient> = {}): OrchestratorClient {
+  return {
+    getDashboard: vi.fn().mockResolvedValue(dashboard),
+    getMissionSummary: vi.fn().mockResolvedValue(missionSummary),
+    listIntegrations: vi.fn().mockResolvedValue(dashboard.integrationStatuses),
+    runIntegrationDryRun: vi.fn().mockResolvedValue(dryRunResponse),
+    runMissionAction: vi.fn().mockResolvedValue(dryRunResponse),
+    runAiNovelistDemo: vi.fn().mockResolvedValue(dryRunResponse),
+    ...overrides,
+  };
+}
 
 function textFromElement(node: unknown): string {
   if (node === null || node === undefined || typeof node === "boolean") {
@@ -372,6 +673,46 @@ describe("orchestrator API client", () => {
       status: 404,
       message: "Mission missing [redacted]",
     } satisfies Partial<OrchestratorApiError>);
+  });
+});
+
+describe("App wiring", () => {
+  it("runs QA dry-run with sample bug from the mounted Mission Detail button and refreshes summary", async () => {
+    const missionId = "mission-0001-ai-novelist-chapter-review";
+    const client = createMockClient({
+      getMissionSummary: vi.fn().mockResolvedValue(missionSummary),
+      runMissionAction: vi.fn().mockResolvedValue(dryRunResponse),
+    });
+    const mounted = await renderMountedApp(client, appMissionDetailHash);
+
+    await act(async () => {
+      findDomButtonByText(mounted.container, "Run QA dry-run with Sample Bug").click();
+      await flushReactWork();
+    });
+
+    expect(client.runMissionAction).toHaveBeenCalledWith(missionId, "qa-dry-run", { withSampleBug: true });
+    expect(client.getMissionSummary).toHaveBeenCalledTimes(2);
+    expect(client.getMissionSummary).toHaveBeenNthCalledWith(1, missionId);
+    expect(client.getMissionSummary).toHaveBeenNthCalledWith(2, missionId);
+
+    await act(async () => mounted.root.unmount());
+    mounted.cleanup();
+  });
+
+  it("reuses the default Orchestrator client across dashboard state re-renders", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => dashboard });
+    vi.stubGlobal("fetch", fetchMock);
+    const mounted = await renderMountedApp(undefined, "#dashboard");
+
+    await act(async () => {
+      await flushReactWork();
+      await flushReactWork();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => mounted.root.unmount());
+    mounted.cleanup();
   });
 });
 

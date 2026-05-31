@@ -54,7 +54,15 @@ const navItems = [
 
 const defaultMissionId = "mission-0001-ai-novelist-chapter-review";
 
-export default function App({ client = createOrchestratorClient() }: { client?: OrchestratorClient }): ReactElement {
+let defaultOrchestratorClient: OrchestratorClient | undefined;
+
+function getDefaultOrchestratorClient(): OrchestratorClient {
+  defaultOrchestratorClient ??= createOrchestratorClient();
+  return defaultOrchestratorClient;
+}
+
+export default function App({ client: providedClient }: { client?: OrchestratorClient } = {}): ReactElement {
+  const client = providedClient ?? getDefaultOrchestratorClient();
   const [route, setRoute] = useState(() => readRoute());
   const [dashboardState, setDashboardState] = useState<LoadState<DashboardResponse>>({ status: "idle" });
   const [missionState, setMissionState] = useState<LoadState<MissionSummaryResponse>>({ status: "idle" });
