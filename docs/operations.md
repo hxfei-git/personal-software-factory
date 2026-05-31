@@ -91,3 +91,17 @@ pnpm psf worker-runs:retry <workerRunId>
 ```
 
 Queue mode is still dry-run/mock only. Worker Runner reuses existing dry-run workflows and does not execute Codex, push, create PRs, deploy, or call external providers.
+
+## Artifact Retention Operations
+
+Real-mode artifact helpers write new artifacts under:
+
+```text
+artifacts/missions/<mission-id>/<worker-run-id>/<category>/<filename>
+```
+
+The legacy demo path `missions/<mission-id>/<filename>` remains readable for existing dry-run/demo files, but operators should not use it for new real-mode writes.
+
+Retention cleanup must be previewed before deletion. The helper defaults to dry-run mode and returns candidate paths without deleting files. A non-dry-run cleanup must be explicitly requested and still refuses to delete paths outside the configured `artifacts/` root.
+
+Use retention classes consistently: `short` for temporary logs/screenshots/traces, `mission` for Mission review artifacts, `release` for deployment/release evidence, and `audit` for evidence that must not expire automatically.

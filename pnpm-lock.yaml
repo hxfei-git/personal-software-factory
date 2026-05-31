@@ -159,6 +159,25 @@ importers:
         specifier: ^3.2.0
         version: 3.2.4(@types/node@25.9.1)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
 
+  packages/artifact-store:
+    dependencies:
+      '@psf/mission-schema':
+        specifier: workspace:*
+        version: link:../mission-schema
+      '@psf/security':
+        specifier: workspace:*
+        version: link:../security
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.1
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@25.9.1)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
+
   packages/auto-fix-loop:
     dependencies:
       '@psf/codex-worker':
