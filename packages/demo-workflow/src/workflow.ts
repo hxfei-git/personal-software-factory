@@ -396,7 +396,7 @@ function buildResult(context: WorkflowContext, dbSynced: boolean): DemoWorkflowR
     projectId: metadata.projectId,
     apiUrl: context.apiUrl,
     hubUrl: context.hubUrl,
-    missionDetailUrl: `${context.hubUrl}/missions/${metadata.id}`,
+    missionDetailUrl: `${context.hubUrl}/#mission-detail?id=${encodeURIComponent(metadata.id)}`,
     generatedArtifacts: [...context.generatedArtifacts].sort(),
     workerRunIds: uniqueStrings(context.workerRuns.map((workerRun) => workerRun.id)),
     qaRunIds: uniqueStrings(context.qaRuns.map((qaRun) => qaRun.id)),

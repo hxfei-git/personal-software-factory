@@ -265,7 +265,7 @@ describe("psf CLI", () => {
     );
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("Confirmation required");
+    expect(result.stdout).toContain("Demo reset preview only. Set DEMO_RESET_CONFIRM=1 to delete demo data.");
     expect(result.stdout).toContain('"deleted": false');
     expect(result.stdout).toContain('"requiresConfirmation": true');
     await expect(stat(join(missionDir, "metadata.json"))).resolves.toBeTruthy();
@@ -283,12 +283,13 @@ describe("psf CLI", () => {
     expect(result.stdout).toContain(`Mission ID: ${exampleMissionId}`);
     expect(result.stdout).toContain("API URL: http://127.0.0.1:3000");
     expect(result.stdout).toContain("Hub URL: http://127.0.0.1:5173");
-    expect(result.stdout).toContain(`Mission Detail URL: http://127.0.0.1:5173/missions/${exampleMissionId}`);
+    expect(result.stdout).toContain(`Mission Detail URL: http://127.0.0.1:5173/#mission-detail?id=${exampleMissionId}`);
     expect(result.stdout).toContain("dryRun: true");
-    expect(result.stdout).toContain("realCodexExecuted: false");
-    expect(result.stdout).toContain("realExternalCall: false");
-    expect(result.stdout).toContain("realPush: false");
-    expect(result.stdout).toContain("realDeploy: false");
+    expect(result.stdout).toContain("realCodexExecuted=false realExternalCall=false realPush=false realDeploy=false");
+    expect(result.stdout).not.toContain("realCodexExecuted: false");
+    expect(result.stdout).not.toContain("realExternalCall: false");
+    expect(result.stdout).not.toContain("realPush: false");
+    expect(result.stdout).not.toContain("realDeploy: false");
     expect(await readFile(join(cwd, "missions", exampleMissionId, "bugs.json"), "utf8")).toContain("sample-duplicate-generate");
     expect(await readFile(join(cwd, "docs", "reports", "demo-ai-novelist-report.md"), "utf8")).toContain("AI Novelist Demo Acceptance Report");
   });

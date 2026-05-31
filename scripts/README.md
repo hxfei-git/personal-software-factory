@@ -27,9 +27,9 @@ The CLI keeps the existing foundation commands and adds demo operations backed b
 - `codex:dry-run` reads the plan artifacts and project `AGENTS.md`, then writes Codex dry-run artifacts under the same mission directory.
 - `doctor` runs local readiness checks. Use `--json` for machine-readable output; formatter output redacts secret-bearing URL userinfo, tokens, passwords, and similar values.
 - `demo:seed` ensures the fixed ai-novelist demo mission metadata exists locally.
-- `demo:ai-novelist` runs the full planner, Codex dry-run, QA dry-run, auto-fix dry-run, and report generation path. It prints the Mission ID, API URL, Hub URL, Mission Detail URL, DB sync state, and dry-run boundary fields.
+- `demo:ai-novelist` runs the full planner, Codex dry-run, QA dry-run, auto-fix dry-run, and report generation path. It prints the Mission ID, API URL, Hub URL, hash-based Mission Detail URL, DB sync state, `dryRun: true`, and the compact boundary line `realCodexExecuted=false realExternalCall=false realPush=false realDeploy=false`.
 - `demo:report` regenerates the ai-novelist demo acceptance report through the same dry-run workflow.
-- `demo:reset` previews scoped demo cleanup by default. It deletes only when `DEMO_RESET_CONFIRM=1` is set, and it refuses non-demo mission IDs in the workflow layer.
+- `demo:reset` previews scoped demo cleanup by default and prints `Demo reset preview only. Set DEMO_RESET_CONFIRM=1 to delete demo data.` before the structured preview. It deletes only when `DEMO_RESET_CONFIRM=1` is set, and it refuses non-demo mission IDs in the workflow layer.
 
 All current commands are dry-run/mock boundaries. The CLI never calls external provider APIs, never pushes remotes, never deploys, never modifies the real ai-novelist repository, and dry-run command artifacts never execute Codex. Codex command files are written as non-executable review artifacts; the reviewed commands are stored as comments only and running the files exits without invoking Codex.
 

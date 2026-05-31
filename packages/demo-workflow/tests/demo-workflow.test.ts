@@ -64,7 +64,7 @@ describe("ai-novelist local demo workflow", () => {
     expect(result.qaRunIds).toEqual([`qa-run-${EXAMPLE_MISSION_ID}-dry-run`]);
     expect(result.bugIds).toEqual([`bug-${EXAMPLE_MISSION_ID}-sample-duplicate-generate`]);
     expect(result.eventIds.length).toBeGreaterThan(0);
-    expect(result.missionDetailUrl).toBe(`${DEFAULT_DEMO_HUB_URL}/missions/${EXAMPLE_MISSION_ID}`);
+    expect(result.missionDetailUrl).toBe(`${DEFAULT_DEMO_HUB_URL}/#mission-detail?id=${EXAMPLE_MISSION_ID}`);
     expect(result.generatedArtifacts).toEqual(expect.arrayContaining([
       `missions/${EXAMPLE_MISSION_ID}/mission.md`,
       `missions/${EXAMPLE_MISSION_ID}/codex-command.sh`,

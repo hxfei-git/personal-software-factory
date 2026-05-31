@@ -213,6 +213,9 @@ async function demoResetCommand(context: CliContext, args: string[]): Promise<vo
     confirm: process.env.DEMO_RESET_CONFIRM === "1",
     skipDb: flags.has("--skip-db") || !context.syncDatabase,
   });
+  if (result.requiresConfirmation) {
+    context.stdout.push("Demo reset preview only. Set DEMO_RESET_CONFIRM=1 to delete demo data.");
+  }
   context.stdout.push(JSON.stringify(result, null, 2));
 }
 
@@ -996,10 +999,7 @@ function formatDemoWorkflowLines(result: DemoWorkflowResult): string[] {
 function formatBoundaryLines(boundary: DemoBoundary): string[] {
   return [
     `  dryRun: ${boundary.dryRun}`,
-    `  realCodexExecuted: ${boundary.realCodexExecuted}`,
-    `  realExternalCall: ${boundary.realExternalCall}`,
-    `  realPush: ${boundary.realPush}`,
-    `  realDeploy: ${boundary.realDeploy}`,
+    `  realCodexExecuted=${boundary.realCodexExecuted} realExternalCall=${boundary.realExternalCall} realPush=${boundary.realPush} realDeploy=${boundary.realDeploy}`,
   ];
 }
 
