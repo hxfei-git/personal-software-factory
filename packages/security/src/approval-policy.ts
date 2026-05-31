@@ -17,7 +17,7 @@ export interface ApprovalPolicyResult {
   reason: string;
 }
 
-const APPROVAL_REQUIREMENTS: Record<RiskyAction, string[]> = {
+const APPROVAL_REQUIREMENTS: Readonly<Record<RiskyAction, readonly string[]>> = {
   production_deploy: ["production_deploy"],
   destructive_operation: ["destructive_operation"],
   database_migration: ["database_migration"],
@@ -31,7 +31,7 @@ const APPROVAL_REQUIREMENTS: Record<RiskyAction, string[]> = {
 };
 
 export function evaluateApprovalPolicy(action: RiskyAction, grantedApprovalTypes: string[] = []): ApprovalPolicyResult {
-  const requiredApprovalTypes = APPROVAL_REQUIREMENTS[action];
+  const requiredApprovalTypes = [...APPROVAL_REQUIREMENTS[action]];
   const granted = new Set(grantedApprovalTypes);
   const missingApprovalTypes = requiredApprovalTypes.filter((approvalType) => !granted.has(approvalType));
   const allowed = missingApprovalTypes.length === 0;

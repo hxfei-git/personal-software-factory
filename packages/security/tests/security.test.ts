@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   assertCommandAllowed,
@@ -33,6 +36,17 @@ describe("redaction", () => {
     for (const secret of ["ghp_example", "Bearer abc", "hunter2", "plane_secret", jwt, "custom_secret_value"]) {
       expect(output).not.toContain(secret);
     }
+  });
+
+  it("redacts entire quoted secret values with spaces", () => {
+    const output = redactText('password="hunter 2"\napi_key=\'alpha beta\'');
+
+    expect(output).toContain("password=[REDACTED]");
+    expect(output).toContain("api_key=[REDACTED]");
+    expect(output).not.toContain("hunter");
+    expect(output).not.toContain('2"');
+    expect(output).not.toContain("alpha");
+    expect(output).not.toContain("beta");
   });
 
   it("recursively masks nested JSON secret fields and extra secret values", () => {
@@ -103,6 +117,10 @@ describe("command policy", () => {
     "echo TOKEN=value > .env",
     "git push origin main",
     "docker system prune",
+    "pnpm test&&rm -rf /",
+    "npm run test||rm -rf /",
+    "pnpm test $(rm -rf /)",
+    "pnpm test > .env",
   ])("blocks unsafe command %s", (command) => {
     const result = evaluateCommandPolicy({
       command,
@@ -150,6 +168,33 @@ describe("path guards", () => {
   it("rejects absolute paths outside the workspace", () => {
     expect(() => assertInsideWorkspace("/tmp/outside.ts", workspaceRoot)).toThrow(/workspace/i);
   });
+
+  it("rejects workspace paths that escape through symlinks", () => {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "psf-security-"));
+    const tempWorkspace = path.join(tempRoot, "workspaces");
+    const outside = path.join(tempRoot, "outside");
+    const symlink = path.join(tempWorkspace, "outside-link");
+
+    mkdirSync(tempWorkspace);
+    mkdirSync(outside);
+    writeFileSync(path.join(outside, "passwd"), "not a real passwd file");
+
+    try {
+      try {
+        symlinkSync(outside, symlink, "dir");
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "EPERM" || code === "EACCES" || code === "ENOTSUP") {
+          return;
+        }
+        throw error;
+      }
+
+      expect(() => resolveSafeWorkspacePath(tempWorkspace, "outside-link/passwd")).toThrow(/workspace|symlink|outside/i);
+    } finally {
+      rmSync(tempRoot, { force: true, recursive: true });
+    }
+  });
 });
 
 describe("approval policy", () => {
@@ -181,5 +226,16 @@ describe("approval policy", () => {
     expect(result.allowed).toBe(true);
     expect(result.requiredApprovalTypes).toContain(action);
     expect(result.missingApprovalTypes).toEqual([]);
+  });
+
+  it("does not let callers mutate required approval policy state", () => {
+    const first = evaluateApprovalPolicy("production_deploy", []);
+    first.requiredApprovalTypes.length = 0;
+
+    const second = evaluateApprovalPolicy("production_deploy", []);
+
+    expect(second.allowed).toBe(false);
+    expect(second.requiredApprovalTypes).toContain("production_deploy");
+    expect(second.missingApprovalTypes).toContain("production_deploy");
   });
 });

@@ -41,6 +41,10 @@ function isInsideWorkspace(candidate: string, workspaceRoot: string): boolean {
   return resolvedCandidate === resolvedRoot || resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`);
 }
 
+function containsShellOperator(command: string): boolean {
+  return /&&|\|\||[|<>;`]|\$\(|\$\{/.test(command);
+}
+
 export function evaluateCommandPolicy(input: CommandPolicyInput): CommandPolicyResult {
   const normalizedCommand = normalizeCommand(input.command);
 
@@ -56,7 +60,7 @@ export function evaluateCommandPolicy(input: CommandPolicyInput): CommandPolicyR
     return deny(normalizedCommand, "Command cwd is outside the workspace root.");
   }
 
-  if (/[|<>;]/.test(normalizedCommand) || /\s(?:&&|\|\|)\s/.test(normalizedCommand) || /[`$][({]?/.test(normalizedCommand)) {
+  if (containsShellOperator(normalizedCommand)) {
     return deny(normalizedCommand, "Shell operators, redirection, and command substitution are blocked.");
   }
 
@@ -91,8 +95,8 @@ export function evaluateCommandPolicy(input: CommandPolicyInput): CommandPolicyR
   }
 
   if (
-    /^pnpm\s+(?:test|build|typecheck|check)(?:\b|$)/.test(normalizedCommand) ||
-    /^npm\s+run\s+(?:test|build|typecheck|check)(?:\b|$)/.test(normalizedCommand) ||
+    /^pnpm\s+(?:test|build|typecheck|check)(?:\s+[\w./:=+-]+)*$/.test(normalizedCommand) ||
+    /^npm\s+run\s+(?:test|build|typecheck|check)(?:\s+[\w./:=+-]+)*$/.test(normalizedCommand) ||
     /^pytest(?:\s+-q)?(?:\s+[\w./:=+-]+)*$/.test(normalizedCommand) ||
     /^git\s+status(?:\s+--short)?$/.test(normalizedCommand)
   ) {
