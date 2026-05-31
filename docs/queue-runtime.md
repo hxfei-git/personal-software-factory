@@ -117,16 +117,18 @@ The queue accepts these existing dry-run job types:
 - `demo.ai_novelist`
 - `integration.dry_run`
 
-Task 3 also reserves these real/gated job contracts:
+Task 9 wires these real/gated job contracts into Worker Runner handlers:
 
-- `codex.real`
-- `qa.playwright`
-- `qa.ai_exploratory`
-- `fix.real`
-- `github.pr`
-- `deploy.coolify`
-- `monitor.uptime_kuma`
-- `plane.sync`
+- `codex.real`: maps to the Codex Worker real runner abstraction. `ENABLE_REAL_CODEX` is forced off unless the job payload explicitly opts in and the environment is also enabled; normal runtime returns blocked/manual-action output without spawning Codex.
+- `qa.playwright`: maps to deterministic Playwright QA. A missing target URL returns a blocked/manual-action QA run, and real browser execution still requires an approved runner or explicit real Playwright gate.
+- `qa.ai_exploratory`: maps to the AI exploratory QA runner. `ENABLE_AI_EXPLORATORY_QA` defaults off, so the handler records manual-action artifacts and does not connect to MCP or open a browser.
+- `fix.real`: maps to `runGatedRealAutoFixLoop`. Real mode defaults off, preserving auto-fix WorkerRun and artifact output while recommending manual approval/gate setup.
+- `github.pr`: maps to the gated GitHub real adapter with no transport and network gates disabled by default.
+- `deploy.coolify`: maps to the gated Coolify real adapter with no transport, no network, and no production deploy approval by default.
+- `monitor.uptime_kuma`: maps to the gated Uptime Kuma real adapter with no transport and network gates disabled by default.
+- `plane.sync`: maps to the gated Plane real adapter with no transport and network gates disabled by default.
+
+The real/gated handlers preserve queue wrapper output semantics: the wrapper records `childWorkerRunIds`, `childQARunIds`, `childArtifactIds`, `childBugReportIds`, `summary`, and `recommendedNextAction`, while child resources are persisted when the underlying runner returns them. Integration handlers currently return safe manual-action summaries and no child resources.
 
 Unknown job types are rejected by the Zod schema before enqueue. Payloads are recursively rejected when keys look like tokens, passwords, secrets, API keys, authorization headers, or credentials.
 
@@ -134,11 +136,11 @@ Unknown job types are rejected by the Zod schema before enqueue. Payloads are re
 
 The Orchestrator API exposes explicit protected routes for real/gated contracts only; it does not expose arbitrary command submission or generic queue submission. Each route maps to one whitelisted job type and one route-specific gate. If the API is not in `PSF_ACTION_EXECUTION_MODE=queued`, or the route gate is not exactly `true`, the response is a blocked/manual payload and no WorkerRun or queue job is created.
 
-When accepted, the API only creates the queue wrapper WorkerRun and enqueues the contract job with `mode: real`. The API still sets `realNetworkCall: false`, `realExternalCall: false`, `realPush: false`, and `realDeploy: false`. Worker Runner support for these job types is scheduled for Task 9.
+When accepted, the API creates the queue wrapper WorkerRun and enqueues the contract job with `mode: real`. The API still sets `realNetworkCall: false`, `realExternalCall: false`, `realPush: false`, and `realDeploy: false`. Worker Runner then evaluates the job through the gated handler listed above.
 
 ## Safety Boundary
 
-Queued dry-run mode remains dry-run/mock only. Gated real-mode routes currently accept or block job contracts; they do not execute Codex, push branches, create PRs, deploy, create monitors, create Plane issues, run arbitrary shell commands, or call external provider APIs. Job payloads must not contain tokens, passwords, secrets, API keys, authorization headers, or credentials.
+Queued dry-run mode remains dry-run/mock only. Gated real-mode handlers are connected to the real runner/adapter abstractions, but defaults remain safe: they do not execute Codex, run shell commands, open browsers, connect to Playwright MCP, push branches, create PRs, deploy, create monitors, create Plane issues, or call external provider APIs unless the relevant environment, approval, policy, and injected runner/transport gates are deliberately configured. Integration adapters are invoked without real transports by default, so `realNetworkCall` remains false in the normal Worker Runner path. Job payloads must not contain tokens, passwords, secrets, API keys, authorization headers, or credentials.
 
 ## Preparing For Future Real Codex Work
 
