@@ -151,6 +151,56 @@ Request body fields are optional:
 }
 ```
 
+### POST /missions/:id/actions/plan
+### POST /missions/:id/actions/codex-dry-run
+### POST /missions/:id/actions/qa-dry-run
+### POST /missions/:id/actions/fix-dry-run
+### POST /missions/:id/actions/loop-dry-run
+
+Protected. Runs local Orchestrator action entrypoints backed by `@psf/demo-workflow`. These endpoints are dry-run only: they do not execute shell commands, Codex, external APIs, pushes, PR creation, or deployments.
+
+In this batch, mission-scoped dry-run actions support only the fixed ai-novelist demo Mission ID `mission-0001-ai-novelist-chapter-review`. Missing Missions return `404 NOT_FOUND`; other existing Mission IDs return `400 VALIDATION_ERROR` with a clear demo-only message.
+
+Request body:
+
+```json
+{
+  "withSampleBug": true
+}
+```
+
+Response shape:
+
+```json
+{
+  "missionId": "mission-0001-ai-novelist-chapter-review",
+  "projectId": "ai-novelist",
+  "mode": "dry-run",
+  "dryRun": true,
+  "realCodexExecuted": false,
+  "realExternalCall": false,
+  "realPush": false,
+  "realDeploy": false,
+  "generatedArtifacts": ["missions/mission-0001-ai-novelist-chapter-review/qa-report.md"],
+  "workerRunIds": ["worker-run-mission-0001-ai-novelist-chapter-review-qa-dry-run"],
+  "qaRunIds": ["qa-run-mission-0001-ai-novelist-chapter-review-dry-run"],
+  "bugIds": ["bug-mission-0001-ai-novelist-chapter-review-sample-duplicate-generate"],
+  "eventIds": ["event-mission-0001-ai-novelist-chapter-review-qa-started-worker-run-mission-0001-ai-novelist-chapter-review-qa-dry-run"],
+  "missionDetailUrl": "http://127.0.0.1:5173/#mission-detail?id=mission-0001-ai-novelist-chapter-review",
+  "recommendedNextAction": "AI Novelist demo dry-run completed. Codex, external providers, pushes, and deployments were not executed."
+}
+```
+
+### POST /demo/ai-novelist
+
+Protected. Runs the local ai-novelist demo dry-run action and returns the same safety fields and generated artifact IDs as the Mission action endpoints. This route does not support reset. Reset remains CLI-only; requests containing `resetDemo: true` return `400 VALIDATION_ERROR`.
+
+```json
+{
+  "withSampleBug": true
+}
+```
+
 ### POST /missions/:id/transition
 
 Protected. Runs the Mission state machine, updates status, and appends a transition event.

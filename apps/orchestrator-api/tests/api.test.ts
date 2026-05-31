@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { EXAMPLE_MISSION_ID } from "@psf/demo-workflow";
 import { MissionStatus, projectExample, projectPassportExample } from "@psf/mission-schema";
 import { createDeterministicMissionPlan } from "@psf/mission-planner";
 import type { ApiAuthOptions } from "../src/auth.js";
@@ -83,6 +84,84 @@ describe("orchestrator api", () => {
     ].join("\n"));
     await writeFile(join(projectDir, "qa-charter.md"), "# QA Charter\n- 打开首页\n- 导出小说\n");
     return root;
+  }
+
+  async function createAiNovelistDemoWorkspace() {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-api-demo-workspace-"));
+    const projectsRoot = join(cwd, "projects");
+    const projectDir = join(projectsRoot, "ai-novelist");
+    await mkdir(projectDir, { recursive: true });
+    await writeFile(join(projectDir, "project.passport.yaml"), [
+      "id: ai-novelist",
+      "name: AI 小说助手",
+      "description: Sample ai-novelist passport for API demo action tests.",
+      "repo:",
+      "  url: https://github.com/hxfei-git/ai-novelist.git",
+      "  default_branch: main",
+      "runtime:",
+      "  kind: web",
+      "commands:",
+      "  install: pnpm install",
+      "  test: pnpm test",
+      "  build: pnpm build",
+      "  run_staging: pnpm dev",
+      "urls:",
+      "  production: \"\"",
+      "  staging: \"\"",
+      "quality_gates:",
+      "  require_build: true",
+      "core_flows:",
+      "  - id: review_chapter",
+      "    name: 自动审稿",
+      "    priority: P0",
+      "",
+    ].join("\n"));
+    await writeFile(join(projectDir, "qa-charter.md"), "# QA Charter\n- 打开首页\n- 导出小说\n");
+    await writeFile(join(projectDir, "AGENTS.md"), "# Demo Agents\nKeep all work local and dry-run only.\n");
+    return cwd;
+  }
+
+  async function withWorkingDirectory<T>(cwd: string, callback: () => Promise<T>): Promise<T> {
+    const previous = process.cwd();
+    process.chdir(cwd);
+    try {
+      return await callback();
+    } finally {
+      process.chdir(previous);
+    }
+  }
+
+  async function seedDemoMission(storage: ReturnType<typeof createInMemoryMissionStorage>) {
+    const now = "2026-05-31T00:00:00.000Z";
+    return storage.createMission({
+      mission: {
+        id: EXAMPLE_MISSION_ID,
+        project_id: "ai-novelist",
+        title: "增加章节审稿和自动修复流程",
+        slug: "ai-novelist-chapter-review",
+        raw_request: "增加章节审稿和自动修复流程",
+        mission_markdown: "",
+        acceptance_markdown: "",
+        status: MissionStatus.received,
+        priority: "P2",
+        risk_level: "medium",
+        branch_name: "",
+        workspace_path: "",
+        pr_url: "",
+        current_attempt: 0,
+        max_attempts: 3,
+        created_at: now,
+        updated_at: now,
+      },
+      event: {
+        id: `event-${EXAMPLE_MISSION_ID}-created`,
+        mission_id: EXAMPLE_MISSION_ID,
+        type: "mission.created",
+        message: "Mission created",
+        payload: { status: MissionStatus.received },
+        created_at: now,
+      },
+    });
   }
 
   async function createAiNovelistRegistryRootWithoutQaCharter() {
@@ -256,6 +335,106 @@ describe("orchestrator api", () => {
     });
     expect(response.statusCode).toBe(401);
     expect(response.json().code).toBe("UNAUTHORIZED");
+  });
+
+  it("protects mission dry-run action routes", async () => {
+    const { server } = await createTestServer({ auth: { token: "secret", disabled: false } });
+    const response = await server.inject({ method: "POST", url: "/missions/mission-missing/actions/qa-dry-run" });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json().code).toBe("UNAUTHORIZED");
+  });
+
+  it("runs demo ai-novelist action without real Codex or external calls", async () => {
+    const cwd = await createAiNovelistDemoWorkspace();
+    try {
+      await withWorkingDirectory(cwd, async () => {
+        const { server } = await createTestServer({ auth: { token: "secret", disabled: false }, registryRoot: join(cwd, "projects") });
+        await server.inject({
+          method: "POST",
+          url: "/projects/sync",
+          headers: { authorization: "Bearer secret" },
+        });
+
+        const response = await server.inject({
+          method: "POST",
+          url: "/demo/ai-novelist",
+          headers: { authorization: "Bearer secret" },
+          payload: { withSampleBug: true },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+          missionId: EXAMPLE_MISSION_ID,
+          projectId: "ai-novelist",
+          mode: "dry-run",
+          dryRun: true,
+          realCodexExecuted: false,
+          realExternalCall: false,
+          realPush: false,
+          realDeploy: false,
+        });
+        expect(response.json().generatedArtifacts).toEqual(expect.arrayContaining([
+          `missions/${EXAMPLE_MISSION_ID}/mission.md`,
+          `missions/${EXAMPLE_MISSION_ID}/qa-report.md`,
+        ]));
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects reset requests for the demo ai-novelist action", async () => {
+    const { server } = await createTestServer({ auth: { token: "secret", disabled: false } });
+    const response = await server.inject({
+      method: "POST",
+      url: "/demo/ai-novelist",
+      headers: { authorization: "Bearer secret" },
+      payload: { resetDemo: true },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns not found for mission dry-run actions when the Mission is missing", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const response = await server.inject({ method: "POST", url: "/missions/mission-missing/actions/qa-dry-run", payload: {} });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json().code).toBe("NOT_FOUND");
+  });
+
+  it("runs mission qa dry-run action with a sample bug and no real execution", async () => {
+    const cwd = await createAiNovelistDemoWorkspace();
+    try {
+      await withWorkingDirectory(cwd, async () => {
+        const { server, storage } = await createTestServer({ auth: { disabled: true }, registryRoot: join(cwd, "projects") });
+        await server.inject({ method: "POST", url: "/projects/sync" });
+        await seedDemoMission(storage);
+        const plan = await server.inject({ method: "POST", url: `/missions/${EXAMPLE_MISSION_ID}/plan`, payload: {} });
+        expect(plan.statusCode).toBe(200);
+
+        const response = await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/actions/qa-dry-run`,
+          payload: { withSampleBug: true },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+          missionId: EXAMPLE_MISSION_ID,
+          mode: "dry-run",
+          dryRun: true,
+          realCodexExecuted: false,
+          realExternalCall: false,
+        });
+        expect(response.json().qaRunIds).toEqual([`qa-run-${EXAMPLE_MISSION_ID}-dry-run`]);
+        expect(response.json().bugIds).toEqual([`bug-${EXAMPLE_MISSION_ID}-sample-duplicate-generate`]);
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it("allows write requests with a valid bearer token", async () => {

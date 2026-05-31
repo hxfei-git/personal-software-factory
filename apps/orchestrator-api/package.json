@@ -13,6 +13,7 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "@psf/demo-workflow": "workspace:*",
     "@psf/db": "workspace:*",
     "@psf/integrations": "workspace:*",
     "@psf/mission-core": "workspace:*",

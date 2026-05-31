@@ -56,6 +56,25 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     return services.planMission(request.params.id, request.body);
   });
 
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/plan", async (request) => {
+    return services.runMissionPlanAction(request.params.id, request.body);
+  });
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/codex-dry-run", async (request) => {
+    return services.runCodexDryRunAction(request.params.id, request.body);
+  });
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/qa-dry-run", async (request) => {
+    return services.runQaDryRunAction(request.params.id, request.body);
+  });
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/fix-dry-run", async (request) => {
+    return services.runFixDryRunAction(request.params.id, request.body);
+  });
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/loop-dry-run", async (request) => {
+    return services.runLoopDryRunAction(request.params.id, request.body);
+  });
+  server.post("/demo/ai-novelist", async (request) => {
+    return services.runAiNovelistDemoAction(request.body);
+  });
+
   server.post<{ Params: { id: string } }>("/missions/:id/transition", async (request) => {
     return services.transitionMission(request.params.id, request.body);
   });

@@ -27,6 +27,14 @@ import { canTransition, transitionMission as buildTransition } from "@psf/missio
 import { createDeterministicMissionPlan } from "@psf/mission-planner";
 import { ProjectRegistryError, findProjectById, scanProjectRegistry } from "@psf/project-registry";
 import { z } from "zod";
+import {
+  runAiNovelistDemoAction as runAiNovelistDemoDryRunAction,
+  runCodexDryRunAction as runCodexDryRunDryRunAction,
+  runFixDryRunAction as runFixDryRunDryRunAction,
+  runLoopDryRunAction as runLoopDryRunDryRunAction,
+  runMissionPlanAction as runMissionPlanDryRunAction,
+  runQaDryRunAction as runQaDryRunDryRunAction,
+} from "./actions.js";
 import { badRequest, invalidTransition, notFound } from "./errors.js";
 import { ApprovalDecisionConflictError, type MissionStorage } from "./storage.js";
 
@@ -426,6 +434,29 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       const integrationName = parseRequest(IntegrationNameParamSchema, name) as ExternalIntegrationName;
       const input = parseRequest(IntegrationDryRunRequestSchema, body ?? {});
       return runIntegrationDryRun(integrationName, { ...input, env: process.env } as IntegrationDryRunInput);
+    },
+    async runMissionPlanAction(id: string, body: unknown) {
+      await getRawMission(id);
+      return sanitizeApiResponse(await runMissionPlanDryRunAction(id, body));
+    },
+    async runCodexDryRunAction(id: string, body: unknown) {
+      await getRawMission(id);
+      return sanitizeApiResponse(await runCodexDryRunDryRunAction(id, body));
+    },
+    async runQaDryRunAction(id: string, body: unknown) {
+      await getRawMission(id);
+      return sanitizeApiResponse(await runQaDryRunDryRunAction(id, body));
+    },
+    async runFixDryRunAction(id: string, body: unknown) {
+      await getRawMission(id);
+      return sanitizeApiResponse(await runFixDryRunDryRunAction(id, body));
+    },
+    async runLoopDryRunAction(id: string, body: unknown) {
+      await getRawMission(id);
+      return sanitizeApiResponse(await runLoopDryRunDryRunAction(id, body));
+    },
+    async runAiNovelistDemoAction(body: unknown) {
+      return sanitizeApiResponse(await runAiNovelistDemoDryRunAction(body));
     },
     async createMission(body: unknown) {
       const input = parseRequest(CreateMissionRequestSchema, body);
