@@ -98,7 +98,7 @@ Real runner request validation is handled by `CodexExecutionRequestSchema`. Requ
 
 ## Workspace Leasing
 
-`leaseCodexWorkspace` supports local repository fixtures and local mirrors only. It creates a git worktree under `PSF_WORKSPACE_ROOT` using an `agent/<slug>-<mission-id>` style branch, refuses `main` and `master` as execution branches, rejects traversal attempts, and returns `manual_action` when a repository has no `origin` remote. Remote clone/update remains a manual operator preparation step for now.
+`leaseCodexWorkspace` supports local repository fixtures and local mirrors only. It creates a git worktree under `PSF_WORKSPACE_ROOT` using a new `agent/<slug>-<mission-id>` style branch, refuses `main` and `master` as execution branches, rejects traversal attempts, and returns `manual_action` when the target branch or workspace path already exists or when a repository has no `origin` remote. It does not force-reset existing agent branches. Remote clone/update remains a manual operator preparation step for now.
 
 ## Real Runner Artifacts
 

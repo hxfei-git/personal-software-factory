@@ -25,7 +25,7 @@ Real Codex work can take longer than an API request and can fail in ways that ne
 
 ## Workspace Isolation
 
-The current gated runner leases a dedicated git worktree under `PSF_WORKSPACE_ROOT`, validates the target branch, and refuses `main` or `master`. It supports local repositories or local mirrors for tests and operator-prepared runs. Remote clone/update is still a manual-action boundary.
+The current gated runner leases a dedicated git worktree under `PSF_WORKSPACE_ROOT`, validates the target branch, and refuses `main` or `master`. It also refuses existing target agent branches or workspace paths instead of force-resetting or overwriting Mission work. It supports local repositories or local mirrors for tests and operator-prepared runs. Remote clone/update is still a manual-action boundary.
 
 ## Command Policy
 

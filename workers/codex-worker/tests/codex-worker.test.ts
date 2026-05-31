@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -36,6 +36,10 @@ const input = {
 
 function git(cwd: string, args: string[]): void {
   execFileSync("git", args, { cwd, stdio: "ignore" });
+}
+
+function gitOutput(cwd: string, args: string[]): string {
+  return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 }
 
 async function createTempGitRepo(name = "repo"): Promise<string> {
@@ -260,6 +264,49 @@ describe("real Codex runner gated mode", () => {
     expect(lease.branchName).toBe("agent/ai-novelist-mission-0001");
     expect(lease.workspacePath).toContain("ai-novelist");
     expect(lease.workspacePath).toContain("mission-0001");
+  });
+
+  it("refuses an existing agent branch without resetting its tip", async () => {
+    const repo = await createTempGitRepo();
+    const root = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const branchName = "agent/ai-novelist-existing-branch";
+
+    git(repo, ["checkout", "-b", branchName]);
+    await writeFile(path.join(repo, "branch-work.txt"), "existing mission work\n", "utf8");
+    git(repo, ["add", "branch-work.txt"]);
+    git(repo, ["commit", "-m", "existing mission work"]);
+    const existingBranchTip = gitOutput(repo, ["rev-parse", branchName]);
+    git(repo, ["checkout", "main"]);
+
+    const lease = await leaseCodexWorkspace(realRequest({
+      repoUrl: repo,
+      workspaceRoot: root,
+      branchName,
+      missionId: "existing-branch",
+    }));
+
+    expect(lease.status).toBe("manual_action");
+    expect(gitOutput(repo, ["rev-parse", branchName])).toBe(existingBranchTip);
+  });
+
+  it("refuses an existing target worktree path without deleting or overwriting it", async () => {
+    const repo = await createTempGitRepo();
+    const root = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const missionId = "existing-worktree-path";
+    const workspacePath = path.join(root, "ai-novelist", missionId);
+    const sentinel = path.join(workspacePath, "sentinel.txt");
+    await mkdir(workspacePath, { recursive: true });
+    await writeFile(sentinel, "do not overwrite\n", "utf8");
+
+    const lease = await leaseCodexWorkspace(realRequest({
+      repoUrl: repo,
+      workspaceRoot: root,
+      missionId,
+      branchName: "agent/ai-novelist-existing-worktree-path",
+    }));
+
+    expect(lease.status).toBe("manual_action");
+    expect(await readFile(sentinel, "utf8")).toBe("do not overwrite\n");
   });
 
   it("refuses protected execution branches and repositories without git remotes", async () => {

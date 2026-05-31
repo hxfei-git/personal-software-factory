@@ -70,6 +70,27 @@ async function assertGitRepository(repoPath: string): Promise<void> {
   await access(path.join(repoPath, ".git"));
 }
 
+async function pathExists(candidatePath: string): Promise<boolean> {
+  try {
+    await access(candidatePath);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function branchExists(repoPath: string, branchName: string): Promise<boolean> {
+  try {
+    await git(repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function buildCodexBranchName(input: Pick<CodexExecutionRequest, "branchName" | "projectId" | "missionId">): string {
   return input.branchName ?? `agent/${slugify(input.projectId)}-${slugify(input.missionId)}`;
 }
@@ -114,9 +135,18 @@ export async function leaseCodexWorkspace(rawInput: CodexExecutionRequest): Prom
 
     const workspacePath = resolveSafeWorkspacePath(workspaceRoot, buildCodexWorkspaceRelativePath(input));
     assertInsideWorkspace(workspacePath, workspaceRoot);
+
+    if (await branchExists(repoPath, branchName)) {
+      return manualAction("Target Codex agent branch already exists; use a new attempt branch or resolve the existing branch manually.");
+    }
+
+    if (await pathExists(workspacePath)) {
+      return manualAction("Target Codex workspace path already exists; use a new attempt workspace or resolve it manually.");
+    }
+
     await mkdir(path.dirname(workspacePath), { recursive: true });
 
-    await git(repoPath, ["worktree", "add", "-B", branchName, workspacePath, input.defaultBranch]);
+    await git(repoPath, ["worktree", "add", "-b", branchName, workspacePath, input.defaultBranch]);
 
     return {
       status: "ready",
