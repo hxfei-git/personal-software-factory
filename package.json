@@ -42,6 +42,7 @@
     "@psf/auto-fix-loop": "workspace:*",
     "@psf/qa-worker": "workspace:*",
     "@psf/worker-runtime": "workspace:*",
-    "@psf/integrations": "workspace:*"
+    "@psf/integrations": "workspace:*",
+    "@psf/demo-workflow": "workspace:*"
   }
 }

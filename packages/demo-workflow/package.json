@@ -1,0 +1,33 @@
+{
+  "name": "@psf/demo-workflow",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "description": "Local dry-run demo and operations workflow for Personal Software Factory.",
+  "scripts": {
+    "check": "pnpm typecheck && pnpm test",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run tests",
+    "lint": "tsc --noEmit",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@psf/auto-fix-loop": "workspace:*",
+    "@psf/codex-worker": "workspace:*",
+    "@psf/db": "workspace:*",
+    "@psf/integrations": "workspace:*",
+    "@psf/mission-planner": "workspace:*",
+    "@psf/mission-schema": "workspace:*",
+    "@psf/project-registry": "workspace:*",
+    "@psf/qa-worker": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

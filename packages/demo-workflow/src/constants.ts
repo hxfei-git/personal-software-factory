@@ -1,0 +1,10 @@
+export const EXAMPLE_PROJECT_ID = "ai-novelist";
+export const EXAMPLE_MISSION_ID = "mission-0001-ai-novelist-chapter-review";
+export const EXAMPLE_REQUEST = "增加章节审稿和自动修复流程";
+export const EXAMPLE_TITLE = "增加章节审稿和自动修复流程";
+export const EXAMPLE_SLUG = "ai-novelist-chapter-review";
+export const EXAMPLE_BRANCH = `psf/${EXAMPLE_MISSION_ID}`;
+export const DEFAULT_DEMO_API_URL = "http://127.0.0.1:3000";
+export const DEFAULT_DEMO_HUB_URL = "http://127.0.0.1:5173";
+export const DEFAULT_DATABASE_URL = "postgresql://psf:psf_dev_password@localhost:5432/psf?schema=public";
+export const DEMO_REPORT_PATH = "docs/reports/demo-ai-novelist-report.md";
