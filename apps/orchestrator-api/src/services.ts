@@ -2,6 +2,17 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  listIntegrationStatuses,
+  runIntegrationDryRun,
+  isSecretLikeName,
+  redactValue,
+  type ExternalIntegrationName,
+  type GitHubDryRunInput,
+  type CoolifyDryRunInput,
+  type UptimeKumaDryRunInput,
+  type PlaneDryRunInput,
+} from "@psf/integrations";
+import {
   MissionStatus,
   MissionStatusSchema,
   type Approval,
@@ -151,6 +162,10 @@ const CreateQARunRequestSchema = z.object({
 });
 
 const UpdateQARunRequestSchema = CreateQARunRequestSchema.partial();
+const IntegrationNameParamSchema = z.enum(["github", "coolify", "uptime_kuma", "uptime-kuma", "plane"]);
+const IntegrationDryRunRequestSchema = z.record(z.unknown());
+
+type IntegrationDryRunInput = GitHubDryRunInput | CoolifyDryRunInput | UptimeKumaDryRunInput | PlaneDryRunInput;
 
 export interface MissionServiceOptions {
   registryRoot?: string;
@@ -158,7 +173,7 @@ export interface MissionServiceOptions {
 
 export function createMissionServices(storage: MissionStorage, options: MissionServiceOptions = {}) {
   const registryRoot = options.registryRoot ?? "projects";
-  async function getMission(id: string) {
+  async function getRawMission(id: string) {
     const mission = await storage.getMission(id);
     if (!mission) {
       throw notFound("Mission", id);
@@ -222,7 +237,123 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     return getExistingPlannerResultFromStorage(storage, missionId);
   }
 
+  function sanitizeApiResponse<T>(value: T): T {
+    return sanitizeApiValue(value) as T;
+  }
+
+  function sanitizeApiValue(value: unknown, keyName?: string): unknown {
+    if (typeof keyName === "string" && isSecretLikeName(keyName)) {
+      return (redactValue({ [keyName]: value }, process.env) as Record<string, unknown>)[keyName];
+    }
+
+    if (typeof value === "string") {
+      return isPlainSafeUrl(value) ? value : redactValue(value, process.env);
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((item) => sanitizeApiValue(item));
+    }
+
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value).map(([entryKey, entryValue]) => [entryKey, sanitizeApiValue(entryValue, entryKey)]),
+      );
+    }
+
+    return value;
+  }
+
+  function isPlainSafeUrl(value: string): boolean {
+    try {
+      const url = new URL(value);
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        return false;
+      }
+      if (url.username || url.password) {
+        return false;
+      }
+      return [...url.searchParams.keys()].every((key) => !isSecretLikeName(key));
+    } catch {
+      return false;
+    }
+  }
+
+  function sanitizeApiList<T>(values: T[]): T[] {
+    return values.map((value) => sanitizeApiResponse(value));
+  }
+
+  async function getRawApproval(id: string) {
+    const approval = await storage.getApproval(id);
+    if (!approval) {
+      throw notFound("Approval", id);
+    }
+    return approval;
+  }
+
+  async function getRawWorkerRun(id: string) {
+    const workerRun = await storage.getWorkerRun(id);
+    if (!workerRun) {
+      throw notFound("WorkerRun", id);
+    }
+    return workerRun;
+  }
+
+  async function getRawBug(id: string) {
+    const bug = await storage.getBug(id);
+    if (!bug) {
+      throw notFound("BugReport", id);
+    }
+    return bug;
+  }
+
+  async function getRawQARun(id: string) {
+    const qaRun = await storage.getQARun(id);
+    if (!qaRun) {
+      throw notFound("QARun", id);
+    }
+    return qaRun;
+  }
+
   return {
+    async getDashboard() {
+      const [projects, missions, approvals, workerRuns, artifacts, bugs, qaRuns] = await Promise.all([
+        storage.listProjects(),
+        storage.listMissions(),
+        storage.listAllApprovals(),
+        storage.listAllWorkerRuns(),
+        storage.listAllArtifacts(),
+        storage.listAllBugs(),
+        storage.listAllQARuns(),
+      ]);
+      const metrics = {
+        projectCount: projects.length,
+        missionCount: missions.length,
+        runningMissionCount: missions.filter(isRunningMission).length,
+        failedMissionCount: missions.filter((mission) => mission.status === MissionStatus.failed).length,
+        readyForReviewMissionCount: missions.filter((mission) => mission.status === MissionStatus.ready_for_review).length,
+        qaRunCount: qaRuns.length,
+        qaFailedCount: qaRuns.filter((qaRun) => qaRun.status === "failed" || (qaRun.failed ?? 0) > 0).length,
+        bugCount: bugs.length,
+        openBugCount: bugs.filter(isOpenBug).length,
+        p0p1BugCount: bugs.filter((bug) => bug.severity === "P0" || bug.severity === "P1").length,
+        pendingApprovalCount: approvals.filter((approval) => approval.status === "pending").length,
+        workerRunCount: workerRuns.length,
+        artifactCount: artifacts.length,
+      };
+
+      return {
+        metrics,
+        recentMissions: sanitizeApiList(recentByCreatedAt(missions)),
+        recentBugs: sanitizeApiList(recentByCreatedAt(bugs)),
+        recentWorkerRuns: sanitizeApiList(recentByCreatedAt(workerRuns)),
+        recentFailedWorkerRuns: sanitizeApiList(recentByCreatedAt(workerRuns.filter((workerRun) => workerRun.status === "failed"))),
+        recentQaRuns: sanitizeApiList(recentByCreatedAt(qaRuns)),
+        recentArtifacts: sanitizeApiList(recentByCreatedAt(artifacts)),
+        integrationStatuses: listIntegrationStatuses({ env: process.env }),
+        recommendedNextActions: buildDashboardRecommendedNextActions(metrics),
+        healthSignals: buildDashboardHealthSignals(metrics),
+      };
+    },
     listProjects: () => storage.listProjects(),
     async getProject(id: string) {
       const project = await storage.getProject(id);
@@ -243,8 +374,59 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       }
       return (await getRegistryProject(projectId)).passport;
     },
-    listMissions: () => storage.listMissions(),
-    getMission,
+    listMissions: async () => sanitizeApiList(await storage.listMissions()),
+    async getMission(id: string) {
+      return sanitizeApiResponse(await getRawMission(id));
+    },
+    async getMissionSummary(id: string) {
+      const mission = await getRawMission(id);
+      const project = await storage.getProject(mission.project_id);
+      if (!project) {
+        throw notFound("Project", mission.project_id);
+      }
+      const [events, artifacts, workerRuns, qaRuns, bugs, approvals] = await Promise.all([
+        storage.listMissionEvents(id),
+        storage.listMissionArtifacts(id),
+        storage.listMissionWorkerRuns(id),
+        storage.listMissionQARuns(id),
+        storage.listMissionBugs(id),
+        storage.listMissionApprovals(id),
+      ]);
+
+      const safeEvents = sanitizeApiList(events);
+      const safeArtifacts = sanitizeApiList(artifacts);
+      const safeWorkerRuns = sanitizeApiList(workerRuns);
+      const safeQARuns = sanitizeApiList(qaRuns);
+      const safeBugs = sanitizeApiList(bugs);
+      const safeApprovals = sanitizeApiList(approvals);
+
+      return {
+        mission: sanitizeApiResponse(mission),
+        project: sanitizeApiResponse(project),
+        currentStatus: mission.status,
+        events: safeEvents,
+        artifacts: safeArtifacts,
+        workerRuns: safeWorkerRuns,
+        qaRuns: safeQARuns,
+        bugs: safeBugs,
+        approvals: safeApprovals,
+        qaReportArtifact: findArtifactByType(safeArtifacts, "qa_report"),
+        bugsJsonArtifact: findArtifactByType(safeArtifacts, "bugs_json"),
+        codexPromptArtifact: findArtifactByType(safeArtifacts, "codex_prompt"),
+        codexCommandArtifact: findArtifactByType(safeArtifacts, "codex_command"),
+        fixMissionArtifact: findArtifactByType(safeArtifacts, "fix_mission"),
+        fixCodexCommandArtifact: findArtifactByType(safeArtifacts, "fix_codex_command"),
+        recommendedNextAction: buildMissionRecommendedNextAction(mission, bugs, approvals, qaRuns, workerRuns),
+      };
+    },
+    listIntegrations() {
+      return listIntegrationStatuses({ env: process.env });
+    },
+    runIntegrationDryRun(name: string, body: unknown) {
+      const integrationName = parseRequest(IntegrationNameParamSchema, name) as ExternalIntegrationName;
+      const input = parseRequest(IntegrationDryRunRequestSchema, body ?? {});
+      return runIntegrationDryRun(integrationName, { ...input, env: process.env } as IntegrationDryRunInput);
+    },
     async createMission(body: unknown) {
       const input = parseRequest(CreateMissionRequestSchema, body);
       const project = await storage.getProject(input.project_id);
@@ -275,18 +457,18 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       };
       const event = buildEvent(mission.id, "mission.created", "Mission created", { status: MissionStatus.received }, now);
 
-      return storage.createMission({ mission, event });
+      return sanitizeApiResponse(await storage.createMission({ mission, event }));
     },
     async planMission(id: string, body: unknown) {
       const input = parseRequest(PlanMissionRequestSchema, body ?? {});
-      const mission = await getMission(id);
+      const mission = await getRawMission(id);
       if (mission.status !== MissionStatus.received && mission.status !== MissionStatus.planning && mission.status !== MissionStatus.planned) {
         throw invalidTransition(`Mission planning is not valid while status is ${mission.status}`);
       }
 
       const existing = await getExistingPlannerResult(mission.id);
       if (existing && mission.status === MissionStatus.planned) {
-        return buildPersistedPlanResponse(mission, existing);
+        return sanitizeApiResponse(buildPersistedPlanResponse(mission, existing));
       }
       if (existing && mission.status === MissionStatus.planning) {
         const completed = buildPlanningTransition(
@@ -296,7 +478,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
           nextTimestamp(existing.events.at(-1)?.created_at ?? new Date().toISOString()),
         );
         await storage.transitionMission(mission.id, completed.status, completed.event);
-        return buildPersistedPlanResponse(mission, existing);
+        return sanitizeApiResponse(buildPersistedPlanResponse(mission, existing));
       }
       if (mission.status === MissionStatus.planned) {
         throw invalidTransition("Mission is already planned but planner resources are missing");
@@ -344,11 +526,11 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         await storage.transitionMission(mission.id, completed.status, completed.event);
       }
 
-      return buildPlanResponse(plan, persisted);
+      return sanitizeApiResponse(buildPlanResponse(plan, persisted));
     },
     async transitionMission(id: string, body: unknown) {
       const input = parseRequest(TransitionRequestSchema, body);
-      const mission = await getMission(id);
+      const mission = await getRawMission(id);
       try {
         const result = buildTransition({
           mission_id: id,
@@ -366,18 +548,18 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       }
     },
     async appendMissionEvent(id: string, body: unknown) {
-      await getMission(id);
+      await getRawMission(id);
       const input = parseRequest(AppendEventRequestSchema, body);
       const event = buildEvent(id, input.type, input.message, input.payload ?? {});
-      return storage.appendMissionEvent(event);
+      return sanitizeApiResponse(await storage.appendMissionEvent(event));
     },
     async listMissionEvents(id: string) {
-      await getMission(id);
-      return storage.listMissionEvents(id);
+      await getRawMission(id);
+      return sanitizeApiList(await storage.listMissionEvents(id));
     },
 
     async createApproval(missionId: string, body: unknown) {
-      await getMission(missionId);
+      await getRawMission(missionId);
       const input = parseRequest(CreateApprovalRequestSchema, body);
       const now = new Date().toISOString();
       const approval: Approval = {
@@ -391,21 +573,17 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         created_at: now,
       };
       const event = buildEvent(missionId, "approval.created", "Approval requested", { approval_id: approval.id, type: approval.type }, now);
-      return storage.createApproval({ resource: approval, event });
+      return sanitizeApiResponse(await storage.createApproval({ resource: approval, event }));
     },
     async listMissionApprovals(missionId: string) {
-      await getMission(missionId);
-      return storage.listMissionApprovals(missionId);
+      await getRawMission(missionId);
+      return sanitizeApiList(await storage.listMissionApprovals(missionId));
     },
     async getApproval(id: string) {
-      const approval = await storage.getApproval(id);
-      if (!approval) {
-        throw notFound("Approval", id);
-      }
-      return approval;
+      return sanitizeApiResponse(await getRawApproval(id));
     },
     async decideApproval(id: string, body: unknown) {
-      const current = await this.getApproval(id);
+      const current = await getRawApproval(id);
       if (current.status !== "pending") {
         throw badRequest("VALIDATION_ERROR", "Approval decision can only be recorded while approval is pending", { approval_id: id, status: current.status });
       }
@@ -422,7 +600,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       };
       const event = buildEvent(approval.mission_id, "approval.decided", "Approval decided", { approval_id: approval.id, status: approval.status }, now);
       try {
-        return await storage.decideApproval({ resource: approval, event });
+        return sanitizeApiResponse(await storage.decideApproval({ resource: approval, event }));
       } catch (error) {
         if (error instanceof ApprovalDecisionConflictError) {
           throw badRequest("VALIDATION_ERROR", "Approval decision can only be recorded while approval is pending", { approval_id: id });
@@ -432,7 +610,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     },
 
     async createWorkerRun(missionId: string, body: unknown) {
-      await getMission(missionId);
+      await getRawMission(missionId);
       const input = parseRequest(CreateWorkerRunRequestSchema, body);
       const now = new Date().toISOString();
       const workerRun: WorkerRun = {
@@ -456,21 +634,17 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         updated_at: now,
       };
       const event = buildEvent(missionId, "worker_run.created", "Worker run created", { worker_run_id: workerRun.id, status: workerRun.status }, now);
-      return storage.createWorkerRun({ resource: workerRun, event });
+      return sanitizeApiResponse(await storage.createWorkerRun({ resource: workerRun, event }));
     },
     async listMissionWorkerRuns(missionId: string) {
-      await getMission(missionId);
-      return storage.listMissionWorkerRuns(missionId);
+      await getRawMission(missionId);
+      return sanitizeApiList(await storage.listMissionWorkerRuns(missionId));
     },
     async getWorkerRun(id: string) {
-      const workerRun = await storage.getWorkerRun(id);
-      if (!workerRun) {
-        throw notFound("WorkerRun", id);
-      }
-      return workerRun;
+      return sanitizeApiResponse(await getRawWorkerRun(id));
     },
     async updateWorkerRun(id: string, body: unknown) {
-      const current = await this.getWorkerRun(id);
+      const current = await getRawWorkerRun(id);
       const input = parseRequest(UpdateWorkerRunRequestSchema, body);
       const now = new Date().toISOString();
       const workerRun: WorkerRun = {
@@ -492,11 +666,11 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         updated_at: now,
       };
       const event = buildEvent(workerRun.mission_id, "worker_run.updated", "Worker run updated", { worker_run_id: workerRun.id, status: workerRun.status }, now);
-      return storage.updateWorkerRun({ resource: workerRun, event });
+      return sanitizeApiResponse(await storage.updateWorkerRun({ resource: workerRun, event }));
     },
 
     async createArtifact(missionId: string, body: unknown) {
-      await getMission(missionId);
+      await getRawMission(missionId);
       const input = parseRequest(CreateArtifactRequestSchema, body);
       if (input.workerRunId !== undefined) {
         await validateWorkerRunBelongsToMission(input.workerRunId, missionId);
@@ -515,22 +689,22 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         created_at: now,
       };
       const event = buildEvent(missionId, "artifact.created", "Artifact created", { artifact_id: artifact.id, type: artifact.type, path: artifact.path }, now);
-      return storage.createArtifact({ resource: artifact, event });
+      return sanitizeApiResponse(await storage.createArtifact({ resource: artifact, event }));
     },
     async listMissionArtifacts(missionId: string) {
-      await getMission(missionId);
-      return storage.listMissionArtifacts(missionId);
+      await getRawMission(missionId);
+      return sanitizeApiList(await storage.listMissionArtifacts(missionId));
     },
     async getArtifact(id: string) {
       const artifact = await storage.getArtifact(id);
       if (!artifact) {
         throw notFound("Artifact", id);
       }
-      return artifact;
+      return sanitizeApiResponse(artifact);
     },
 
     async createBug(missionId: string, body: unknown) {
-      await getMission(missionId);
+      await getRawMission(missionId);
       const input = parseRequest(CreateBugRequestSchema, body);
       if (input.qaRunId !== undefined) {
         await validateQARunBelongsToMission(input.qaRunId, missionId);
@@ -555,21 +729,17 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         updated_at: now,
       };
       const event = buildEvent(missionId, "bug.created", "Bug report created", { bug_id: bug.id, severity: bug.severity, status: bug.status }, now);
-      return storage.createBug({ resource: bug, event });
+      return sanitizeApiResponse(await storage.createBug({ resource: bug, event }));
     },
     async listMissionBugs(missionId: string) {
-      await getMission(missionId);
-      return storage.listMissionBugs(missionId);
+      await getRawMission(missionId);
+      return sanitizeApiList(await storage.listMissionBugs(missionId));
     },
     async getBug(id: string) {
-      const bug = await storage.getBug(id);
-      if (!bug) {
-        throw notFound("BugReport", id);
-      }
-      return bug;
+      return sanitizeApiResponse(await getRawBug(id));
     },
     async updateBug(id: string, body: unknown) {
-      const current = await this.getBug(id);
+      const current = await getRawBug(id);
       const input = parseRequest(UpdateBugRequestSchema, body);
       if (input.qaRunId !== undefined) {
         await validateQARunBelongsToMission(input.qaRunId, current.mission_id);
@@ -592,11 +762,11 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         updated_at: now,
       };
       const event = buildEvent(bug.mission_id, "bug.updated", "Bug report updated", { bug_id: bug.id, status: bug.status }, now);
-      return storage.updateBug({ resource: bug, event });
+      return sanitizeApiResponse(await storage.updateBug({ resource: bug, event }));
     },
 
     async createQARun(missionId: string, body: unknown) {
-      await getMission(missionId);
+      await getRawMission(missionId);
       const input = parseRequest(CreateQARunRequestSchema, body);
       const now = new Date().toISOString();
       const qaRun: QAReport = {
@@ -620,21 +790,17 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         updated_at: now,
       };
       const event = buildEvent(missionId, "qa_run.created", "QA run created", { qa_run_id: qaRun.id, status: qaRun.status }, now);
-      return storage.createQARun({ resource: qaRun, event });
+      return sanitizeApiResponse(await storage.createQARun({ resource: qaRun, event }));
     },
     async listMissionQARuns(missionId: string) {
-      await getMission(missionId);
-      return storage.listMissionQARuns(missionId);
+      await getRawMission(missionId);
+      return sanitizeApiList(await storage.listMissionQARuns(missionId));
     },
     async getQARun(id: string) {
-      const qaRun = await storage.getQARun(id);
-      if (!qaRun) {
-        throw notFound("QARun", id);
-      }
-      return qaRun;
+      return sanitizeApiResponse(await getRawQARun(id));
     },
     async updateQARun(id: string, body: unknown) {
-      const current = await this.getQARun(id);
+      const current = await getRawQARun(id);
       const input = parseRequest(UpdateQARunRequestSchema, body);
       const now = new Date().toISOString();
       const qaRun: QAReport = {
@@ -655,7 +821,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         updated_at: now,
       };
       const event = buildEvent(qaRun.mission_id, "qa_run.updated", "QA run updated", { qa_run_id: qaRun.id, status: qaRun.status }, now);
-      return storage.updateQARun({ resource: qaRun, event });
+      return sanitizeApiResponse(await storage.updateQARun({ resource: qaRun, event }));
     },
   };
 }
@@ -787,6 +953,123 @@ function buildEvent(missionId: string, type: string, message: string, payload: R
     payload,
     created_at: createdAt,
   };
+}
+
+const runningMissionStatuses = new Set<Mission["status"]>([
+  MissionStatus.planning,
+  MissionStatus.dev_queued,
+  MissionStatus.dev_running,
+  MissionStatus.build_running,
+  MissionStatus.test_running,
+  MissionStatus.staging_deploying,
+  MissionStatus.qa_running,
+  MissionStatus.fixing,
+  MissionStatus.regression_running,
+  MissionStatus.production_deploying,
+]);
+
+const openBugStatuses = new Set<BugReport["status"]>(["open", "in_progress"]);
+
+type DashboardMetrics = {
+  projectCount: number;
+  missionCount: number;
+  runningMissionCount: number;
+  failedMissionCount: number;
+  readyForReviewMissionCount: number;
+  qaRunCount: number;
+  qaFailedCount: number;
+  bugCount: number;
+  openBugCount: number;
+  p0p1BugCount: number;
+  pendingApprovalCount: number;
+  workerRunCount: number;
+  artifactCount: number;
+};
+
+function isRunningMission(mission: Mission): boolean {
+  return runningMissionStatuses.has(mission.status);
+}
+
+function isOpenBug(bug: BugReport): boolean {
+  return openBugStatuses.has(bug.status);
+}
+
+function recentByCreatedAt<T extends { id: string; created_at?: string | undefined }>(items: T[], limit = 5): T[] {
+  return [...items].sort(compareCreatedAtDesc).slice(0, limit);
+}
+
+function compareCreatedAtDesc(left: { id: string; created_at?: string | undefined }, right: { id: string; created_at?: string | undefined }): number {
+  const byCreatedAt = (right.created_at ?? "").localeCompare(left.created_at ?? "");
+  return byCreatedAt === 0 ? right.id.localeCompare(left.id) : byCreatedAt;
+}
+
+function buildDashboardRecommendedNextActions(metrics: DashboardMetrics): string[] {
+  const actions = [];
+  if (metrics.pendingApprovalCount > 0) {
+    actions.push("Review pending approvals before continuing gated work.");
+  }
+  if (metrics.p0p1BugCount > 0) {
+    actions.push("Triage P0/P1 bugs and schedule fixes before release review.");
+  }
+  if (metrics.failedMissionCount > 0 || metrics.qaFailedCount > 0) {
+    actions.push("Inspect failed missions or QA runs and collect evidence.");
+  }
+  if (metrics.readyForReviewMissionCount > 0) {
+    actions.push("Open ready-for-review missions and prepare PR review notes.");
+  }
+  return actions.length === 0 ? ["No urgent action detected; continue with the next planned mission."] : actions;
+}
+
+function buildDashboardHealthSignals(metrics: DashboardMetrics) {
+  return [
+    {
+      key: "mission_failures",
+      status: metrics.failedMissionCount > 0 ? "warning" : "ok",
+      count: metrics.failedMissionCount,
+      message: metrics.failedMissionCount > 0 ? "Some missions are failed." : "No failed missions.",
+    },
+    {
+      key: "qa_failures",
+      status: metrics.qaFailedCount > 0 ? "warning" : "ok",
+      count: metrics.qaFailedCount,
+      message: metrics.qaFailedCount > 0 ? "Some QA runs failed." : "No failed QA runs.",
+    },
+    {
+      key: "pending_approvals",
+      status: metrics.pendingApprovalCount > 0 ? "attention" : "ok",
+      count: metrics.pendingApprovalCount,
+      message: metrics.pendingApprovalCount > 0 ? "Approvals are waiting for a decision." : "No pending approvals.",
+    },
+  ];
+}
+
+function findArtifactByType(artifacts: Artifact[], type: Artifact["type"]): Artifact | null {
+  return artifacts.find((artifact) => artifact.type === type) ?? null;
+}
+
+function buildMissionRecommendedNextAction(
+  mission: Mission,
+  bugs: BugReport[],
+  approvals: Approval[],
+  qaRuns: QAReport[],
+  workerRuns: WorkerRun[],
+): string {
+  if (approvals.some((approval) => approval.status === "pending")) {
+    return "Review pending approval requests for this mission.";
+  }
+  if (bugs.some(isOpenBug)) {
+    return "Fix or triage open QA bugs before advancing the mission.";
+  }
+  if (qaRuns.some((qaRun) => qaRun.status === "failed" || (qaRun.failed ?? 0) > 0)) {
+    return "Review failed QA evidence and decide whether a fix mission is needed.";
+  }
+  if (workerRuns.some((workerRun) => workerRun.status === "failed")) {
+    return "Inspect failed worker run logs and retry after addressing the error.";
+  }
+  if (mission.status === MissionStatus.ready_for_review) {
+    return "Prepare human review and PR handoff for this mission.";
+  }
+  return "Continue the mission according to its current status.";
 }
 
 function compactArtifact(artifact: Artifact) {

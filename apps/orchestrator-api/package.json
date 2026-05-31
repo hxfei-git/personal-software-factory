@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@psf/db": "workspace:*",
+    "@psf/integrations": "workspace:*",
     "@psf/mission-core": "workspace:*",
     "@psf/mission-planner": "workspace:*",
     "@psf/mission-schema": "workspace:*",

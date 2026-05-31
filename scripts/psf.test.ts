@@ -188,6 +188,56 @@ describe("psf CLI", () => {
     expect(result.stdout).toContain("Codex was not executed");
   });
 
+  test("integrations status lists configured state for supported providers", async () => {
+    const result = await withIntegrationEnv({}, () => runPsfCli(["integrations:status"], { syncDatabase: false }));
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('"externalName": "github"');
+    expect(result.stdout).toContain('"externalName": "coolify"');
+    expect(result.stdout).toContain('"externalName": "uptime-kuma"');
+    expect(result.stdout).toContain('"externalName": "plane"');
+    expect(result.stdout).toContain('"mode": "dry-run"');
+    expect(result.stdout).toContain('"configured": false');
+    expect(result.stdout).toContain('"realEnabled": false');
+    expect(result.stdout).toContain('"realNetworkCall": false');
+    expect(result.stdout).toContain('"safeToRun": true');
+    expect(result.stdout).toContain('"missingEnv"');
+  });
+
+  test("integrations status rejects extra arguments", async () => {
+    const result = await withIntegrationEnv({}, () => runPsfCli(["integrations:status", "extra"], { syncDatabase: false }));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("USAGE");
+    expect(result.stderr).toContain("Usage: pnpm psf integrations:status");
+  });
+
+  test("integrations dry-run supports the uptime-kuma external provider name", async () => {
+    const result = await withIntegrationEnv({}, () =>
+      runPsfCli(["integrations:dry-run", "uptime-kuma"], { syncDatabase: false }),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('"externalName": "uptime-kuma"');
+    expect(result.stdout).toContain('"mode": "dry-run"');
+    expect(result.stdout).toContain('"configured": false');
+    expect(result.stdout).toContain('"realEnabled": false');
+    expect(result.stdout).toContain('"realNetworkCall": false');
+    expect(result.stdout).toContain('"safeToRun": true');
+  });
+
+  test("integrations dry-run does not leak provider tokens to stdout or stderr", async () => {
+    const secret = "ghp_cli_secret_token";
+
+    const result = await withIntegrationEnv({ GITHUB_TOKEN: secret }, () =>
+      runPsfCli(["integrations:dry-run", "github"], { syncDatabase: false }),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain(secret);
+    expect(result.stderr).not.toContain(secret);
+  });
+
   test("mission commands reject unsafe mission ids", async () => {
     const cwd = await createExampleWorkspace("psf-cli-path-");
 
@@ -206,6 +256,53 @@ async function createExampleWorkspace(prefix: string): Promise<string> {
   const cwd = await mkdtemp(join(tmpdir(), prefix));
   await cp(resolve("projects"), join(cwd, "projects"), { recursive: true });
   return cwd;
+}
+
+const integrationEnvDefaults: Record<string, string | undefined> = {
+  ENABLE_REAL_GITHUB: undefined,
+  ENABLE_REAL_COOLIFY: undefined,
+  ENABLE_REAL_UPTIME_KUMA: undefined,
+  ENABLE_REAL_PLANE: undefined,
+  GITHUB_TOKEN: undefined,
+  GITHUB_OWNER: undefined,
+  GITHUB_REPO: undefined,
+  COOLIFY_BASE_URL: undefined,
+  COOLIFY_TOKEN: undefined,
+  UPTIME_KUMA_BASE_URL: undefined,
+  UPTIME_KUMA_USERNAME: undefined,
+  UPTIME_KUMA_PASSWORD: undefined,
+  PLANE_BASE_URL: undefined,
+  PLANE_API_TOKEN: undefined,
+  PLANE_WORKSPACE_ID: undefined,
+  PLANE_PROJECT_ID: undefined,
+};
+
+async function withIntegrationEnv<T>(env: Record<string, string | undefined>, callback: () => Promise<T>): Promise<T> {
+  return withEnv({ ...integrationEnvDefaults, ...env }, callback);
+}
+
+async function withEnv<T>(env: Record<string, string | undefined>, callback: () => Promise<T>): Promise<T> {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(env)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    return await callback();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
 }
 
 function createPrismaStub(missionUpdates: Array<Record<string, unknown>>) {

@@ -7,6 +7,7 @@ import { createDeterministicMissionPlan } from "@psf/mission-planner";
 import { createQaDryRun, createSkippedPlaywrightSummary } from "@psf/qa-worker";
 import type { Artifact, BugReport, MissionEvent, QAReport, WorkerRun } from "@psf/mission-schema";
 import { findProjectById, scanProjectRegistry, type RegistryProject } from "@psf/project-registry";
+import { listIntegrationStatuses, runIntegrationDryRun, type ExternalIntegrationName } from "@psf/integrations";
 
 const DEFAULT_DATABASE_URL = "postgresql://psf:psf_dev_password@localhost:5432/psf?schema=public";
 const EXAMPLE_PROJECT_ID = "ai-novelist";
@@ -16,8 +17,10 @@ const EXAMPLE_TITLE = "增加章节审稿和自动修复流程";
 const EXAMPLE_SLUG = "ai-novelist-chapter-review";
 const EXAMPLE_BRANCH = `psf/${EXAMPLE_MISSION_ID}`;
 const MISSION_ID_PATTERN = /^mission-[a-z0-9][a-z0-9-]*$/;
+const CLI_INTEGRATION_PROVIDERS = ["github", "coolify", "uptime-kuma", "plane"] as const;
+type CliIntegrationProvider = (typeof CLI_INTEGRATION_PROVIDERS)[number];
 
-type CliCommand = "projects:sync" | "mission:create" | "mission:plan" | "codex:dry-run" | "qa:dry-run" | "qa:playwright" | "fix:dry-run" | "loop:dry-run";
+type CliCommand = "projects:sync" | "mission:create" | "mission:plan" | "codex:dry-run" | "qa:dry-run" | "qa:playwright" | "fix:dry-run" | "loop:dry-run" | "integrations:status" | "integrations:dry-run";
 
 type JsonObject = Record<string, unknown>;
 
@@ -123,6 +126,12 @@ export async function runPsfCli(argv: string[], options: PsfCliOptions = {}): Pr
       case "loop:dry-run":
         await loopDryRunCommand(context, args);
         break;
+      case "integrations:status":
+        integrationsStatusCommand(context, args);
+        break;
+      case "integrations:dry-run":
+        integrationsDryRunCommand(context, args);
+        break;
       default:
         throw new PsfCliError("USAGE", usage(), command ? 1 : 0);
     }
@@ -133,6 +142,21 @@ export async function runPsfCli(argv: string[], options: PsfCliOptions = {}): Pr
     context.stderr.push(formatError(error));
     return formatResult(exitCode, context);
   }
+}
+
+function integrationsStatusCommand(context: CliContext, args: string[]): void {
+  if (args.length > 0) {
+    throw new PsfCliError("USAGE", "Usage: pnpm psf integrations:status");
+  }
+
+  const statuses = listIntegrationStatuses({ env: process.env });
+  context.stdout.push(JSON.stringify({ integrations: statuses }, null, 2));
+}
+
+function integrationsDryRunCommand(context: CliContext, args: string[]): void {
+  const provider = requireIntegrationProvider(args);
+  const result = runIntegrationDryRun(provider as ExternalIntegrationName, { env: process.env });
+  context.stdout.push(JSON.stringify(result, null, 2));
 }
 
 async function syncProjectsCommand(context: CliContext): Promise<void> {
@@ -858,6 +882,18 @@ function renderCodexCommandReviewArtifact(command: string): string {
   ].join("\n");
 }
 
+function requireIntegrationProvider(args: string[]): CliIntegrationProvider {
+  const [provider, ...rest] = args;
+  if (!provider || rest.length > 0 || !isCliIntegrationProvider(provider)) {
+    throw new PsfCliError("USAGE", `Usage: pnpm psf integrations:dry-run <${CLI_INTEGRATION_PROVIDERS.join("|")}>`);
+  }
+  return provider;
+}
+
+function isCliIntegrationProvider(value: string): value is CliIntegrationProvider {
+  return CLI_INTEGRATION_PROVIDERS.includes(value as CliIntegrationProvider);
+}
+
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
 }
@@ -915,6 +951,8 @@ function usage(): string {
     `  pnpm psf qa:dry-run ${EXAMPLE_MISSION_ID} --with-sample-bug`,
     `  pnpm psf fix:dry-run ${EXAMPLE_MISSION_ID}`,
     `  pnpm psf loop:dry-run ${EXAMPLE_MISSION_ID} --with-sample-bug`,
+    "  pnpm psf integrations:status",
+    "  pnpm psf integrations:dry-run github|coolify|uptime-kuma|plane",
     `  pnpm psf qa:playwright ${EXAMPLE_MISSION_ID}`,
     "",
     "All commands are local dry-runs. codex and fix command artifacts never execute Codex.",

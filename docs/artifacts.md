@@ -81,3 +81,16 @@ The current dry-run batch stores planner and Codex review artifacts as small tex
 QA Worker dry-run writes small text artifacts inline where useful: `qa-report.md`, `bugs.json`, `qa-summary.json`, and `generated-regression.spec.ts`. Screenshot, trace, and log directories are path-only artifacts and currently contain placeholder `.gitkeep` files.
 
 Auto Fix Loop dry-run writes `fix-mission.md`, `fix-acceptance.md`, `fix-codex-prompt.md`, and `fix-codex-command.sh`. The command file is review-only and must not be executable.
+
+## Phase 11-15 Hub And Integration Artifacts
+
+Hub Web reads existing Mission, QA, BugReport, WorkerRun, and Artifact records through `GET /dashboard` and `GET /missions/:id/summary`. It should render artifact metadata and inline text safely, but it must not create a second storage location or copy secrets into browser state.
+
+Integration dry-runs currently return simulated payloads directly from the API/CLI. They do not create durable Artifact records by themselves. If a later phase stores integration preview payloads as artifacts, keep them small, text-based, and redacted:
+
+- GitHub PR and Issue preview bodies may be inline markdown only after token and password redaction.
+- Coolify deploy previews should store request summaries, not provider credentials.
+- Uptime Kuma monitor previews should store target URLs and monitor settings, not usernames or passwords.
+- Plane issue previews should store Mission/Bug summaries and links, not API tokens.
+
+Large provider responses, webhook payloads, or binary evidence should remain path-only under `artifacts/missions/<mission-id>/integrations/` with redacted metadata.

@@ -2,12 +2,26 @@
   "name": "@psf/hub",
   "version": "0.1.0",
   "private": true,
-  "description": "Personal Software Factory Hub Web scaffold.",
+  "description": "Personal Software Factory Hub Web console.",
+  "type": "module",
   "scripts": {
-    "check": "node -e \"console.log('@psf/hub scaffold ready')\"",
-    "typecheck": "node -e \"console.log('@psf/hub has no TypeScript implementation in Phase 1')\"",
-    "test": "node -e \"console.log('@psf/hub has no tests in Phase 1')\"",
-    "lint": "node -e \"console.log('@psf/hub lint scaffold ready')\"",
-    "build": "node -e \"console.log('@psf/hub build scaffold ready')\""
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "dev": "vite --host 127.0.0.1",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "pnpm typecheck",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.5.0",
+    "typescript": "^5.8.0",
+    "vite": "^6.3.0",
+    "vitest": "^3.2.0"
   }
 }

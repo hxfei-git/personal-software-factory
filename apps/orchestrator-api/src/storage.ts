@@ -45,25 +45,30 @@ export interface MissionStorage {
 
   createApproval(input: ResourceWriteInput<Approval>): Promise<Approval>;
   listMissionApprovals(missionId: string): Promise<Approval[]>;
+  listAllApprovals(): Promise<Approval[]>;
   getApproval(id: string): Promise<Approval | null>;
   decideApproval(input: ResourceWriteInput<Approval>): Promise<Approval>;
 
   createWorkerRun(input: ResourceWriteInput<WorkerRun>): Promise<WorkerRun>;
   listMissionWorkerRuns(missionId: string): Promise<WorkerRun[]>;
+  listAllWorkerRuns(): Promise<WorkerRun[]>;
   getWorkerRun(id: string): Promise<WorkerRun | null>;
   updateWorkerRun(input: ResourceWriteInput<WorkerRun>): Promise<WorkerRun>;
 
   createArtifact(input: ResourceWriteInput<Artifact>): Promise<Artifact>;
   listMissionArtifacts(missionId: string): Promise<Artifact[]>;
+  listAllArtifacts(): Promise<Artifact[]>;
   getArtifact(id: string): Promise<Artifact | null>;
 
   createBug(input: ResourceWriteInput<BugReport>): Promise<BugReport>;
   listMissionBugs(missionId: string): Promise<BugReport[]>;
+  listAllBugs(): Promise<BugReport[]>;
   getBug(id: string): Promise<BugReport | null>;
   updateBug(input: ResourceWriteInput<BugReport>): Promise<BugReport>;
 
   createQARun(input: ResourceWriteInput<QAReport>): Promise<QAReport>;
   listMissionQARuns(missionId: string): Promise<QAReport[]>;
+  listAllQARuns(): Promise<QAReport[]>;
   getQARun(id: string): Promise<QAReport | null>;
   updateQARun(input: ResourceWriteInput<QAReport>): Promise<QAReport>;
 }
@@ -160,6 +165,9 @@ export function createInMemoryMissionStorage(seed: InMemoryMissionStorageSeed = 
     async listMissionApprovals(missionId) {
       return [...approvals.values()].filter((approval) => approval.mission_id === missionId);
     },
+    async listAllApprovals() {
+      return sortByCreatedAtThenId([...approvals.values()]);
+    },
     async getApproval(id) {
       return approvals.get(id) ?? null;
     },
@@ -181,6 +189,9 @@ export function createInMemoryMissionStorage(seed: InMemoryMissionStorageSeed = 
     async listMissionWorkerRuns(missionId) {
       return [...workerRuns.values()].filter((workerRun) => workerRun.mission_id === missionId);
     },
+    async listAllWorkerRuns() {
+      return sortByCreatedAtThenId([...workerRuns.values()]);
+    },
     async getWorkerRun(id) {
       return workerRuns.get(id) ?? null;
     },
@@ -198,6 +209,9 @@ export function createInMemoryMissionStorage(seed: InMemoryMissionStorageSeed = 
     async listMissionArtifacts(missionId) {
       return [...artifacts.values()].filter((artifact) => artifact.mission_id === missionId);
     },
+    async listAllArtifacts() {
+      return sortByCreatedAtThenId([...artifacts.values()]);
+    },
     async getArtifact(id) {
       return artifacts.get(id) ?? null;
     },
@@ -209,6 +223,9 @@ export function createInMemoryMissionStorage(seed: InMemoryMissionStorageSeed = 
     },
     async listMissionBugs(missionId) {
       return [...bugs.values()].filter((bug) => bug.mission_id === missionId);
+    },
+    async listAllBugs() {
+      return sortByCreatedAtThenId([...bugs.values()]);
     },
     async getBug(id) {
       return bugs.get(id) ?? null;
@@ -226,6 +243,9 @@ export function createInMemoryMissionStorage(seed: InMemoryMissionStorageSeed = 
     },
     async listMissionQARuns(missionId) {
       return [...qaRuns.values()].filter((qaRun) => qaRun.mission_id === missionId).map(withQARunBugs);
+    },
+    async listAllQARuns() {
+      return sortByCreatedAtThenId([...qaRuns.values()]).map(withQARunBugs);
     },
     async getQARun(id) {
       const qaRun = qaRuns.get(id);
@@ -337,6 +357,10 @@ export function createPrismaMissionStorage(prisma: PrismaClient): MissionStorage
       const approvals = await prisma.approval.findMany({ where: { missionId }, orderBy: { createdAt: "asc" } });
       return approvals.map(mapApproval);
     },
+    async listAllApprovals() {
+      const approvals = await prisma.approval.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+      return approvals.map(mapApproval);
+    },
     async getApproval(id) {
       const approval = await prisma.approval.findUnique({ where: { id } });
       return approval ? mapApproval(approval) : null;
@@ -372,6 +396,10 @@ export function createPrismaMissionStorage(prisma: PrismaClient): MissionStorage
       const workerRuns = await prisma.workerRun.findMany({ where: { missionId }, orderBy: { createdAt: "asc" } });
       return workerRuns.map(mapWorkerRun);
     },
+    async listAllWorkerRuns() {
+      const workerRuns = await prisma.workerRun.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+      return workerRuns.map(mapWorkerRun);
+    },
     async getWorkerRun(id) {
       const workerRun = await prisma.workerRun.findUnique({ where: { id } });
       return workerRun ? mapWorkerRun(workerRun) : null;
@@ -397,6 +425,10 @@ export function createPrismaMissionStorage(prisma: PrismaClient): MissionStorage
       const artifacts = await prisma.artifact.findMany({ where: { missionId }, orderBy: { createdAt: "asc" } });
       return artifacts.map(mapArtifact);
     },
+    async listAllArtifacts() {
+      const artifacts = await prisma.artifact.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+      return artifacts.map(mapArtifact);
+    },
     async getArtifact(id) {
       const artifact = await prisma.artifact.findUnique({ where: { id } });
       return artifact ? mapArtifact(artifact) : null;
@@ -412,6 +444,10 @@ export function createPrismaMissionStorage(prisma: PrismaClient): MissionStorage
     },
     async listMissionBugs(missionId) {
       const bugs = await prisma.bug.findMany({ where: { missionId }, orderBy: { createdAt: "asc" } });
+      return bugs.map(mapBug);
+    },
+    async listAllBugs() {
+      const bugs = await prisma.bug.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
       return bugs.map(mapBug);
     },
     async getBug(id) {
@@ -437,6 +473,10 @@ export function createPrismaMissionStorage(prisma: PrismaClient): MissionStorage
     },
     async listMissionQARuns(missionId) {
       const qaRuns = await prisma.qARun.findMany({ where: { missionId }, orderBy: { createdAt: "asc" }, include: { bugs: { orderBy: { createdAt: "asc" } } } });
+      return qaRuns.map(mapQARun);
+    },
+    async listAllQARuns() {
+      const qaRuns = await prisma.qARun.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }], include: { bugs: { orderBy: [{ createdAt: "asc" }, { id: "asc" }] } } });
       return qaRuns.map(mapQARun);
     },
     async getQARun(id) {
@@ -682,7 +722,15 @@ function toPrismaMissionEventCreate(event: MissionEvent) {
 }
 
 function compareMissionEvents(left: MissionEvent, right: MissionEvent): number {
-  const byCreatedAt = left.created_at.localeCompare(right.created_at);
+  return compareCreatedAtThenId(left, right);
+}
+
+function sortByCreatedAtThenId<T extends { id: string; created_at?: string | undefined }>(items: T[]): T[] {
+  return [...items].sort(compareCreatedAtThenId);
+}
+
+function compareCreatedAtThenId(left: { id: string; created_at?: string | undefined }, right: { id: string; created_at?: string | undefined }): number {
+  const byCreatedAt = (left.created_at ?? "").localeCompare(right.created_at ?? "");
   return byCreatedAt === 0 ? left.id.localeCompare(right.id) : byCreatedAt;
 }
 

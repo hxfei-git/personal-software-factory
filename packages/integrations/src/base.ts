@@ -1,0 +1,127 @@
+import { redactValue } from "./redaction.js";
+import type {
+  ExternalIntegrationName,
+  IntegrationDefinition,
+  IntegrationDryRunResult,
+  IntegrationEnv,
+  IntegrationMode,
+  IntegrationName,
+  IntegrationRuntimeOptions,
+  IntegrationStatus,
+} from "./types.js";
+
+export const INTEGRATION_DEFINITIONS: { [Name in IntegrationName]: IntegrationDefinition<Name> } = {
+  github: {
+    name: "github",
+    externalName: "github",
+    requiredEnv: ["GITHUB_TOKEN", "GITHUB_OWNER", "GITHUB_REPO"],
+    enableRealEnv: "ENABLE_REAL_GITHUB",
+  },
+  coolify: {
+    name: "coolify",
+    externalName: "coolify",
+    requiredEnv: ["COOLIFY_BASE_URL", "COOLIFY_TOKEN"],
+    enableRealEnv: "ENABLE_REAL_COOLIFY",
+  },
+  uptime_kuma: {
+    name: "uptime_kuma",
+    externalName: "uptime-kuma",
+    requiredEnv: ["UPTIME_KUMA_BASE_URL", "UPTIME_KUMA_USERNAME", "UPTIME_KUMA_PASSWORD"],
+    enableRealEnv: "ENABLE_REAL_UPTIME_KUMA",
+  },
+  plane: {
+    name: "plane",
+    externalName: "plane",
+    requiredEnv: ["PLANE_BASE_URL", "PLANE_API_TOKEN", "PLANE_WORKSPACE_ID", "PLANE_PROJECT_ID"],
+    enableRealEnv: "ENABLE_REAL_PLANE",
+  },
+};
+
+export const INTEGRATION_ORDER: IntegrationName[] = ["github", "coolify", "uptime_kuma", "plane"];
+
+export function normalizeIntegrationName(name: ExternalIntegrationName): IntegrationName {
+  return name === "uptime-kuma" ? "uptime_kuma" : name;
+}
+
+export function resolveNow(now: IntegrationRuntimeOptions["now"]): string {
+  if (typeof now === "function") {
+    return now();
+  }
+
+  return now ?? new Date().toISOString();
+}
+
+export function resolveMode(mode: IntegrationRuntimeOptions["mode"]): IntegrationMode {
+  return mode ?? "dry-run";
+}
+
+export function getMissingEnv<TName extends IntegrationName>(definition: IntegrationDefinition<TName>, env: IntegrationEnv = {}): string[] {
+  return definition.requiredEnv.filter((name) => !env[name]?.trim());
+}
+
+export function isRealEnabled<TName extends IntegrationName>(definition: IntegrationDefinition<TName>, env: IntegrationEnv = {}): boolean {
+  return env[definition.enableRealEnv] === "1";
+}
+
+export function buildIntegrationStatus<TName extends IntegrationName>(
+  definition: IntegrationDefinition<TName>,
+  options: IntegrationRuntimeOptions = {},
+): IntegrationStatus<TName> {
+  const env = options.env ?? {};
+  const missingEnv = getMissingEnv(definition, env);
+  const configured = missingEnv.length === 0;
+  const realEnabled = isRealEnabled(definition, env);
+  const mode = resolveMode(options.mode);
+  const status: IntegrationStatus<TName> = {
+    name: definition.name,
+    externalName: definition.externalName,
+    mode,
+    enabled: true,
+    configured,
+    healthy: configured,
+    realEnabled,
+    realNetworkCall: false,
+    safeToRun: true,
+    requiredEnv: [...definition.requiredEnv],
+    missingEnv,
+    lastCheckedAt: resolveNow(options.now),
+    message: configured
+      ? `${definition.externalName} is configured for ${mode}; real network calls are disabled.`
+      : `${definition.externalName} is not fully configured; dry-run remains safe and local.`,
+  };
+
+  return redactValue(status, env);
+}
+
+export function buildDryRunResult<TName extends IntegrationName, TOutputs extends object>(
+  definition: IntegrationDefinition<TName>,
+  options: IntegrationRuntimeOptions & { message: string; outputs: TOutputs },
+): IntegrationDryRunResult<TName, TOutputs> {
+  const env = options.env ?? {};
+  const createdAt = resolveNow(options.now);
+  const status = buildIntegrationStatus(definition, { env, now: createdAt, mode: options.mode ?? "dry-run" });
+  const result: IntegrationDryRunResult<TName, TOutputs> = {
+    name: definition.name,
+    externalName: definition.externalName,
+    mode: status.mode,
+    realEnabled: status.realEnabled,
+    realNetworkCall: false,
+    configured: status.configured,
+    missingEnv: [...status.missingEnv],
+    safeToRun: true,
+    message: options.message,
+    status,
+    outputs: options.outputs,
+    createdAt,
+  };
+
+  return redactValue(result, env);
+}
+
+export function formatList(items: readonly string[] | undefined, fallback: string): string {
+  if (!items?.length) {
+    return `- ${fallback}`;
+  }
+
+  return items.map((item) => `- ${item}`).join("\n");
+}

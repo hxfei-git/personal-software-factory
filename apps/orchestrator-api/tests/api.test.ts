@@ -368,13 +368,16 @@ describe("orchestrator api", () => {
         method: "POST",
         url: `/missions/${mission.id}/plan`,
         payload: {
-          userRequirement: "增加章节审稿和自动修复流程",
-          qaCharter: "# QA Charter\n- 打开首页\n- 导出小说",
+          userRequirement: "增加章节审稿和自动修复流程 token=planner-user-token",
+          qaCharter: "# QA Charter\n- 打开首页\n- 导出小说\npassword: planner-charter-password",
         },
       });
       expect(response.statusCode).toBe(200);
       expect(response.json().files).toHaveLength(4);
       expect(response.json().workerRun.worker_type).toBe("planner");
+      const planBody = JSON.stringify(response.json());
+      expect(planBody).not.toContain("planner-user-token");
+      expect(planBody).not.toContain("planner-charter-password");
 
       const artifacts = await server.inject({ method: "GET", url: `/missions/${mission.id}/artifacts` });
       expect(artifacts.json().map((artifact: { type: string }) => artifact.type)).toEqual([
@@ -905,6 +908,355 @@ describe("orchestrator api", () => {
     expect(detail.statusCode).toBe(200);
     expect(detail.json().bugs).toHaveLength(1);
     expect(detail.json().bugs[0].id).toBe(bug.id);
+  });
+
+  it("returns dashboard metrics and recent operational resources", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "Dashboard mission");
+    await server.inject({ method: "POST", url: "/missions/" + mission.id + "/transition", payload: { to: MissionStatus.planning } });
+    const workerRun = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/worker-runs",
+      payload: { workerType: "codex", status: "failed", mode: "dry-run", error: "Unit test failed" },
+    })).json();
+    await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/artifacts",
+      payload: { type: "qa_report", path: "missions/" + mission.id + "/qa-report.md", workerRunId: workerRun.id, content: "# QA" },
+    });
+    const qaRun = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/qa-runs",
+      payload: { status: "failed", mode: "mock", stagingUrl: "http://127.0.0.1:8300", summary: "Failed QA.", failed: 1 },
+    })).json();
+    await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/bugs",
+      payload: {
+        qaRunId: qaRun.id,
+        title: "Dashboard P1 bug",
+        severity: "P1",
+        reproductionSteps: ["Open app"],
+        expectedResult: "Dashboard has data.",
+        actualResult: "Dashboard failed.",
+      },
+    });
+    await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/approvals",
+      payload: { type: "SECURITY_RISK", reason: "Needs review." },
+    });
+
+    const response = await server.inject({ method: "GET", url: "/dashboard" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().metrics).toMatchObject({
+      projectCount: 1,
+      missionCount: 1,
+      runningMissionCount: 1,
+      failedMissionCount: 0,
+      readyForReviewMissionCount: 0,
+      qaRunCount: 1,
+      qaFailedCount: 1,
+      bugCount: 1,
+      openBugCount: 1,
+      p0p1BugCount: 1,
+      pendingApprovalCount: 1,
+      workerRunCount: 1,
+      artifactCount: 1,
+    });
+    expect(response.json().recentMissions[0].id).toBe(mission.id);
+    expect(response.json().recentBugs).toHaveLength(1);
+    expect(response.json().recentWorkerRuns[0].id).toBe(workerRun.id);
+    expect(response.json().recentFailedWorkerRuns[0].status).toBe("failed");
+    expect(response.json().recentQaRuns[0].id).toBe(qaRun.id);
+    expect(response.json().recentArtifacts).toHaveLength(1);
+    expect(response.json().integrationStatuses[0]).toMatchObject({
+      realNetworkCall: false,
+      safeToRun: true,
+    });
+    expect(response.json().recommendedNextActions.length).toBeGreaterThan(0);
+    expect(response.json().healthSignals.length).toBeGreaterThan(0);
+  });
+
+  it("returns a mission summary with related resources and highlighted artifacts", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "Summary mission");
+    const workerRun = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/worker-runs",
+      payload: { workerType: "codex", status: "succeeded", mode: "dry-run", output: { summary: "Implemented." } },
+    })).json();
+    const qaReportArtifact = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/artifacts",
+      payload: { type: "qa_report", path: "missions/" + mission.id + "/qa-report.md", workerRunId: workerRun.id, content: "# QA Report" },
+    })).json();
+    const bugsJsonArtifact = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/artifacts",
+      payload: { type: "bugs_json", path: "missions/" + mission.id + "/bugs.json", content: "[]" },
+    })).json();
+    const codexPromptArtifact = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/artifacts",
+      payload: { type: "codex_prompt", path: "missions/" + mission.id + "/codex-prompt.md", content: "Prompt" },
+    })).json();
+    const codexCommandArtifact = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/artifacts",
+      payload: { type: "codex_command", path: "missions/" + mission.id + "/codex-command.sh", content: "pnpm test" },
+    })).json();
+    const fixMissionArtifact = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/artifacts",
+      payload: { type: "fix_mission", path: "missions/" + mission.id + "/fix-mission.md", content: "Fix" },
+    })).json();
+    const fixCodexCommandArtifact = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/artifacts",
+      payload: { type: "fix_codex_command", path: "missions/" + mission.id + "/fix-codex-command.sh", content: "pnpm test" },
+    })).json();
+    const qaRun = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/qa-runs",
+      payload: { status: "passed", mode: "mock", stagingUrl: "http://127.0.0.1:8400", summary: "Passed QA.", passed: 3 },
+    })).json();
+    const bug = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/bugs",
+      payload: {
+        qaRunId: qaRun.id,
+        title: "Summary linked bug",
+        severity: "P2",
+        status: "fixed",
+        reproductionSteps: ["Open app"],
+        expectedResult: "Summary links bugs.",
+        actualResult: "Summary omitted bug.",
+      },
+    })).json();
+    const approval = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/approvals",
+      payload: { type: "PRODUCTION_DEPLOY", reason: "Release review." },
+    })).json();
+
+    const response = await server.inject({ method: "GET", url: "/missions/" + mission.id + "/summary" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      mission: { id: mission.id },
+      project: { id: "ai-novelist" },
+      currentStatus: mission.status,
+      qaReportArtifact: { id: qaReportArtifact.id },
+      bugsJsonArtifact: { id: bugsJsonArtifact.id },
+      codexPromptArtifact: { id: codexPromptArtifact.id },
+      codexCommandArtifact: { id: codexCommandArtifact.id },
+      fixMissionArtifact: { id: fixMissionArtifact.id },
+      fixCodexCommandArtifact: { id: fixCodexCommandArtifact.id },
+    });
+    expect(response.json().events.map((event: { type: string }) => event.type)).toContain("mission.created");
+    expect(response.json().artifacts).toHaveLength(6);
+    expect(response.json().workerRuns[0].id).toBe(workerRun.id);
+    expect(response.json().qaRuns[0].bugs[0].id).toBe(bug.id);
+    expect(response.json().bugs[0].id).toBe(bug.id);
+    expect(response.json().approvals[0].id).toBe(approval.id);
+    expect(response.json().recommendedNextAction).toEqual(expect.any(String));
+  });
+
+  it("redacts token and password values from dashboard, summary, and resource GET responses", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const missionResponse = await server.inject({
+      method: "POST",
+      url: "/missions",
+      payload: {
+        project_id: "ai-novelist",
+        title: "Secret redaction mission",
+        raw_request: "token=mission-raw-token",
+        mission_markdown: "password: mission-md-password",
+        acceptance_markdown: "secret=mission-acceptance-secret",
+      },
+    });
+    expect(missionResponse.statusCode).toBe(201);
+    const mission = missionResponse.json();
+    expect(JSON.stringify(mission)).not.toContain("mission-raw-token");
+    expect(JSON.stringify(mission)).not.toContain("mission-md-password");
+    expect(JSON.stringify(mission)).not.toContain("mission-acceptance-secret");
+    const workerRun = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/worker-runs",
+      payload: {
+        workerType: "qa",
+        status: "failed",
+        mode: "dry-run",
+        input: { apiToken: "worker-input-token", nested: { password: "worker-input-password" } },
+        output: { secret: "worker-output-secret", url: "https://example.test/result?token=worker-output-query" },
+        logs: ["authorization=worker-log-auth", "password: worker-log-password"],
+        error: "token=worker-error-token",
+      },
+    })).json();
+    const artifact = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/artifacts",
+      payload: {
+        type: "qa_report",
+        path: "missions/" + mission.id + "/qa-report.md",
+        workerRunId: workerRun.id,
+        content: "token=artifact-token password=artifact-password",
+        metadata: { accessKey: "artifact-access-key" },
+      },
+    })).json();
+    const qaRun = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/qa-runs",
+      payload: {
+        status: "failed",
+        mode: "mock",
+        stagingUrl: "http://127.0.0.1:8500",
+        summary: "secret=qa-summary-secret",
+        failed: 1,
+      },
+    })).json();
+    const bug = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/bugs",
+      payload: {
+        qaRunId: qaRun.id,
+        title: "Sensitive evidence bug",
+        severity: "P1",
+        reproductionSteps: ["Open app"],
+        expectedResult: "Sensitive evidence is not returned.",
+        actualResult: "Sensitive evidence was captured.",
+        evidence: {
+          token: "bug-evidence-token",
+          url: "https://example.test/evidence?password=bug-query-password",
+          nested: { apiKey: "bug-api-key" },
+        },
+      },
+    })).json();
+    const approval = (await server.inject({
+      method: "POST",
+      url: "/missions/" + mission.id + "/approvals",
+      payload: {
+        type: "SECURITY_RISK",
+        reason: "secret=approval-reason-secret",
+        payload: { password: "approval-payload-password" },
+      },
+    })).json();
+
+    const responses = await Promise.all([
+      server.inject({ method: "GET", url: "/dashboard" }),
+      server.inject({ method: "GET", url: "/missions" }),
+      server.inject({ method: "GET", url: "/missions/" + mission.id }),
+      server.inject({ method: "GET", url: "/missions/" + mission.id + "/summary" }),
+      server.inject({ method: "GET", url: "/missions/" + mission.id + "/artifacts" }),
+      server.inject({ method: "GET", url: "/artifacts/" + artifact.id }),
+      server.inject({ method: "GET", url: "/missions/" + mission.id + "/worker-runs" }),
+      server.inject({ method: "GET", url: "/worker-runs/" + workerRun.id }),
+      server.inject({ method: "GET", url: "/missions/" + mission.id + "/bugs" }),
+      server.inject({ method: "GET", url: "/bugs/" + bug.id }),
+      server.inject({ method: "GET", url: "/missions/" + mission.id + "/approvals" }),
+      server.inject({ method: "GET", url: "/approvals/" + approval.id }),
+      server.inject({ method: "GET", url: "/missions/" + mission.id + "/qa-runs" }),
+      server.inject({ method: "GET", url: "/qa-runs/" + qaRun.id }),
+    ]);
+
+    for (const response of responses) {
+      expect(response.statusCode).toBe(200);
+      const body = JSON.stringify(response.json());
+      expect(body).not.toContain("mission-raw-token");
+      expect(body).not.toContain("mission-md-password");
+      expect(body).not.toContain("mission-acceptance-secret");
+      expect(body).not.toContain("artifact-token");
+      expect(body).not.toContain("artifact-password");
+      expect(body).not.toContain("artifact-access-key");
+      expect(body).not.toContain("worker-input-token");
+      expect(body).not.toContain("worker-input-password");
+      expect(body).not.toContain("worker-output-secret");
+      expect(body).not.toContain("worker-output-query");
+      expect(body).not.toContain("worker-log-auth");
+      expect(body).not.toContain("worker-log-password");
+      expect(body).not.toContain("worker-error-token");
+      expect(body).not.toContain("qa-summary-secret");
+      expect(body).not.toContain("bug-evidence-token");
+      expect(body).not.toContain("bug-query-password");
+      expect(body).not.toContain("bug-api-key");
+      expect(body).not.toContain("approval-reason-secret");
+      expect(body).not.toContain("approval-payload-password");
+    }
+  });
+
+  it("returns integration statuses with mandatory safety fields", async () => {
+    const { server } = await createTestServer();
+
+    const response = await server.inject({ method: "GET", url: "/integrations" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().map((status: { name: string }) => status.name)).toEqual(["github", "coolify", "uptime_kuma", "plane"]);
+    expect(response.json()[0]).toMatchObject({
+      configured: false,
+      realNetworkCall: false,
+      safeToRun: true,
+      realEnabled: false,
+    });
+    expect(response.json()[0].missingEnv.length).toBeGreaterThan(0);
+  });
+
+  it("runs integration dry-runs locally without provider credentials", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/integrations/github/dry-run",
+      payload: { mission: { missionId: "mission-001", missionTitle: "Dry run API" } },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      name: "github",
+      configured: false,
+      realNetworkCall: false,
+      safeToRun: true,
+      status: {
+        realNetworkCall: false,
+        safeToRun: true,
+      },
+    });
+    expect(response.json().missingEnv).toContain("GITHUB_TOKEN");
+  });
+
+  it("protects integration dry-run writes when auth is enabled", async () => {
+    const { server } = await createTestServer({ auth: { token: "secret", disabled: false } });
+
+    const response = await server.inject({ method: "POST", url: "/integrations/github/dry-run", payload: {} });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json().code).toBe("UNAUTHORIZED");
+  });
+
+  it("supports the uptime-kuma dry-run path", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/integrations/uptime-kuma/dry-run",
+      payload: { monitor: { project: "psf", stagingUrl: "https://staging.example.test" } },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      name: "uptime_kuma",
+      externalName: "uptime-kuma",
+      realNetworkCall: false,
+      safeToRun: true,
+      outputs: {
+        monitorConfig: {
+          type: "http",
+          dryRun: true,
+          url: "https://staging.example.test/",
+        },
+      },
+    });
   });
 
 });
