@@ -1,7 +1,7 @@
 import { cp, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEMO_REPORT_PATH,
   DEFAULT_DEMO_API_URL,
@@ -14,6 +14,10 @@ import {
   runDoctor,
   syncDemoResources,
 } from "../src/index.js";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("@psf/demo-workflow scaffold", () => {
   it("exports fixed demo constants and dry-run boundary", () => {
@@ -273,5 +277,82 @@ describe("demo doctor and reset", () => {
     expect(result.deletedPaths).toEqual([`missions/${EXAMPLE_MISSION_ID}`]);
     await expect(stat(join(cwd, "missions", EXAMPLE_MISSION_ID))).rejects.toMatchObject({ code: "ENOENT" });
     await expect(stat(join(cwd, "missions", "mission-real-production"))).resolves.toBeTruthy();
+  });
+});
+
+describe("demo doctor hardening", () => {
+  it("doctor reports a failed required directory check when a required path is a file", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-doctor-dir-file-"));
+    await mkdir(join(cwd, "projects", "ai-novelist"), { recursive: true });
+    await mkdir(join(cwd, "apps", "hub"), { recursive: true });
+    await mkdir(join(cwd, "apps", "orchestrator-api"), { recursive: true });
+    await writeFile(join(cwd, "packages"), "not a directory\n", "utf8");
+    await mkdir(join(cwd, "workers"), { recursive: true });
+    await mkdir(join(cwd, "missions"), { recursive: true });
+    await cp(
+      resolve("../..", "projects", "ai-novelist", "project.passport.yaml"),
+      join(cwd, "projects", "ai-novelist", "project.passport.yaml"),
+    );
+    await writeFile(join(cwd, ".env.example"), "PSF_API_TOKEN=example\n", "utf8");
+
+    const result = await runDoctor({ cwd, checkDatabase: false });
+    const packagesCheck = result.checks.find((check) => check.key === "dir-packages");
+
+    expect(packagesCheck).toMatchObject({
+      status: "failed",
+      message: expect.stringContaining("not a directory"),
+    });
+  });
+
+  it("doctor does not fetch non-local API check URLs", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-doctor-nonlocal-api-"));
+    await mkdir(join(cwd, "projects", "ai-novelist"), { recursive: true });
+    await mkdir(join(cwd, "apps", "hub"), { recursive: true });
+    await mkdir(join(cwd, "apps", "orchestrator-api"), { recursive: true });
+    await mkdir(join(cwd, "packages"), { recursive: true });
+    await mkdir(join(cwd, "workers"), { recursive: true });
+    await mkdir(join(cwd, "missions"), { recursive: true });
+    await cp(
+      resolve("../..", "projects", "ai-novelist", "project.passport.yaml"),
+      join(cwd, "projects", "ai-novelist", "project.passport.yaml"),
+    );
+    await writeFile(join(cwd, ".env.example"), "PSF_API_TOKEN=example\n", "utf8");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok"));
+
+    const result = await runDoctor({
+      cwd,
+      checkApi: true,
+      checkDatabase: false,
+      env: { PSF_API_URL: "https://example.com/health" },
+    });
+    const apiCheck = result.checks.find((check) => check.key === "api");
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(apiCheck).toMatchObject({
+      status: "warning",
+      message: expect.stringContaining("non-local URL not checked"),
+    });
+  });
+
+  it("doctor formatting redacts username-only URL userinfo", () => {
+    const result = {
+      status: "warning" as const,
+      checks: [{
+        key: "api",
+        status: "warning" as const,
+        message: "API HTTP check failed for https://token-value@example.test/health?token=abc&safe=ok",
+        details: { url: "https://token-value@example.test/health?token=abc&safe=ok" },
+      }],
+    };
+
+    const human = formatDoctorResult(result);
+    const json = formatDoctorResult(result, true);
+
+    expect(human).not.toContain("token-value");
+    expect(json).not.toContain("token-value");
+    expect(human).not.toContain("token=abc");
+    expect(json).not.toContain("token=abc");
+    expect(human).toContain("[redacted]");
+    expect(json).toContain("[redacted]");
   });
 });

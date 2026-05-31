@@ -1,4 +1,4 @@
-import { access } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join, resolve } from "node:path";
 import { listIntegrationStatuses } from "@psf/integrations";
@@ -91,10 +91,15 @@ function checkPnpm(env: NodeJS.ProcessEnv): DoctorCheck {
 async function checkRequiredDirectories(cwd: string): Promise<DoctorCheck[]> {
   return Promise.all(REQUIRED_DIRECTORIES.map(async (dir) => {
     const path = join(cwd, dir);
-    if (await readable(path)) {
-      return { key: `dir-${dir.replaceAll("/", "-")}`, status: "ok", message: `Required directory exists: ${dir}.` } satisfies DoctorCheck;
+    const key = `dir-${dir.replaceAll("/", "-")}`;
+    const state = await directoryState(path);
+    if (state === "directory") {
+      return { key, status: "ok", message: `Required directory exists: ${dir}.` } satisfies DoctorCheck;
     }
-    return { key: `dir-${dir.replaceAll("/", "-")}`, status: "failed", message: `Required directory is missing: ${dir}.` } satisfies DoctorCheck;
+    if (state === "not-directory") {
+      return { key, status: "failed", message: `Required path is not a directory: ${dir}.` } satisfies DoctorCheck;
+    }
+    return { key, status: "failed", message: `Required directory is missing: ${dir}.` } satisfies DoctorCheck;
   }));
 }
 
@@ -159,16 +164,24 @@ async function checkHttp(key: "api" | "hub", enabled: boolean, url: string): Pro
     return { key, status: "ok", message: `${key.toUpperCase()} HTTP check skipped.`, details: { checked: false } };
   }
 
+  const parsedUrl = parseHttpUrl(url);
+  if (!parsedUrl) {
+    return { key, status: "warning", message: `${key.toUpperCase()} URL is invalid; HTTP check skipped.`, details: { checked: false, url: redactSecretText(url) } };
+  }
+  if (!isLoopbackUrl(parsedUrl)) {
+    return { key, status: "warning", message: `${key.toUpperCase()} non-local URL not checked.`, details: { checked: false, url: redactSecretText(url) } };
+  }
+
   try {
-    const response = await fetch(url, { method: "GET" });
+    const response = await fetch(parsedUrl.toString(), { method: "GET" });
     return {
       key,
       status: response.ok ? "ok" : "failed",
       message: response.ok ? `${key.toUpperCase()} responded successfully.` : `${key.toUpperCase()} responded with HTTP ${response.status}.`,
-      details: { checked: true, url: redactSecretText(url), status: response.status },
+      details: { checked: true, url: redactSecretText(parsedUrl.toString()), status: response.status },
     };
   } catch (error) {
-    return { key, status: "failed", message: `${key.toUpperCase()} HTTP check failed: ${redactSecretText(errorMessage(error))}`, details: { checked: true, url: redactSecretText(url) } };
+    return { key, status: "failed", message: `${key.toUpperCase()} HTTP check failed: ${redactSecretText(errorMessage(error))}`, details: { checked: true, url: redactSecretText(parsedUrl.toString()) } };
   }
 }
 
@@ -221,6 +234,31 @@ async function readable(path: string): Promise<boolean> {
   }
 }
 
+async function directoryState(path: string): Promise<"directory" | "missing" | "not-directory"> {
+  try {
+    const entry = await stat(path);
+    return entry.isDirectory() ? "directory" : "not-directory";
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return "missing";
+    }
+    return "missing";
+  }
+}
+
+function parseHttpUrl(value: string): URL | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+function isLoopbackUrl(url: URL): boolean {
+  return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname);
+}
+
 function aggregateStatus(checks: DoctorCheck[]): DoctorStatus {
   if (checks.some((check) => check.status === "failed")) {
     return "failed";
@@ -261,9 +299,9 @@ function redactValue(value: unknown): unknown {
 
 function redactSecretText(value: string): string {
   return value
-    .replace(/:\/\/([^:@/\s]+):([^@/\s]+)@/g, "://$1:[redacted]@")
-    .replace(/([?&][^=&#\s]*(?:token|password|passwd|pwd|secret|key|auth|credential|session|jwt|bearer)[^=&#\s]*=)[^&#\s]*/gi, "$1[redacted]")
-    .replace(/(\b[^=\s]*(?:token|password|passwd|pwd|secret|key|auth|credential|session|jwt|bearer)[^=\s]*=)[^\s]+/gi, "$1[redacted]");
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)([^/?#@\s]+)@/gi, "$1[redacted]@")
+    .replace(/([?&][^=&#\s]*(?:token|password|passwd|pwd|secret|key|auth|credential|session|jwt|bearer)[^=&#\s]*=)[^&#\s\"\'<>}]*/gi, "$1[redacted]")
+    .replace(/(\b[^=\s]*(?:token|password|passwd|pwd|secret|key|auth|credential|session|jwt|bearer)[^=\s]*=)[^\s\"\'<>}]*/gi, "$1[redacted]");
 }
 
 function isSecretLikeName(name: string): boolean {
