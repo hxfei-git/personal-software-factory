@@ -238,6 +238,46 @@ describe("psf CLI", () => {
     expect(result.stderr).not.toContain(secret);
   });
 
+  test("queues status prints in-process runtime stats without leaking env secrets", async () => {
+    const result = await runPsfCli(["queues:status"], {
+      syncDatabase: false,
+      env: {
+        ...process.env,
+        PSF_WORKER_RUNTIME: "in-process",
+        PSF_API_TOKEN: "secret-token",
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain('"runtime": "in-process"');
+    expect(result.stdout).toContain('"redisConfigured": false');
+    expect(result.stdout).toContain('"counts"');
+    expect(result.stdout).not.toContain("secret-token");
+  });
+
+  test("worker start and once commands print safe runner guidance", async () => {
+    const start = await runPsfCli(["worker:start"], { syncDatabase: false });
+    const once = await runPsfCli(["worker:once"], { syncDatabase: false });
+
+    expect(start.exitCode).toBe(0);
+    expect(start.stdout).toContain("pnpm worker:dev");
+    expect(start.stdout).not.toContain("token");
+    expect(once.exitCode).toBe(0);
+    expect(once.stdout).toContain("pnpm worker:once");
+    expect(once.stdout).not.toContain("token");
+  });
+
+  test("worker-run cancel and retry require an explicit WorkerRun id", async () => {
+    const cancel = await runPsfCli(["worker-runs:cancel"], { syncDatabase: false });
+    const retry = await runPsfCli(["worker-runs:retry"], { syncDatabase: false });
+
+    expect(cancel.exitCode).toBe(1);
+    expect(cancel.stderr).toContain("Usage: pnpm psf worker-runs:cancel <workerRunId>");
+    expect(retry.exitCode).toBe(1);
+    expect(retry.stderr).toContain("Usage: pnpm psf worker-runs:retry <workerRunId>");
+  });
+
   test("doctor json output redacts secret-bearing URLs", async () => {
     const cwd = await createDoctorWorkspace("psf-cli-doctor-");
     const secretUrl = "https://token-value@example.test/health?token=abc&safe=ok";

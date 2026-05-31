@@ -8,6 +8,7 @@ import { createQaDryRun, createSkippedPlaywrightSummary } from "@psf/qa-worker";
 import type { Artifact, BugReport, MissionEvent, QAReport, WorkerRun } from "@psf/mission-schema";
 import { findProjectById, scanProjectRegistry, type RegistryProject } from "@psf/project-registry";
 import { listIntegrationStatuses, runIntegrationDryRun, type ExternalIntegrationName } from "@psf/integrations";
+import { createWorkerRuntimeFromEnv } from "@psf/worker-runtime";
 import {
   DEMO_REPORT_PATH,
   ensureDemoMission,
@@ -30,7 +31,7 @@ const MISSION_ID_PATTERN = /^mission-[a-z0-9][a-z0-9-]*$/;
 const CLI_INTEGRATION_PROVIDERS = ["github", "coolify", "uptime-kuma", "plane"] as const;
 type CliIntegrationProvider = (typeof CLI_INTEGRATION_PROVIDERS)[number];
 
-type CliCommand = "projects:sync" | "mission:create" | "mission:plan" | "codex:dry-run" | "qa:dry-run" | "qa:playwright" | "fix:dry-run" | "loop:dry-run" | "integrations:status" | "integrations:dry-run" | "doctor" | "demo:seed" | "demo:reset" | "demo:ai-novelist" | "demo:report";
+type CliCommand = "projects:sync" | "mission:create" | "mission:plan" | "codex:dry-run" | "qa:dry-run" | "qa:playwright" | "fix:dry-run" | "loop:dry-run" | "integrations:status" | "integrations:dry-run" | "queues:status" | "worker:start" | "worker:once" | "worker-runs:list" | "worker-runs:cancel" | "worker-runs:retry" | "doctor" | "demo:seed" | "demo:reset" | "demo:ai-novelist" | "demo:report";
 
 type JsonObject = Record<string, unknown>;
 
@@ -38,6 +39,7 @@ interface PsfCliOptions {
   cwd?: string;
   syncDatabase?: boolean;
   prisma?: PrismaLike;
+  env?: NodeJS.ProcessEnv;
 }
 
 export interface PsfCliResult {
@@ -50,6 +52,7 @@ interface CliContext {
   cwd: string;
   syncDatabase: boolean;
   prisma?: PrismaLike;
+  env: NodeJS.ProcessEnv;
   stdout: string[];
   stderr: string[];
 }
@@ -99,9 +102,11 @@ class PsfCliError extends Error {
 }
 
 export async function runPsfCli(argv: string[], options: PsfCliOptions = {}): Promise<PsfCliResult> {
+  const env = options.env ?? process.env;
   const context: CliContext = {
     cwd: resolve(options.cwd ?? process.cwd()),
-    syncDatabase: options.syncDatabase ?? process.env.PSF_SKIP_DB !== "1",
+    syncDatabase: options.syncDatabase ?? env.PSF_SKIP_DB !== "1",
+    env,
     stdout: [],
     stderr: [],
   };
@@ -142,6 +147,24 @@ export async function runPsfCli(argv: string[], options: PsfCliOptions = {}): Pr
       case "integrations:dry-run":
         integrationsDryRunCommand(context, args);
         break;
+      case "queues:status":
+        await queuesStatusCommand(context, args);
+        break;
+      case "worker:start":
+        workerStartCommand(context, args);
+        break;
+      case "worker:once":
+        workerOnceCommand(context, args);
+        break;
+      case "worker-runs:list":
+        workerRunsListCommand(context, args);
+        break;
+      case "worker-runs:cancel":
+        workerRunsCancelCommand(context, args);
+        break;
+      case "worker-runs:retry":
+        workerRunsRetryCommand(context, args);
+        break;
       case "doctor":
         await doctorCommand(context, args);
         break;
@@ -174,14 +197,81 @@ function integrationsStatusCommand(context: CliContext, args: string[]): void {
     throw new PsfCliError("USAGE", "Usage: pnpm psf integrations:status");
   }
 
-  const statuses = listIntegrationStatuses({ env: process.env });
+  const statuses = listIntegrationStatuses({ env: context.env });
   context.stdout.push(JSON.stringify({ integrations: statuses }, null, 2));
 }
 
 function integrationsDryRunCommand(context: CliContext, args: string[]): void {
   const provider = requireIntegrationProvider(args);
-  const result = runIntegrationDryRun(provider as ExternalIntegrationName, { env: process.env });
+  const result = runIntegrationDryRun(provider as ExternalIntegrationName, { env: context.env });
   context.stdout.push(JSON.stringify(result, null, 2));
+}
+
+async function queuesStatusCommand(context: CliContext, args: string[]): Promise<void> {
+  if (args.length > 0) {
+    throw new PsfCliError("USAGE", "Usage: pnpm psf queues:status");
+  }
+
+  const runtime = createWorkerRuntimeFromEnv({ env: context.env });
+  try {
+    const stats = await runtime.getQueueStats();
+    context.stdout.push(JSON.stringify(stats, null, 2));
+  } catch (error) {
+    throw new PsfCliError(
+      "QUEUE_STATUS_FAILED",
+      [
+        "Queue status unavailable.",
+        sanitizeCliMessage(errorMessage(error)),
+        "Check PSF_WORKER_RUNTIME, PSF_REDIS_URL, and whether Redis is running.",
+      ].join(" "),
+    );
+  } finally {
+    await runtime.close().catch(() => undefined);
+  }
+}
+
+function workerStartCommand(context: CliContext, args: string[]): void {
+  if (args.length > 0) {
+    throw new PsfCliError("USAGE", "Usage: pnpm psf worker:start");
+  }
+  context.stdout.push("Worker Runner is a long-running process. Start it with: pnpm worker:dev");
+  context.stdout.push("It consumes whitelisted dry-run queue jobs only; no shell commands are accepted by this CLI.");
+}
+
+function workerOnceCommand(context: CliContext, args: string[]): void {
+  if (args.length > 0) {
+    throw new PsfCliError("USAGE", "Usage: pnpm psf worker:once");
+  }
+  context.stdout.push("Consume one queued dry-run job with: pnpm worker:once");
+  context.stdout.push("This CLI command is a safe pointer and does not start a hidden background process.");
+}
+
+function workerRunsListCommand(context: CliContext, args: string[]): void {
+  if (args.length > 0) {
+    throw new PsfCliError("USAGE", "Usage: pnpm psf worker-runs:list");
+  }
+  context.stdout.push("WorkerRun listing is exposed by Orchestrator API: GET /worker-runs?status=&missionId=&workerType=");
+  context.stdout.push("Use Hub Worker Runs or the API boundary; this CLI does not bypass Orchestrator auth or read queue internals directly.");
+}
+
+function workerRunsCancelCommand(context: CliContext, args: string[]): void {
+  const workerRunId = requireWorkerRunControlId(args, "cancel");
+  context.stdout.push(`Cancel WorkerRun ${workerRunId} through Orchestrator API: POST /worker-runs/${workerRunId}/cancel`);
+  context.stdout.push("Queued/delayed jobs can be cancelled; active jobs use cooperative best-effort cancellation.");
+}
+
+function workerRunsRetryCommand(context: CliContext, args: string[]): void {
+  const workerRunId = requireWorkerRunControlId(args, "retry");
+  context.stdout.push(`Retry WorkerRun ${workerRunId} through Orchestrator API: POST /worker-runs/${workerRunId}/retry`);
+  context.stdout.push("Only failed or cancelled queue wrapper WorkerRuns are eligible for retry.");
+}
+
+function requireWorkerRunControlId(args: string[], action: "cancel" | "retry"): string {
+  const [workerRunId, ...rest] = args;
+  if (!workerRunId || rest.length > 0) {
+    throw new PsfCliError("USAGE", `Usage: pnpm psf worker-runs:${action} <workerRunId>`);
+  }
+  return workerRunId;
 }
 
 async function doctorCommand(context: CliContext, args: string[]): Promise<void> {
@@ -1057,6 +1147,12 @@ function redactDatabaseUrl(value: string | undefined): string {
   return value.replace(/:\/\/([^:@/]+):([^@/]+)@/, "://$1:<redacted>@");
 }
 
+function sanitizeCliMessage(value: string): string {
+  return value
+    .replace(/:\/\/([^:@/]+):([^@/]+)@/g, "://$1:<redacted>@")
+    .replace(/([?&](?:token|password|secret|api[_-]?key|authorization)=)[^\s&]+/gi, "$1[redacted]")
+    .replace(/\b(token|password|secret|api[_-]?key|authorization)\s*[:=]\s*[^\s,;}]+/gi, "$1=[redacted]");
+}
 function relativeToCwd(context: CliContext, path: string): string {
   return path.startsWith(context.cwd) ? path.slice(context.cwd.length + 1) : path;
 }
@@ -1074,6 +1170,12 @@ function usage(): string {
     `  pnpm psf loop:dry-run ${EXAMPLE_MISSION_ID} --with-sample-bug`,
     "  pnpm psf integrations:status",
     "  pnpm psf integrations:dry-run github|coolify|uptime-kuma|plane",
+    "  pnpm psf queues:status",
+    "  pnpm psf worker:start",
+    "  pnpm psf worker:once",
+    "  pnpm psf worker-runs:list",
+    "  pnpm psf worker-runs:cancel <workerRunId>",
+    "  pnpm psf worker-runs:retry <workerRunId>",
     "  pnpm psf doctor [--json] [--check-db] [--check-api] [--check-hub]",
     "  pnpm psf demo:seed [--skip-db]",
     "  pnpm psf demo:reset [--skip-db]",
