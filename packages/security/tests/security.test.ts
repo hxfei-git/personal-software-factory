@@ -38,6 +38,14 @@ describe("redaction", () => {
     }
   });
 
+  it("redacts embedded stringified JSON secret values containing escaped quotes", () => {
+    const output = redactText('payload={"password":"alpha\\" beta"}');
+
+    expect(output).toContain("[REDACTED]");
+    expect(output).not.toContain("alpha");
+    expect(output).not.toContain("beta");
+  });
+
   it("redacts stringified JSON secret values containing escaped quotes", () => {
     const output = redactText('{"password":"alpha\\" beta","safe":"ok"}');
 
@@ -204,6 +212,10 @@ describe("path guards", () => {
     "~/secret.txt",
     "/",
     "/etc/passwd",
+    "/home/ubuntu/project/file.txt",
+    "/bin/sh",
+    "/usr/bin/env",
+    "/var/log/app.log",
     "ai-novelist/mission-123/config/service.credentials.json",
     "project/secrets/config.json",
     "project/credentials/config.json",
@@ -214,6 +226,9 @@ describe("path guards", () => {
     "project/cookie/config.json",
     "project/session/config.json",
     "project/jwt/config.json",
+    "project/my-secrets/config.json",
+    "project/service-credentials/config.json",
+    "project/token-store/config.json",
   ])("rejects unsafe path %s", (candidate) => {
     expect(() => resolveSafeWorkspacePath(workspaceRoot, candidate)).toThrow(/path|forbidden|workspace/i);
   });

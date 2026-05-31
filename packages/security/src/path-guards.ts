@@ -30,6 +30,23 @@ const FORBIDDEN_SEGMENTS = new Set([
   "apikey",
 ]);
 
+const SECRET_SEGMENT_PARTS = [
+  "token",
+  "password",
+  "secret",
+  "authorization",
+  "credential",
+  "cookie",
+  "session",
+  "jwt",
+  "apikey",
+];
+
+function isSecretLikeSegment(segment: string): boolean {
+  const normalized = segment.replace(/[\s_.-]/g, "").toLowerCase();
+  return SECRET_SEGMENT_PARTS.some((part) => normalized.includes(part));
+}
+
 function realpath(candidate: string): string {
   return realpathSync.native(candidate);
 }
@@ -102,7 +119,7 @@ export function assertNotForbiddenPath(candidatePath: string): void {
     throw new Error("SSH paths are forbidden.");
   }
 
-  if (segments.some((segment) => FORBIDDEN_SEGMENTS.has(segment))) {
+  if (segments.some((segment) => FORBIDDEN_SEGMENTS.has(segment) || isSecretLikeSegment(segment))) {
     throw new Error("Credential-like path segments are forbidden.");
   }
 
