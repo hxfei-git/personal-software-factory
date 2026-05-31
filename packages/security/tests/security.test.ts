@@ -38,6 +38,15 @@ describe("redaction", () => {
     }
   });
 
+  it("redacts stringified JSON secret values containing escaped quotes", () => {
+    const output = redactText('{"password":"alpha\\" beta","safe":"ok"}');
+
+    expect(output).toContain("[REDACTED]");
+    expect(output).not.toContain("alpha");
+    expect(output).not.toContain("beta");
+    expect(output).toContain('"safe":"ok"');
+  });
+
   it("redacts stringified JSON secret fields with spaces", () => {
     const output = redactText('{"password": "hunter 2", "token": "abc def"}');
 
@@ -150,6 +159,9 @@ describe("command policy", () => {
     "pnpm test rm -rf /",
     "npm run test -- rm -rf /",
     "pytest -q rm -rf /",
+    "pnpm test --config=../../outside/vitest.config.ts",
+    "npm run test --config=../../outside/vitest.config.ts",
+    "pytest -q ../../outside/test_evil.py",
   ])("blocks unsafe command %s", (command) => {
     const result = evaluateCommandPolicy({
       command,
@@ -190,6 +202,9 @@ describe("path guards", () => {
     "/",
     "/etc/passwd",
     "ai-novelist/mission-123/config/service.credentials.json",
+    "project/secrets/config.json",
+    "project/credentials/config.json",
+    "project/tokens/file.txt",
   ])("rejects unsafe path %s", (candidate) => {
     expect(() => resolveSafeWorkspacePath(workspaceRoot, candidate)).toThrow(/path|forbidden|workspace/i);
   });

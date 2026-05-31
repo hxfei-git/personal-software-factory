@@ -10,6 +10,17 @@ function hasTraversal(candidate: string): boolean {
   return splitSegments(candidate).includes("..");
 }
 
+const FORBIDDEN_SEGMENTS = new Set([
+  "secret",
+  "secrets",
+  "credential",
+  "credentials",
+  "token",
+  "tokens",
+  "password",
+  "passwords",
+]);
+
 function realpath(candidate: string): string {
   return realpathSync.native(candidate);
 }
@@ -80,6 +91,10 @@ export function assertNotForbiddenPath(candidatePath: string): void {
 
   if (segments.includes(".ssh")) {
     throw new Error("SSH paths are forbidden.");
+  }
+
+  if (segments.some((segment) => FORBIDDEN_SEGMENTS.has(segment))) {
+    throw new Error("Credential-like path segments are forbidden.");
   }
 
   if (basename === ".env" || basename.startsWith(".env.")) {

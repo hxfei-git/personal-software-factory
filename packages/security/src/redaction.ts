@@ -35,7 +35,30 @@ function redactUrlUserinfo(input: string): string {
   });
 }
 
+function redactStringifiedJson(input: string, extraSecrets: string[]): string | undefined {
+  const trimmed = input.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+    return undefined;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(input);
+    if (!parsed || typeof parsed !== "object") {
+      return undefined;
+    }
+
+    return JSON.stringify(redactJson(parsed, extraSecrets));
+  } catch {
+    return undefined;
+  }
+}
+
 export function redactText(input: string, extraSecrets: string[] = []): string {
+  const jsonRedacted = redactStringifiedJson(input, extraSecrets);
+  if (jsonRedacted !== undefined) {
+    return jsonRedacted;
+  }
+
   return redactUrlUserinfo(applyExtraSecrets(input, extraSecrets))
     .replace(JWT_PATTERN, REDACTED)
     .replace(

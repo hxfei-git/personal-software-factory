@@ -53,6 +53,10 @@ function containsDangerousSequence(command: string): boolean {
   return /(?:^|\s|--\s*)rm\s+-(?:[^\s]*r[^\s]*f|[^\s]*f[^\s]*r)\s+(?:\/|\*)/.test(command);
 }
 
+function containsPathTraversal(command: string): boolean {
+  return command.includes("../") || command.includes("..\\");
+}
+
 export function evaluateCommandPolicy(input: CommandPolicyInput): CommandPolicyResult {
   const normalizedCommand = normalizeCommand(input.command);
 
@@ -82,6 +86,10 @@ export function evaluateCommandPolicy(input: CommandPolicyInput): CommandPolicyR
 
   if (containsDangerousSequence(normalizedCommand)) {
     return deny(normalizedCommand, "Destructive rm command is blocked.");
+  }
+
+  if (containsPathTraversal(normalizedCommand)) {
+    return deny(normalizedCommand, "Path traversal arguments are blocked.");
   }
 
   if (/^chmod\s+777\b.*\s\/(?:\s|$)/.test(normalizedCommand) || /^chmod\s+777\s+-R\s+\//.test(normalizedCommand)) {
