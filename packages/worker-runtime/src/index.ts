@@ -1,7 +1,100 @@
 import type { MissionEvent, WorkerRun } from "@psf/mission-schema";
+import { z } from "zod";
 
 export type WorkerRuntimeType = "qa" | "auto_fix" | "codex" | "planner" | "integration";
 export type WorkerRuntimeMode = "dry-run" | "mock" | "real";
+
+export const WorkerJobTypeSchema = z.enum([
+  "mission.plan",
+  "codex.dry_run",
+  "qa.dry_run",
+  "qa.dry_run_with_sample_bug",
+  "fix.dry_run",
+  "loop.dry_run",
+  "demo.ai_novelist",
+  "integration.dry_run",
+]);
+
+export const WorkerJobStatusSchema = z.enum(["queued", "active", "completed", "failed", "cancelled", "delayed"]);
+export const WorkerJobModeSchema = z.enum(["dry-run", "mock", "real"]);
+
+export const WorkerJobSchema = z.object({
+  id: z.string().min(1),
+  missionId: z.string().min(1),
+  projectId: z.string().min(1),
+  workerRunId: z.string().min(1),
+  type: WorkerJobTypeSchema,
+  mode: WorkerJobModeSchema,
+  payload: z.record(z.unknown()).default({}),
+  idempotencyKey: z.string().min(1).optional(),
+  priority: z.number().int().min(0).default(5),
+  attempts: z.number().int().min(1).default(2),
+  timeoutMs: z.number().int().positive().default(300000),
+  createdAt: z.string().datetime(),
+});
+
+export type WorkerJobType = z.infer<typeof WorkerJobTypeSchema>;
+export type WorkerJobStatus = z.infer<typeof WorkerJobStatusSchema>;
+export type QueueWorkerJob = z.infer<typeof WorkerJobSchema>;
+
+export interface QueuedJobRecord {
+  job: QueueWorkerJob;
+  status: WorkerJobStatus;
+  attemptsMade: number;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  error?: string;
+  retryOfJobId?: string;
+  retryAttempt?: number;
+}
+
+export interface QueueStats {
+  runtime: "in-process" | "bullmq" | string;
+  redisConfigured: boolean;
+  redisReachable?: boolean;
+  counts: Record<WorkerJobStatus, number>;
+}
+
+export interface ListJobsFilter {
+  status?: WorkerJobStatus;
+  missionId?: string;
+  workerRunId?: string;
+  type?: WorkerJobType;
+}
+
+export interface BuildWorkerJobInput {
+  id?: string;
+  missionId: string;
+  projectId: string;
+  workerRunId: string;
+  type: WorkerJobType;
+  mode?: z.input<typeof WorkerJobModeSchema>;
+  payload?: Record<string, unknown>;
+  idempotencyKey?: string;
+  priority?: number;
+  attempts?: number;
+  timeoutMs?: number;
+  createdAt?: string;
+}
+
+export function buildWorkerJob(input: BuildWorkerJobInput): QueueWorkerJob {
+  return WorkerJobSchema.parse({
+    id: input.id ?? `job-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    missionId: input.missionId,
+    projectId: input.projectId,
+    workerRunId: input.workerRunId,
+    type: input.type,
+    mode: input.mode ?? "dry-run",
+    payload: input.payload ?? {},
+    idempotencyKey: input.idempotencyKey,
+    priority: input.priority ?? 5,
+    attempts: input.attempts ?? 2,
+    timeoutMs: input.timeoutMs ?? 300000,
+    createdAt: input.createdAt ?? new Date().toISOString(),
+  });
+}
 
 export interface WorkerJob {
   id: string;
@@ -25,6 +118,14 @@ export interface WorkerRuntimeResult {
 
 export interface WorkerRuntime {
   run(job: WorkerJob, handler: (job: WorkerJob) => Promise<WorkerHandlerResult>): Promise<WorkerRuntimeResult>;
+  enqueue(job: QueueWorkerJob): Promise<QueuedJobRecord>;
+  getJob(jobId: string): Promise<QueuedJobRecord | null>;
+  getJobStatus(jobId: string): Promise<WorkerJobStatus | null>;
+  cancelJob(jobId: string): Promise<QueuedJobRecord>;
+  retryJob(jobId: string): Promise<QueuedJobRecord>;
+  listJobs(filter?: ListJobsFilter): Promise<QueuedJobRecord[]>;
+  getQueueStats(): Promise<QueueStats>;
+  close(): Promise<void>;
 }
 
 export interface InProcessWorkerRuntimeOptions {
@@ -34,9 +135,104 @@ export interface InProcessWorkerRuntimeOptions {
 export class InProcessWorkerRuntime implements WorkerRuntime {
   public lastFailure: WorkerRuntimeResult | null = null;
   private readonly now: () => string;
+  private readonly jobs = new Map<string, QueuedJobRecord>();
 
   constructor(options: InProcessWorkerRuntimeOptions = {}) {
     this.now = options.now ?? (() => new Date().toISOString());
+  }
+
+  async enqueue(job: QueueWorkerJob): Promise<QueuedJobRecord> {
+    const parsedJob = WorkerJobSchema.parse(job);
+    const now = this.now();
+    const record: QueuedJobRecord = {
+      job: parsedJob,
+      status: "queued",
+      attemptsMade: 0,
+      createdAt: parsedJob.createdAt,
+      updatedAt: now,
+    };
+    this.jobs.set(parsedJob.id, record);
+    return record;
+  }
+
+  async getJob(jobId: string): Promise<QueuedJobRecord | null> {
+    return this.jobs.get(jobId) ?? null;
+  }
+
+  async getJobStatus(jobId: string): Promise<WorkerJobStatus | null> {
+    return (await this.getJob(jobId))?.status ?? null;
+  }
+
+  async cancelJob(jobId: string): Promise<QueuedJobRecord> {
+    const record = this.requireJob(jobId);
+    if (record.status === "completed") {
+      return record;
+    }
+    const updated = { ...record, status: "cancelled" as const, updatedAt: this.now(), finishedAt: this.now() };
+    this.jobs.set(jobId, updated);
+    return updated;
+  }
+
+  async retryJob(jobId: string): Promise<QueuedJobRecord> {
+    const record = this.requireJob(jobId);
+    if (record.status !== "failed" && record.status !== "cancelled") {
+      throw new Error("Only failed or cancelled jobs can be retried");
+    }
+
+    const retryAttempt = (record.retryAttempt ?? 0) + 1;
+    const retryInput: BuildWorkerJobInput = {
+      missionId: record.job.missionId,
+      projectId: record.job.projectId,
+      workerRunId: record.job.workerRunId,
+      type: record.job.type,
+      mode: record.job.mode,
+      payload: record.job.payload,
+      priority: record.job.priority,
+      attempts: record.job.attempts,
+      timeoutMs: record.job.timeoutMs,
+      createdAt: this.now(),
+    };
+    if (record.job.idempotencyKey) {
+      retryInput.idempotencyKey = record.job.idempotencyKey;
+    }
+    const retryJob = buildWorkerJob(retryInput);
+    const retryRecord: QueuedJobRecord = {
+      job: retryJob,
+      status: "queued",
+      attemptsMade: 0,
+      createdAt: retryJob.createdAt,
+      updatedAt: this.now(),
+      retryOfJobId: record.job.id,
+      retryAttempt,
+    };
+    this.jobs.set(retryJob.id, retryRecord);
+    return retryRecord;
+  }
+
+  async listJobs(filter: ListJobsFilter = {}): Promise<QueuedJobRecord[]> {
+    return Array.from(this.jobs.values()).filter((record) => {
+      if (filter.status && record.status !== filter.status) return false;
+      if (filter.missionId && record.job.missionId !== filter.missionId) return false;
+      if (filter.workerRunId && record.job.workerRunId !== filter.workerRunId) return false;
+      if (filter.type && record.job.type !== filter.type) return false;
+      return true;
+    });
+  }
+
+  async getQueueStats(): Promise<QueueStats> {
+    const counts = createEmptyCounts();
+    for (const record of this.jobs.values()) {
+      counts[record.status] += 1;
+    }
+    return {
+      runtime: "in-process",
+      redisConfigured: false,
+      counts,
+    };
+  }
+
+  async close(): Promise<void> {
+    // In-process runtime has no external handles.
   }
 
   async run(job: WorkerJob, handler: (job: WorkerJob) => Promise<WorkerHandlerResult>): Promise<WorkerRuntimeResult> {
@@ -78,6 +274,25 @@ export class InProcessWorkerRuntime implements WorkerRuntime {
       throw error;
     }
   }
+
+  private requireJob(jobId: string): QueuedJobRecord {
+    const record = this.jobs.get(jobId);
+    if (!record) {
+      throw new Error(`Queue job not found: ${jobId}`);
+    }
+    return record;
+  }
+}
+
+function createEmptyCounts(): Record<WorkerJobStatus, number> {
+  return {
+    queued: 0,
+    active: 0,
+    completed: 0,
+    failed: 0,
+    cancelled: 0,
+    delayed: 0,
+  };
 }
 
 function buildWorkerRun(

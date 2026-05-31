@@ -279,6 +279,9 @@ importers:
       '@psf/mission-schema':
         specifier: workspace:*
         version: link:../mission-schema
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.76
     devDependencies:
       typescript:
         specifier: ^5.8.0
