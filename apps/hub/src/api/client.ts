@@ -1,8 +1,10 @@
 import type {
   DashboardResponse,
+  DryRunActionResponse,
   ExternalIntegrationName,
   IntegrationDryRunResult,
   IntegrationStatus,
+  MissionDryRunAction,
   MissionSummaryResponse,
 } from "./types";
 
@@ -39,6 +41,8 @@ export interface OrchestratorClient {
   getMissionSummary: (missionId: string) => Promise<MissionSummaryResponse>;
   listIntegrations: () => Promise<IntegrationStatus[]>;
   runIntegrationDryRun: (name: ExternalIntegrationName, payload?: Record<string, unknown>) => Promise<IntegrationDryRunResult>;
+  runMissionAction: (missionId: string, action: MissionDryRunAction, payload?: Record<string, unknown>) => Promise<DryRunActionResponse>;
+  runAiNovelistDemo: (payload?: Record<string, unknown>) => Promise<DryRunActionResponse>;
 }
 
 const defaultApiUrl = import.meta.env.VITE_ORCHESTRATOR_API_URL || "http://127.0.0.1:3000";
@@ -56,8 +60,16 @@ export function createOrchestratorClient(options: OrchestratorClientOptions = {}
       : (init.headers as Record<string, string> | undefined) ?? {};
     Object.assign(headers, initHeaders);
     const method = (init.method ?? "GET").toUpperCase();
-    if (token.trim() !== "" && isWriteMethod(method)) {
-      headers.authorization = `Bearer ${token}`;
+    const trimmedToken = token.trim();
+    if (isWriteMethod(method)) {
+      if (trimmedToken === "") {
+        throw new OrchestratorApiError(
+          401,
+          "Set VITE_PSF_API_TOKEN to a local Orchestrator bearer token before running protected dry-run actions.",
+          "TOKEN_REQUIRED",
+        );
+      }
+      headers.authorization = `Bearer ${trimmedToken}`;
     }
 
     const response = await fetchImpl(`${baseUrl}${path}`, { ...init, headers });
@@ -77,6 +89,22 @@ export function createOrchestratorClient(options: OrchestratorClientOptions = {}
     listIntegrations: () => request<IntegrationStatus[]>("/integrations"),
     runIntegrationDryRun: (name: ExternalIntegrationName, payload: Record<string, unknown> = {}) => request<IntegrationDryRunResult>(
       `/integrations/${encodeURIComponent(name)}/dry-run`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    ),
+    runMissionAction: (missionId: string, action: MissionDryRunAction, payload: Record<string, unknown> = {}) => request<DryRunActionResponse>(
+      `/missions/${encodeURIComponent(missionId)}/actions/${action}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    ),
+    runAiNovelistDemo: (payload: Record<string, unknown> = {}) => request<DryRunActionResponse>(
+      "/demo/ai-novelist",
       {
         method: "POST",
         headers: { "content-type": "application/json" },

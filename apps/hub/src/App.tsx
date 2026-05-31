@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactElement } from "react";
 import { createOrchestratorClient, type OrchestratorClient } from "./api/client";
 import type {
@@ -8,6 +8,7 @@ import type {
   ExternalIntegrationName,
   IntegrationStatus,
   Mission,
+  MissionDryRunAction,
   MissionSummaryResponse,
   QAReport,
   WorkerRun,
@@ -21,6 +22,22 @@ export type LoadState<T> =
 
 interface ViewProps<T> {
   state: LoadState<T>;
+}
+
+interface ActionState {
+  loading: string;
+  message: string;
+  error: string;
+}
+
+interface DashboardActions {
+  onRunDemo: (withSampleBug: boolean) => void | Promise<void>;
+  onRefresh: () => void | Promise<void>;
+}
+
+interface MissionActions {
+  onRunAction: (action: MissionDryRunAction, payload?: Record<string, unknown>) => void | Promise<void>;
+  onRefresh: () => void | Promise<void>;
 }
 
 const navItems = [
@@ -43,6 +60,76 @@ export default function App({ client = createOrchestratorClient() }: { client?: 
   const [missionState, setMissionState] = useState<LoadState<MissionSummaryResponse>>({ status: "idle" });
   const [integrationState, setIntegrationState] = useState<LoadState<IntegrationStatus[]>>({ status: "idle" });
   const [dryRunMessage, setDryRunMessage] = useState<string>("");
+  const [actionState, setActionState] = useState<ActionState>({ loading: "", message: "", error: "" });
+
+  const loadDashboard = useCallback(async (): Promise<DashboardResponse> => {
+    setDashboardState({ status: "loading" });
+    try {
+      const data = await client.getDashboard();
+      setDashboardState({ status: "success", data });
+      return data;
+    } catch (error: unknown) {
+      const message = errorMessage(error, "GET /dashboard failed");
+      setDashboardState({ status: "error", message });
+      throw new Error(message);
+    }
+  }, [client]);
+
+  const loadMissionSummary = useCallback(async (missionId: string): Promise<MissionSummaryResponse> => {
+    setMissionState({ status: "loading" });
+    try {
+      const data = await client.getMissionSummary(missionId);
+      setMissionState({ status: "success", data });
+      return data;
+    } catch (error: unknown) {
+      const message = errorMessage(error, "GET /missions/:id/summary failed");
+      setMissionState({ status: "error", message });
+      throw new Error(message);
+    }
+  }, [client]);
+
+  const runDashboardDemo = useCallback(async (withSampleBug: boolean): Promise<void> => {
+    const loading = withSampleBug ? "ai-novelist-demo-with-sample-bug" : "ai-novelist-demo";
+    setActionState({ loading, message: "", error: "" });
+    try {
+      const result = await client.runAiNovelistDemo(withSampleBug ? { withSampleBug: true } : {});
+      await loadDashboard();
+      setActionState({ loading: "", message: result.recommendedNextAction || "Dry-run completed through Orchestrator API", error: "" });
+    } catch (error: unknown) {
+      setActionState({ loading: "", message: "", error: errorMessage(error, "Demo dry-run failed") });
+    }
+  }, [client, loadDashboard]);
+
+  const refreshDashboard = useCallback(async (): Promise<void> => {
+    setActionState({ loading: "dashboard-refresh", message: "", error: "" });
+    try {
+      await loadDashboard();
+      setActionState({ loading: "", message: "Dashboard refreshed", error: "" });
+    } catch (error: unknown) {
+      setActionState({ loading: "", message: "", error: errorMessage(error, "Dashboard refresh failed") });
+    }
+  }, [loadDashboard]);
+
+  const runMissionDryRun = useCallback(async (missionId: string, action: MissionDryRunAction, payload: Record<string, unknown> = {}): Promise<void> => {
+    setActionState({ loading: action, message: "", error: "" });
+    try {
+      const result = await client.runMissionAction(missionId, action, payload);
+      await loadMissionSummary(missionId);
+      setActionState({ loading: "", message: result.recommendedNextAction || "Dry-run completed through Orchestrator API", error: "" });
+    } catch (error: unknown) {
+      setActionState({ loading: "", message: "", error: errorMessage(error, `${action} failed`) });
+    }
+  }, [client, loadMissionSummary]);
+
+  const refreshMissionSummary = useCallback(async (missionId: string): Promise<void> => {
+    setActionState({ loading: "mission-summary-refresh", message: "", error: "" });
+    try {
+      await loadMissionSummary(missionId);
+      setActionState({ loading: "", message: "Mission summary refreshed", error: "" });
+    } catch (error: unknown) {
+      setActionState({ loading: "", message: "", error: errorMessage(error, "Mission summary refresh failed") });
+    }
+  }, [loadMissionSummary]);
 
   useEffect(() => {
     const onHashChange = () => setRoute(readRoute());
@@ -54,22 +141,16 @@ export default function App({ client = createOrchestratorClient() }: { client?: 
     if (route.page !== "dashboard") {
       return;
     }
-    setDashboardState({ status: "loading" });
-    client.getDashboard()
-      .then((data) => setDashboardState({ status: "success", data }))
-      .catch((error: unknown) => setDashboardState({ status: "error", message: errorMessage(error, "GET /dashboard failed") }));
-  }, [client, route.page]);
+    void loadDashboard().catch(() => undefined);
+  }, [loadDashboard, route.page]);
 
   useEffect(() => {
     if (route.page !== "mission-detail") {
       return;
     }
     const missionId = route.params.get("id") || defaultMissionId;
-    setMissionState({ status: "loading" });
-    client.getMissionSummary(missionId)
-      .then((data) => setMissionState({ status: "success", data }))
-      .catch((error: unknown) => setMissionState({ status: "error", message: errorMessage(error, "GET /missions/:id/summary failed") }));
-  }, [client, route]);
+    void loadMissionSummary(missionId).catch(() => undefined);
+  }, [loadMissionSummary, route]);
 
   useEffect(() => {
     if (route.page !== "integrations") {
@@ -84,9 +165,25 @@ export default function App({ client = createOrchestratorClient() }: { client?: 
   const view = useMemo(() => {
     switch (route.page) {
       case "dashboard":
-        return renderDashboardView({ state: dashboardState });
-      case "mission-detail":
-        return renderMissionDetailView({ state: missionState });
+        return renderDashboardView({
+          state: dashboardState,
+          actions: {
+            onRunDemo: runDashboardDemo,
+            onRefresh: refreshDashboard,
+          },
+          actionState,
+        });
+      case "mission-detail": {
+        const missionId = route.params.get("id") || defaultMissionId;
+        return renderMissionDetailView({
+          state: missionState,
+          actions: {
+            onRunAction: (action, payload = {}) => runMissionDryRun(missionId, action, payload),
+            onRefresh: () => refreshMissionSummary(missionId),
+          },
+          actionState,
+        });
+      }
       case "integrations":
         return renderIntegrationsView({ state: integrationState, onDryRun: async (name) => {
           setDryRunMessage("Dry-run queued through Orchestrator API");
@@ -100,7 +197,7 @@ export default function App({ client = createOrchestratorClient() }: { client?: 
       default:
         return renderPlaceholderView(route.page);
     }
-  }, [client, dashboardState, dryRunMessage, integrationState, missionState, route.page]);
+  }, [actionState, client, dashboardState, dryRunMessage, integrationState, missionState, refreshDashboard, refreshMissionSummary, route, runDashboardDemo, runMissionDryRun]);
 
   return (
     <div className="app-shell">
@@ -122,7 +219,14 @@ export default function App({ client = createOrchestratorClient() }: { client?: 
   );
 }
 
-export function renderDashboardView({ state }: ViewProps<DashboardResponse>): ReactElement {
+export function renderDashboardView({
+  state,
+  actions,
+  actionState = emptyActionState,
+}: ViewProps<DashboardResponse> & {
+  actions?: DashboardActions;
+  actionState?: ActionState;
+}): ReactElement {
   if (state.status === "loading" || state.status === "idle") {
     return renderStatusPage("Dashboard", "Loading /dashboard from Orchestrator API");
   }
@@ -144,6 +248,8 @@ export function renderDashboardView({ state }: ViewProps<DashboardResponse>): Re
         </div>
         <span className="status-pill">Orchestrator API only</span>
       </header>
+
+      {actions ? renderDashboardActions(actions, actionState) : null}
 
       <section className="metric-grid" aria-label="Dashboard metrics">
         {metricCard("Missions", data.metrics.missionCount + " total", [data.metrics.runningMissionCount + " running", data.metrics.failedMissionCount + " failed", data.metrics.readyForReviewMissionCount + " ready_for_review"])}
@@ -173,7 +279,14 @@ export function renderDashboardView({ state }: ViewProps<DashboardResponse>): Re
   );
 }
 
-export function renderMissionDetailView({ state }: ViewProps<MissionSummaryResponse>): ReactElement {
+export function renderMissionDetailView({
+  state,
+  actions,
+  actionState = emptyActionState,
+}: ViewProps<MissionSummaryResponse> & {
+  actions?: MissionActions;
+  actionState?: ActionState;
+}): ReactElement {
   if (state.status === "loading" || state.status === "idle") {
     return renderStatusPage("Mission Detail", "Loading GET /missions/:id/summary from Orchestrator API");
   }
@@ -191,6 +304,8 @@ export function renderMissionDetailView({ state }: ViewProps<MissionSummaryRespo
         </div>
         <span className="status-pill">{data.currentStatus}</span>
       </header>
+
+      {actions ? renderMissionActions(actions, actionState) : null}
 
       <section className="detail-summary">
         <div>
@@ -276,6 +391,53 @@ export function renderTokenSafetyProbe(token: string, dashboard: DashboardRespon
       {renderDashboardView({ state: { status: "success", data: dashboard } })}
     </section>
   );
+}
+
+const emptyActionState: ActionState = { loading: "", message: "", error: "" };
+
+function renderDashboardActions(actions: DashboardActions, actionState: ActionState): ReactElement {
+  const busy = actionState.loading !== "";
+  return (
+    <section className="action-toolbar" aria-label="Dashboard dry-run actions">
+      <div className="action-buttons">
+        <button type="button" disabled={busy} onClick={() => void actions.onRunDemo(false)}>Generate ai-novelist Demo dry-run</button>
+        <button type="button" disabled={busy} onClick={() => void actions.onRunDemo(true)}>Generate ai-novelist Demo with Sample Bug dry-run</button>
+        <button type="button" disabled={busy} onClick={() => void actions.onRefresh()}>Refresh Dashboard</button>
+      </div>
+      {renderActionStatus(actionState)}
+    </section>
+  );
+}
+
+function renderMissionActions(actions: MissionActions, actionState: ActionState): ReactElement {
+  const busy = actionState.loading !== "";
+  return (
+    <section className="action-toolbar" aria-label="Mission dry-run actions">
+      <div className="action-buttons">
+        <button type="button" disabled={busy} onClick={() => void actions.onRunAction("plan", {})}>Plan Mission dry-run</button>
+        <button type="button" disabled={busy} onClick={() => void actions.onRunAction("codex-dry-run", {})}>Generate Codex dry-run</button>
+        <button type="button" disabled={busy} onClick={() => void actions.onRunAction("qa-dry-run", {})}>Run QA dry-run</button>
+        <button type="button" disabled={busy} onClick={() => void actions.onRunAction("qa-dry-run", { withSampleBug: true })}>Run QA dry-run with Sample Bug</button>
+        <button type="button" disabled={busy} onClick={() => void actions.onRunAction("fix-dry-run", {})}>Run Fix dry-run</button>
+        <button type="button" disabled={busy} onClick={() => void actions.onRunAction("loop-dry-run", {})}>Run Full Loop dry-run</button>
+        <button type="button" disabled={busy} onClick={() => void actions.onRefresh()}>Refresh Summary</button>
+      </div>
+      {renderActionStatus(actionState)}
+    </section>
+  );
+}
+
+function renderActionStatus(actionState: ActionState): ReactElement | null {
+  if (actionState.loading !== "") {
+    return <p className="action-status">{`Running ${actionState.loading}`}</p>;
+  }
+  if (actionState.error !== "") {
+    return <p className="action-status error">{actionState.error}</p>;
+  }
+  if (actionState.message !== "") {
+    return <p className="action-status success">{actionState.message}</p>;
+  }
+  return null;
 }
 
 function renderPlaceholderView(page: string): ReactElement {

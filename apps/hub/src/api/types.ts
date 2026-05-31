@@ -193,6 +193,26 @@ export interface IntegrationDryRunResult {
   createdAt: string;
 }
 
+export type MissionDryRunAction = "plan" | "codex-dry-run" | "qa-dry-run" | "fix-dry-run" | "loop-dry-run";
+
+export interface DryRunActionResponse {
+  missionId: string;
+  projectId?: string;
+  mode: "dry-run";
+  dryRun: true;
+  realCodexExecuted: false;
+  realExternalCall: false;
+  realPush: false;
+  realDeploy: false;
+  generatedArtifacts: string[];
+  workerRunIds: string[];
+  qaRunIds: string[];
+  bugIds: string[];
+  eventIds: string[];
+  missionDetailUrl?: string;
+  recommendedNextAction: string;
+}
+
 export interface DashboardMetrics {
   projectCount: number;
   missionCount: number;
