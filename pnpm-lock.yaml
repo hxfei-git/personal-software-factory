@@ -363,10 +363,22 @@ importers:
 
   workers/codex-worker:
     dependencies:
+      '@psf/artifact-store':
+        specifier: workspace:*
+        version: link:../../packages/artifact-store
       '@psf/mission-schema':
         specifier: workspace:*
         version: link:../../packages/mission-schema
+      '@psf/security':
+        specifier: workspace:*
+        version: link:../../packages/security
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.76
     devDependencies:
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.1
       typescript:
         specifier: ^5.8.0
         version: 5.9.3

@@ -5,6 +5,11 @@ export interface CodexExecutionSafetyInput {
   hasApproval: boolean;
 }
 
+export function isProtectedExecutionBranch(branchName: string): boolean {
+  const normalized = branchName.trim().toLowerCase();
+  return normalized === "main" || normalized === "master";
+}
+
 export function assertSafeCodexExecution(input: CodexExecutionSafetyInput): void {
   if (input.mode !== "real") {
     return;
@@ -15,7 +20,7 @@ export function assertSafeCodexExecution(input: CodexExecutionSafetyInput): void
   if (!input.hasApproval) {
     throw new Error("Real Codex execution requires an approved Approval record.");
   }
-  if (input.currentBranch === "main" || input.currentBranch === "master") {
+  if (isProtectedExecutionBranch(input.currentBranch)) {
     throw new Error("Real Codex execution is blocked on main/master branches.");
   }
 }
