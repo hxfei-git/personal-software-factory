@@ -49,10 +49,6 @@ function containsLineSeparator(command: string): boolean {
   return /[\r\n\u2028\u2029]/.test(command);
 }
 
-function containsDangerousSequence(command: string): boolean {
-  return /(?:^|\s|--\s*)rm\s+-(?:[^\s]*r[^\s]*f|[^\s]*f[^\s]*r)\s+(?:\/|\*|\.{1,2})(?:\s|$)/.test(command);
-}
-
 function containsPathTraversal(command: string): boolean {
   return command.includes("../") || command.includes("..\\");
 }
@@ -60,6 +56,42 @@ function containsPathTraversal(command: string): boolean {
 function containsAbsolutePathArgument(command: string): boolean {
   return /(?:^|\s)(?:--[\w.-]+=)?\/[A-Za-z0-9._/-]*(?:\s|$)/.test(command) ||
     /(?:^|\s)(?:--[\w.-]+=)?[A-Za-z]:[\\/][^\s]*(?:\s|$)/.test(command);
+}
+
+function containsFileUrl(command: string): boolean {
+  return /file:\/\//i.test(command);
+}
+
+function containsPassthroughSeparator(command: string): boolean {
+  return command.split(/\s+/).includes("--");
+}
+
+function containsDangerousToken(command: string): boolean {
+  const tokens = command.split(/\s+/);
+  const dangerousTokens = new Set(["rm", "sudo", "curl", "wget", "sh", "bash"]);
+
+  if (tokens.some((token) => dangerousTokens.has(token))) {
+    return true;
+  }
+
+  return tokens.some((token, index) => token === "node" && tokens[index + 1] === "-e");
+}
+
+function isAllowedExactCommand(command: string): boolean {
+  return new Set([
+    "pnpm test",
+    "pnpm build",
+    "pnpm typecheck",
+    "pnpm check",
+    "npm run test",
+    "npm run build",
+    "npm run typecheck",
+    "npm run check",
+    "pytest",
+    "pytest -q",
+    "git status",
+    "git status --short",
+  ]).has(command);
 }
 
 export function evaluateCommandPolicy(input: CommandPolicyInput): CommandPolicyResult {
@@ -85,12 +117,12 @@ export function evaluateCommandPolicy(input: CommandPolicyInput): CommandPolicyR
     return deny(normalizedCommand, "Shell operators, redirection, and command substitution are blocked.");
   }
 
-  if (/\bsudo\b/.test(normalizedCommand)) {
-    return deny(normalizedCommand, "sudo is blocked.");
+  if (containsPassthroughSeparator(normalizedCommand)) {
+    return deny(normalizedCommand, "Passthrough command arguments are blocked.");
   }
 
-  if (containsDangerousSequence(normalizedCommand)) {
-    return deny(normalizedCommand, "Destructive rm command is blocked.");
+  if (containsDangerousToken(normalizedCommand)) {
+    return deny(normalizedCommand, "Dangerous command tokens are blocked.");
   }
 
   if (containsPathTraversal(normalizedCommand)) {
@@ -99,6 +131,10 @@ export function evaluateCommandPolicy(input: CommandPolicyInput): CommandPolicyR
 
   if (containsAbsolutePathArgument(normalizedCommand)) {
     return deny(normalizedCommand, "Absolute path arguments are blocked.");
+  }
+
+  if (containsFileUrl(normalizedCommand)) {
+    return deny(normalizedCommand, "file URL arguments are blocked.");
   }
 
   if (/^chmod\s+777\b.*\s\/(?:\s|$)/.test(normalizedCommand) || /^chmod\s+777\s+-R\s+\//.test(normalizedCommand)) {
@@ -119,16 +155,11 @@ export function evaluateCommandPolicy(input: CommandPolicyInput): CommandPolicyR
     }
   }
 
-  if (!input.allowNetwork && /^(?:curl|wget|nc|ncat|ssh|scp|rsync)\b/.test(normalizedCommand)) {
+  if (!input.allowNetwork && /^(?:nc|ncat|ssh|scp|rsync)\b/.test(normalizedCommand)) {
     return deny(normalizedCommand, "Network-capable command requires explicit approval.");
   }
 
-  if (
-    /^pnpm\s+(?:test|build|typecheck|check)(?:\s+[\w./:=+-]+)*$/.test(normalizedCommand) ||
-    /^npm\s+run\s+(?:test|build|typecheck|check)(?:\s+[\w./:=+-]+)*$/.test(normalizedCommand) ||
-    /^pytest(?:\s+-q)?(?:\s+[\w./:=+-]+)*$/.test(normalizedCommand) ||
-    /^git\s+status(?:\s+--short)?$/.test(normalizedCommand)
-  ) {
+  if (isAllowedExactCommand(normalizedCommand)) {
     return allow(normalizedCommand);
   }
 

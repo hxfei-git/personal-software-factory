@@ -150,6 +150,17 @@ describe("command policy", () => {
     },
   );
 
+  it("keeps the required safe command allowlist allowed", () => {
+    for (const command of ["pnpm test", "pnpm build", "npm run test", "pytest -q", "git status"]) {
+      expect(evaluateCommandPolicy({
+        command,
+        cwd: `${workspaceRoot}/project/mission`,
+        workspaceRoot,
+        timeoutMs: 60_000,
+      }).allowed).toBe(true);
+    }
+  });
+
   it.each([
     "rm -rf /",
     "sudo pnpm test",
@@ -176,6 +187,10 @@ describe("command policy", () => {
     "pnpm test --config=/tmp/evil.config.ts",
     "npm run test -- --config=/tmp/evil.config.ts",
     "pytest /etc",
+    "pnpm test -- rm -rf ./",
+    "pnpm test -- rm -r -f .",
+    "pnpm test -- rm --recursive --force .",
+    "pnpm test --config=file:///tmp/evil.config.ts",
   ])("blocks unsafe command %s", (command) => {
     const result = evaluateCommandPolicy({
       command,
