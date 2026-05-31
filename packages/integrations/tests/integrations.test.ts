@@ -7,10 +7,17 @@ import {
   getIntegrationAdapter,
   listIntegrationStatuses,
   runCoolifyDryRun,
+  runCoolifyReal,
   runGitHubDryRun,
+  runGitHubReal,
   runIntegrationDryRun,
   runPlaneDryRun,
+  runPlaneReal,
   runUptimeKumaDryRun,
+  runUptimeKumaReal,
+  type IntegrationTransport,
+  type IntegrationTransportRequest,
+  type IntegrationTransportResponse,
 } from "../src/index.js";
 
 const fixedNow = "2026-05-31T12:00:00.000Z";
@@ -36,6 +43,27 @@ const missionInput = {
 
 function textOf(value: unknown): string {
   return JSON.stringify(value, null, 2);
+}
+
+function createTransport(responses: IntegrationTransportResponse[] | ((request: IntegrationTransportRequest) => IntegrationTransportResponse | Promise<IntegrationTransportResponse>)): {
+  calls: IntegrationTransportRequest[];
+  transport: IntegrationTransport;
+} {
+  const calls: IntegrationTransportRequest[] = [];
+  let index = 0;
+
+  return {
+    calls,
+    transport: async (request) => {
+      calls.push(request);
+
+      if (typeof responses === "function") {
+        return responses(request);
+      }
+
+      return responses[index++] ?? { status: 500, json: { message: "missing test response" } };
+    },
+  };
 }
 
 describe("integration dry-run adapters", () => {
@@ -298,5 +326,319 @@ describe("integration dry-run adapters", () => {
     if (union.name === "github") {
       expect(union.outputs.simulatedPullRequest.status).toBe("simulated");
     }
+  });
+});
+
+
+describe("gated real integration adapters", () => {
+  const configuredEnv = {
+    ENABLE_REAL_GITHUB: "1",
+    ENABLE_REAL_COOLIFY: "1",
+    ENABLE_REAL_UPTIME_KUMA: "1",
+    ENABLE_REAL_PLANE: "1",
+    GITHUB_TOKEN: "ghp_real_secret",
+    GITHUB_OWNER: "hxfei-git",
+    GITHUB_REPO: "personal-software-factory",
+    COOLIFY_TOKEN: "coolify_real_secret",
+    COOLIFY_BASE_URL: "https://coolify.example.test",
+    UPTIME_KUMA_BASE_URL: "https://uptime.example.test",
+    UPTIME_KUMA_USERNAME: "ops",
+    UPTIME_KUMA_PASSWORD: "kuma_real_secret",
+    PLANE_BASE_URL: "https://plane.example.test",
+    PLANE_API_TOKEN: "plane_real_secret",
+    PLANE_WORKSPACE_ID: "factory",
+    PLANE_PROJECT_ID: "hub",
+  };
+
+  it("returns manual-action guidance with no network when real mode is disabled", async () => {
+    const calls: IntegrationTransportRequest[] = [];
+    const transport: IntegrationTransport = async (request) => {
+      calls.push(request);
+      return { status: 200, json: {} };
+    };
+    const disabledEnv = {
+      ...configuredEnv,
+      ENABLE_REAL_GITHUB: "0",
+      ENABLE_REAL_COOLIFY: "0",
+      ENABLE_REAL_UPTIME_KUMA: "0",
+      ENABLE_REAL_PLANE: "0",
+    };
+    const unsetEnv: Record<string, string | undefined> = {
+      ...configuredEnv,
+      ENABLE_REAL_GITHUB: undefined,
+      ENABLE_REAL_COOLIFY: undefined,
+      ENABLE_REAL_UPTIME_KUMA: undefined,
+      ENABLE_REAL_PLANE: undefined,
+    };
+
+    for (const env of [disabledEnv, unsetEnv]) {
+      const results = await Promise.all([
+        runGitHubReal({ env, now: fixedNow, mission: missionInput, transport }),
+        runCoolifyReal({ env, now: fixedNow, deployment: { project: "psf", environment: "staging" }, transport }),
+        runUptimeKumaReal({ env, now: fixedNow, monitor: { project: "psf", stagingUrl: "https://staging.example.test" }, transport }),
+        runPlaneReal({ env, now: fixedNow, mission: missionInput, bugs: [], transport }),
+      ]);
+
+      for (const result of results) {
+        expect(result.realEnabled).toBe(false);
+        expect(result.realNetworkCall).toBe(false);
+        expect(result.safeToRun).toBe(false);
+        expect(result.decision).toBe("manual_action");
+        expect(result.message).toContain("Manual action");
+      }
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it("runs GitHub push, PR create, PR body update, and QA comment only through injected transport", async () => {
+    const { calls, transport } = createTransport([
+      { status: 201, json: { ref: "refs/heads/psf/mission-001-hub-board" } },
+      { status: 201, json: { number: 42, html_url: "https://github.example.test/pull/42" } },
+      { status: 200, json: { html_url: "https://github.example.test/pull/42" } },
+      { status: 201, json: { html_url: "https://github.example.test/pull/42#issuecomment-1" } },
+    ]);
+
+    const result = await runGitHubReal({
+      env: configuredEnv,
+      now: fixedNow,
+      mission: missionInput,
+      qaComment: "QA passed. token=qa-comment-secret",
+      sourceSha: "abc123",
+      transport,
+      gates: {
+        allowNetwork: true,
+        allowPushBranch: true,
+        allowCreatePullRequest: true,
+        allowUpdatePullRequestBody: true,
+        allowPostQaComment: true,
+      },
+    });
+
+    expect(result.decision).toBe("succeeded");
+    expect(result.realNetworkCall).toBe(true);
+    expect(result.outputs.pullRequestUrl).toBe("https://github.example.test/pull/42");
+    expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
+      "POST https://api.github.com/repos/hxfei-git/personal-software-factory/git/refs",
+      "POST https://api.github.com/repos/hxfei-git/personal-software-factory/pulls",
+      "PATCH https://api.github.com/repos/hxfei-git/personal-software-factory/pulls/42",
+      "POST https://api.github.com/repos/hxfei-git/personal-software-factory/issues/42/comments",
+    ]);
+    expect(calls[0]?.headers?.authorization).toContain("ghp_real_secret");
+    expect(textOf(result)).not.toContain("ghp_real_secret");
+    expect(textOf(result)).not.toContain("qa-comment-secret");
+    expect(textOf(result)).not.toContain("authorization");
+  });
+
+  it("refuses protected GitHub branches before transport is called", async () => {
+    const { calls, transport } = createTransport([{ status: 201, json: {} }]);
+
+    const result = await runGitHubReal({
+      env: configuredEnv,
+      now: fixedNow,
+      mission: { ...missionInput, branchName: "main" },
+      sourceSha: "abc123",
+      transport,
+      gates: { allowNetwork: true, allowPushBranch: true, allowCreatePullRequest: true },
+    });
+
+    expect(result.decision).toBe("manual_action");
+    expect(result.realNetworkCall).toBe(false);
+    expect(result.message).toContain("protected branch");
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each([
+    ["auth failure", 401, "authentication failed"],
+    ["permission failure", 403, "permission denied"],
+    ["timeout/network failure", 0, "network unavailable"],
+  ])("returns redacted GitHub %s results", async (_label, status, expectedMessage) => {
+    const transport: IntegrationTransport = async () => {
+      if (status === 0) {
+        throw new Error("network unavailable for ghp_real_secret");
+      }
+      return { status, json: { message: `${expectedMessage}: ghp_real_secret` } };
+    };
+
+    const result = await runGitHubReal({
+      env: configuredEnv,
+      now: fixedNow,
+      mission: missionInput,
+      sourceSha: "abc123",
+      transport,
+      gates: { allowNetwork: true, allowPushBranch: true, allowCreatePullRequest: true },
+    });
+
+    expect(["failed", "degraded"]).toContain(result.decision);
+    expect(result.message).toContain(expectedMessage);
+    expect(textOf(result)).not.toContain("ghp_real_secret");
+  });
+
+  it("runs a gated Coolify staging deployment and status poll through injected transport", async () => {
+    const { calls, transport } = createTransport([
+      { status: 202, json: { id: "deploy-123", deployment_uuid: "deploy-123", url: "https://staging.example.test" } },
+      { status: 200, json: { status: "success", deployment_url: "https://staging.example.test" } },
+    ]);
+
+    const result = await runCoolifyReal({
+      env: configuredEnv,
+      now: fixedNow,
+      deployment: { project: "psf", environment: "staging", stagingUrl: "https://staging.example.test" },
+      transport,
+      gates: { allowNetwork: true },
+    });
+
+    expect(result.decision).toBe("succeeded");
+    expect(result.realNetworkCall).toBe(true);
+    expect(result.outputs.deploymentId).toBe("deploy-123");
+    expect(result.outputs.stagingUrl).toContain("https://staging.example.test");
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.headers?.authorization).toContain("coolify_real_secret");
+    expect(textOf(result)).not.toContain("coolify_real_secret");
+  });
+
+  it("blocks Coolify production deployment without approval before transport is called", async () => {
+    const { calls, transport } = createTransport([{ status: 202, json: { id: "deploy-prod" } }]);
+
+    const result = await runCoolifyReal({
+      env: configuredEnv,
+      now: fixedNow,
+      deployment: { project: "psf", environment: "production", productionUrl: "https://prod.example.test" },
+      transport,
+      gates: { allowNetwork: true },
+    });
+
+    expect(result.decision).toBe("manual_action");
+    expect(result.realNetworkCall).toBe(false);
+    expect(result.message).toContain("Production deployment requires approval");
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each([
+    ["auth failure", 401, "authentication failed"],
+    ["permission failure", 403, "permission denied"],
+    ["timeout/network failure", 0, "network unavailable"],
+  ])("returns redacted Coolify %s results", async (_label, status, expectedMessage) => {
+    const transport: IntegrationTransport = async () => {
+      if (status === 0) {
+        throw new Error("network unavailable for coolify_real_secret");
+      }
+      return { status, json: { message: `${expectedMessage}: coolify_real_secret` } };
+    };
+
+    const result = await runCoolifyReal({
+      env: configuredEnv,
+      now: fixedNow,
+      deployment: { project: "psf", environment: "staging" },
+      transport,
+      gates: { allowNetwork: true },
+    });
+
+    expect(["failed", "degraded"]).toContain(result.decision);
+    expect(result.message).toContain(expectedMessage);
+    expect(textOf(result)).not.toContain("coolify_real_secret");
+  });
+
+  it("creates and checks an Uptime Kuma monitor through injected transport", async () => {
+    const { calls, transport } = createTransport([
+      { status: 200, json: { token: "session-secret" } },
+      { status: 200, json: { monitorID: 77, id: 77 } },
+      { status: 200, json: { status: "up", down: false } },
+    ]);
+
+    const result = await runUptimeKumaReal({
+      env: configuredEnv,
+      now: fixedNow,
+      monitor: { project: "psf", stagingUrl: "https://staging.example.test" },
+      transport,
+      gates: { allowNetwork: true },
+    });
+
+    expect(result.decision).toBe("succeeded");
+    expect(result.realNetworkCall).toBe(true);
+    expect(result.outputs.monitorId).toBe("77");
+    expect(result.outputs.downEvent).toBe(false);
+    expect(calls).toHaveLength(3);
+    expect(calls[0]?.body).toEqual({ username: "ops", password: "kuma_real_secret" });
+    expect(textOf(result)).not.toContain("kuma_real_secret");
+    expect(textOf(result)).not.toContain("session-secret");
+  });
+
+  it.each([
+    ["auth failure", 401, "authentication failed"],
+    ["permission failure", 403, "permission denied"],
+    ["provider unavailable", 503, "provider unavailable"],
+    ["timeout/network failure", 0, "network unavailable"],
+  ])("returns redacted Uptime Kuma %s results", async (_label, status, expectedMessage) => {
+    const transport: IntegrationTransport = async () => {
+      if (status === 0) {
+        throw new Error("network unavailable for kuma_real_secret");
+      }
+      return { status, json: { message: `${expectedMessage}: kuma_real_secret` } };
+    };
+
+    const result = await runUptimeKumaReal({
+      env: configuredEnv,
+      now: fixedNow,
+      monitor: { project: "psf", stagingUrl: "https://staging.example.test" },
+      transport,
+      gates: { allowNetwork: true },
+    });
+
+    expect(["failed", "degraded"]).toContain(result.decision);
+    expect(result.message).toContain(expectedMessage);
+    expect(textOf(result)).not.toContain("kuma_real_secret");
+  });
+
+  it("creates Plane mission and bug issues through injected transport", async () => {
+    const { calls, transport } = createTransport([
+      { status: 201, json: { id: "mission-plane-1", url: "https://plane.example.test/issues/mission-plane-1" } },
+      { status: 200, json: { id: "mission-plane-1", state: "ready_for_review" } },
+      { status: 201, json: { id: "bug-plane-1", url: "https://plane.example.test/issues/bug-plane-1" } },
+      { status: 200, json: { id: "bug-plane-1", state: "open" } },
+    ]);
+
+    const result = await runPlaneReal({
+      env: configuredEnv,
+      now: fixedNow,
+      mission: missionInput,
+      bugs: [{ id: "bug-1", title: "Broken deploy", evidence: { token: "bug-secret", url: "https://evidence.test/log?safe=1" } }],
+      transport,
+      gates: { allowNetwork: true },
+    });
+
+    expect(result.decision).toBe("succeeded");
+    expect(result.realNetworkCall).toBe(true);
+    expect(result.outputs.missionIssueUrl).toBe("https://plane.example.test/issues/mission-plane-1");
+    expect(result.outputs.bugIssueUrls).toEqual(["https://plane.example.test/issues/bug-plane-1"]);
+    expect(calls.map((call) => call.method)).toEqual(["POST", "PATCH", "POST", "PATCH"]);
+    expect(calls[0]?.headers?.authorization).toContain("plane_real_secret");
+    expect(textOf(result)).not.toContain("plane_real_secret");
+    expect(textOf(result)).not.toContain("bug-secret");
+  });
+
+  it.each([
+    ["auth failure", 401, "authentication failed"],
+    ["permission failure", 403, "permission denied"],
+    ["timeout/network failure", 0, "network unavailable"],
+  ])("returns redacted Plane %s results", async (_label, status, expectedMessage) => {
+    const transport: IntegrationTransport = async () => {
+      if (status === 0) {
+        throw new Error("network unavailable for plane_real_secret");
+      }
+      return { status, json: { message: `${expectedMessage}: plane_real_secret` } };
+    };
+
+    const result = await runPlaneReal({
+      env: configuredEnv,
+      now: fixedNow,
+      mission: missionInput,
+      bugs: [],
+      transport,
+      gates: { allowNetwork: true },
+    });
+
+    expect(["failed", "degraded"]).toContain(result.decision);
+    expect(result.message).toContain(expectedMessage);
+    expect(textOf(result)).not.toContain("plane_real_secret");
   });
 });
