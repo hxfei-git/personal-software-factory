@@ -404,6 +404,13 @@ function buildResult(context: WorkflowContext, dbSynced: boolean): DemoWorkflowR
     eventIds: uniqueStrings(context.events.map((event) => event.id)),
     dbSynced,
     boundary: getDemoBoundary(),
+    resources: {
+      workerRuns: uniqueById(context.workerRuns),
+      qaRuns: uniqueById(context.qaRuns),
+      artifacts: uniqueById(context.artifacts),
+      bugs: uniqueById(context.bugs),
+      events: uniqueById(context.events),
+    },
     message: "AI Novelist demo dry-run completed. Codex, external providers, pushes, and deployments were not executed.",
   };
 }

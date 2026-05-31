@@ -1,3 +1,5 @@
+import type { Artifact, BugReport, MissionEvent, QAReport, WorkerRun } from "@psf/mission-schema";
+
 export interface DemoBoundary {
   dryRun: true;
   realCodexExecuted: false;
@@ -16,6 +18,14 @@ export interface DemoWorkflowOptions {
   now?: string;
 }
 
+export interface DemoWorkflowResources {
+  workerRuns: WorkerRun[];
+  qaRuns: QAReport[];
+  artifacts: Artifact[];
+  bugs: BugReport[];
+  events: MissionEvent[];
+}
+
 export interface DemoWorkflowResult {
   missionId: string;
   projectId: string;
@@ -29,6 +39,7 @@ export interface DemoWorkflowResult {
   eventIds: string[];
   dbSynced: boolean;
   boundary: DemoBoundary;
+  resources: DemoWorkflowResources;
   message: string;
 }
 

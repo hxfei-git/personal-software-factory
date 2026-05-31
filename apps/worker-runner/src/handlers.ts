@@ -15,6 +15,7 @@ import {
   type UptimeKumaDryRunInput,
   type PlaneDryRunInput,
 } from "@psf/integrations";
+import type { Artifact, BugReport, MissionEvent, QAReport, WorkerRun } from "@psf/mission-schema";
 import type { QueueWorkerJob } from "@psf/worker-runtime";
 
 export interface WorkerJobHandlerResult {
@@ -24,6 +25,11 @@ export interface WorkerJobHandlerResult {
   childBugReportIds: string[];
   summary: string;
   recommendedNextAction: string;
+  childWorkerRuns?: WorkerRun[];
+  childQARuns?: QAReport[];
+  childArtifacts?: Artifact[];
+  childBugReports?: BugReport[];
+  childEvents?: MissionEvent[];
 }
 
 export type WorkerJobHandler = (job: QueueWorkerJob) => Promise<WorkerJobHandlerResult>;
@@ -65,6 +71,13 @@ function toWorkflowHandlerResult(result: {
   generatedArtifacts: string[];
   bugIds: string[];
   message: string;
+  resources?: {
+    workerRuns: WorkerRun[];
+    qaRuns: QAReport[];
+    artifacts: Artifact[];
+    bugs: BugReport[];
+    events: MissionEvent[];
+  };
 }): WorkerJobHandlerResult {
   return {
     childWorkerRunIds: result.workerRunIds,
@@ -73,6 +86,13 @@ function toWorkflowHandlerResult(result: {
     childBugReportIds: result.bugIds,
     summary: result.message,
     recommendedNextAction: result.message,
+    ...(result.resources ? {
+      childWorkerRuns: result.resources.workerRuns,
+      childQARuns: result.resources.qaRuns,
+      childArtifacts: result.resources.artifacts,
+      childBugReports: result.resources.bugs,
+      childEvents: result.resources.events,
+    } : {}),
   };
 }
 
