@@ -48,7 +48,7 @@ export async function processWorkerJob(input: ProcessWorkerJobInput): Promise<Wo
       summary: "Queue job failed.",
       recommendedNextAction: "Inspect WorkerRun error and retry after fixing the cause.",
     }, message);
-    throw error;
+    throw new Error(message);
   }
 }
 

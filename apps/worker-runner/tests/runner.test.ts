@@ -216,10 +216,10 @@ describe("worker runner", () => {
       job,
       storage,
       handler: async () => {
-        throw new Error('failed TOKEN=abc password=hunter2 {"token":"jsonsecret"} postgresql://user:pass@db.local/app?apikey=qwerty token secret-value');
+        throw new Error('failed TOKEN=abc password=hunter2 {"token":"jsonsecret"} postgresql://user:pass@db.local/app?jwt=jwtsecret --token cli-secret token secret-value');
       },
       now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
-    })).rejects.toThrow("failed");
+    })).rejects.toThrow(/^failed TOKEN=\[REDACTED\] password=\[REDACTED\] \{"token":"\[REDACTED\]"\} postgresql:\/\/user:\[REDACTED\]@db\.local\/app\?jwt=\[REDACTED\] --token \[REDACTED\] token \[REDACTED\]$/);
 
     const wrapper = await storage.getWorkerRun("worker-run-wrapper");
     expect(wrapper?.status).toBe("failed");
@@ -229,7 +229,8 @@ describe("worker runner", () => {
     expect(wrapper?.error).not.toContain("abc");
     expect(wrapper?.error).not.toContain("jsonsecret");
     expect(wrapper?.error).not.toContain("user:pass");
-    expect(wrapper?.error).not.toContain("qwerty");
+    expect(wrapper?.error).not.toContain("jwtsecret");
+    expect(wrapper?.error).not.toContain("cli-secret");
     expect(await storage.listMissionEvents("mission-0001-ai-novelist-chapter-review")).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: "worker_run.running" }),
