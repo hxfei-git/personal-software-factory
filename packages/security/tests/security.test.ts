@@ -38,6 +38,19 @@ describe("redaction", () => {
     }
   });
 
+  it("redacts complete Authorization header values for non-Bearer schemes", () => {
+    const output = redactText([
+      "Authorization: Basic dXNlcjpwYXNz",
+      "Authorization: ApiKey abc123",
+    ].join("\n"));
+
+    expect(output).toContain("Authorization: [REDACTED]");
+    expect(output).not.toContain("dXNlcjpwYXNz");
+    expect(output).not.toContain("abc123");
+    expect(output).not.toContain("Basic dXNlcjpwYXNz");
+    expect(output).not.toContain("ApiKey abc123");
+  });
+
   it("redacts embedded stringified JSON secret values containing escaped quotes", () => {
     const output = redactText('payload={"password":"alpha\\" beta"}');
 
@@ -158,6 +171,39 @@ describe("command policy", () => {
         workspaceRoot,
         timeoutMs: 60_000,
       }).allowed).toBe(true);
+    }
+  });
+
+  it("blocks command cwd paths that escape the workspace through symlinks", () => {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "psf-security-cwd-"));
+    const tempWorkspace = path.join(tempRoot, "workspaces");
+    const outside = path.join(tempRoot, "outside");
+    const symlink = path.join(tempWorkspace, "outside-cwd");
+
+    mkdirSync(tempWorkspace);
+    mkdirSync(outside);
+
+    try {
+      try {
+        symlinkSync(outside, symlink, "dir");
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "EPERM" || code === "EACCES" || code === "ENOTSUP") {
+          return;
+        }
+        throw error;
+      }
+
+      const result = evaluateCommandPolicy({
+        command: "pnpm test",
+        cwd: symlink,
+        workspaceRoot: tempWorkspace,
+        timeoutMs: 1_000,
+      });
+
+      expect(result.allowed).toBe(false);
+    } finally {
+      rmSync(tempRoot, { force: true, recursive: true });
     }
   });
 

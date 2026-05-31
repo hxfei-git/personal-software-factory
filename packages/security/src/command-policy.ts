@@ -1,3 +1,4 @@
+import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 
 export interface CommandPolicyInput {
@@ -35,10 +36,29 @@ function allow(normalizedCommand: string): CommandPolicyResult {
   };
 }
 
+function isPathInside(candidate: string, root: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
+}
+
 function isInsideWorkspace(candidate: string, workspaceRoot: string): boolean {
   const resolvedCandidate = path.resolve(candidate);
   const resolvedRoot = path.resolve(workspaceRoot);
-  return resolvedCandidate === resolvedRoot || resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`);
+
+  if (!isPathInside(resolvedCandidate, resolvedRoot)) {
+    return false;
+  }
+
+  if (!existsSync(resolvedRoot)) {
+    return true;
+  }
+
+  if (!existsSync(resolvedCandidate)) {
+    return false;
+  }
+
+  const realRoot = realpathSync.native(resolvedRoot);
+  const realCandidate = realpathSync.native(resolvedCandidate);
+  return isPathInside(realCandidate, realRoot);
 }
 
 function containsShellOperator(command: string): boolean {
