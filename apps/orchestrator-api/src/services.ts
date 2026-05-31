@@ -362,25 +362,25 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         healthSignals: buildDashboardHealthSignals(metrics),
       };
     },
-    listProjects: () => storage.listProjects(),
+    listProjects: async () => sanitizeApiList(await storage.listProjects()),
     async getProject(id: string) {
       const project = await storage.getProject(id);
       if (!project) {
         throw notFound("Project", id);
       }
-      return project;
+      return sanitizeApiResponse(project);
     },
     async syncProjectRegistry() {
       const registryProjects = await scanRegistryOrValidationError(registryRoot);
       const projects = await storage.syncProjects(registryProjects.map((entry) => entry.project));
-      return { synced: projects.length, projects };
+      return sanitizeApiResponse({ synced: projects.length, projects });
     },
     async getProjectPassport(projectId: string) {
       const project = await storage.getProject(projectId);
       if (!project) {
         throw notFound("Project", projectId);
       }
-      return (await getRegistryProject(projectId)).passport;
+      return sanitizeApiResponse((await getRegistryProject(projectId)).passport);
     },
     listMissions: async () => sanitizeApiList(await storage.listMissions()),
     async getMission(id: string) {

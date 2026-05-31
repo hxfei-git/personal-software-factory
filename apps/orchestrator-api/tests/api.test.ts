@@ -267,6 +267,68 @@ describe("orchestrator api", () => {
     }
   });
 
+  it("redacts secrets from project and passport endpoints", async () => {
+    const root = await mkdtemp(join(tmpdir(), "psf-api-sensitive-registry-"));
+    const projectDir = join(root, "sample");
+    await mkdir(projectDir);
+    await writeFile(join(projectDir, "project.passport.yaml"), [
+      "id: sample",
+      "name: Sensitive Sample",
+      "description: Sample project with sensitive URL values.",
+      "repo:",
+      "  url: https://x-access-token:passport-repo-token@example.com/sample.git",
+      "  default_branch: main",
+      "runtime:",
+      "  kind: web",
+      "commands:",
+      "  install: pnpm install",
+      "  test: pnpm test",
+      "  build: pnpm build",
+      "  run_staging: pnpm dev",
+      "urls:",
+      "  production: https://prod.example.test?api_key=passport-prod-key",
+      '  staging: "https://user:passport-stage-password@staging.example.test"',
+      "quality_gates:",
+      "  require_build: true",
+      "core_flows:",
+      "  - id: smoke",
+      "    name: Smoke",
+      "    priority: P1",
+      "",
+    ].join("\n"));
+    try {
+      const { server, storage } = await createTestServer({ auth: { disabled: true }, registryRoot: root });
+      await storage.syncProjects([{
+        ...projectExample,
+        id: "secret-project",
+        slug: "secret-project",
+        repo_url: "https://user:stored-repo-token@example.com/repo.git",
+        production_url: "https://prod.example.test?token=stored-prod-token",
+        staging_url: "https://user:stored-stage-password@staging.example.test",
+      }]);
+
+      const sync = await server.inject({ method: "POST", url: "/projects/sync" });
+      const responses = await Promise.all([
+        server.inject({ method: "GET", url: "/projects" }),
+        server.inject({ method: "GET", url: "/projects/secret-project" }),
+        server.inject({ method: "GET", url: "/projects/sample/passport" }),
+      ]);
+
+      for (const response of [sync, ...responses]) {
+        expect(response.statusCode).toBe(200);
+        const body = JSON.stringify(response.json());
+        expect(body).not.toContain("stored-repo-token");
+        expect(body).not.toContain("stored-prod-token");
+        expect(body).not.toContain("stored-stage-password");
+        expect(body).not.toContain("passport-repo-token");
+        expect(body).not.toContain("passport-prod-key");
+        expect(body).not.toContain("passport-stage-password");
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("protects project registry sync when auth is enabled", async () => {
     const root = await createRegistryRoot();
     try {

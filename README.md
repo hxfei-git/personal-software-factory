@@ -17,7 +17,7 @@ Implemented:
 - `packages/integrations`: mock/dry-run GitHub, Coolify, Uptime Kuma, and Plane adapters. They never call real external APIs.
 - `packages/demo-workflow`: shared Phase 16A/16B/17A local ai-novelist demo workflow, doctor, reset, and report helpers.
 - `apps/orchestrator-api`: Fastify API with health, dashboard, project sync/passport, Mission planning/summary, Approval, WorkerRun, Artifact, BugReport, QARun, and Integration routes.
-- `apps/hub`: React/Vite Hub Web console for dashboard, Mission detail, QA, bugs, WorkerRun, artifact, and Integration views.
+- `apps/hub`: React/Vite Hub Web console for dashboard, Mission detail, Integration status, and simple placeholder navigation for QA, bugs, WorkerRun, artifact, approval, and project list pages.
 - `workers/codex-worker`: dry-run prompt, command review artifact, and dev summary generator. It never executes Codex.
 - `scripts/psf.ts`: local dry-run CLI for registry sync, example Mission creation, planning, Codex/QA/fix dry-run artifacts, Integration dry-runs, doctor, demo reset, and demo report.
 
