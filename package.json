@@ -22,7 +22,9 @@
     "dev": "pnpm dev:api",
     "test:e2e": "node scripts/run-playwright-smoke.mjs",
     "test:e2e:smoke": "node scripts/run-playwright-smoke.mjs",
-    "dev:hub": "pnpm --filter @psf/hub dev"
+    "dev:hub": "pnpm --filter @psf/hub dev",
+    "worker:dev": "pnpm --filter @psf/worker-runner dev",
+    "worker:once": "pnpm --filter @psf/worker-runner once"
   },
   "engines": {
     "node": ">=20.0.0",

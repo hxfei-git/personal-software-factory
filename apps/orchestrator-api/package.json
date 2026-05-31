@@ -28,5 +28,9 @@
     "tsx": "^4.19.0",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0"
+  },
+  "exports": {
+    "./storage": "./src/storage.ts",
+    "./server": "./src/server.ts"
   }
 }

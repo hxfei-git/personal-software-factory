@@ -125,6 +125,40 @@ importers:
         specifier: ^3.2.0
         version: 3.2.4(@types/node@25.9.1)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
 
+  apps/worker-runner:
+    dependencies:
+      '@psf/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@psf/demo-workflow':
+        specifier: workspace:*
+        version: link:../../packages/demo-workflow
+      '@psf/integrations':
+        specifier: workspace:*
+        version: link:../../packages/integrations
+      '@psf/mission-schema':
+        specifier: workspace:*
+        version: link:../../packages/mission-schema
+      '@psf/orchestrator-api':
+        specifier: workspace:*
+        version: link:../orchestrator-api
+      '@psf/worker-runtime':
+        specifier: workspace:*
+        version: link:../../packages/worker-runtime
+      bullmq:
+        specifier: ^5.0.0
+        version: 5.77.6
+    devDependencies:
+      tsx:
+        specifier: ^4.19.0
+        version: 4.22.3
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@25.9.1)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
+
   packages/auto-fix-loop:
     dependencies:
       '@psf/codex-worker':

@@ -1,0 +1,32 @@
+{
+  "name": "@psf/worker-runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "dev": "tsx src/index.ts start",
+    "once": "tsx src/index.ts once",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run tests",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@psf/db": "workspace:*",
+    "@psf/demo-workflow": "workspace:*",
+    "@psf/integrations": "workspace:*",
+    "@psf/mission-schema": "workspace:*",
+    "@psf/orchestrator-api": "workspace:*",
+    "@psf/worker-runtime": "workspace:*",
+    "bullmq": "^5.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
