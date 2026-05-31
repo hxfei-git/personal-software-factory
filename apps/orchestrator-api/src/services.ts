@@ -30,6 +30,7 @@ import { createDeterministicMissionPlan } from "@psf/mission-planner";
 import { ProjectRegistryError, findProjectById, scanProjectRegistry } from "@psf/project-registry";
 import { z } from "zod";
 import {
+  assertDemoMissionActionSupported,
   buildQueuedActionJob,
   runAiNovelistDemoAction as runAiNovelistDemoDryRunAction,
   runCodexDryRunAction as runCodexDryRunDryRunAction,
@@ -350,6 +351,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
   ) {
     const mission = await getRawMission(id);
     if (actionExecutionMode === "queued") {
+      assertDemoMissionActionSupported(id);
       return sanitizeApiResponse(await queueAction(mission, body, action));
     }
     return sanitizeApiResponse(await inlineRunner(id, body));

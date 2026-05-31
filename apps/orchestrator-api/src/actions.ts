@@ -100,6 +100,12 @@ export function toQueuedActionResponse(input: QueuedActionResponseInput) {
   };
 }
 
+export function assertDemoMissionActionSupported(missionId: string) {
+  if (missionId !== EXAMPLE_MISSION_ID) {
+    throw badRequest("VALIDATION_ERROR", demoOnlyMessage, { missionId, supportedMissionId: EXAMPLE_MISSION_ID });
+  }
+}
+
 export async function runMissionPlanAction(missionId: string, body: unknown) {
   return runDemoMissionAction(missionId, body, runMissionPlan);
 }
@@ -127,9 +133,7 @@ export async function runAiNovelistDemoAction(body: unknown) {
 }
 
 async function runDemoMissionAction(missionId: string, body: unknown, runner: MissionActionRunner) {
-  if (missionId !== EXAMPLE_MISSION_ID) {
-    throw badRequest("VALIDATION_ERROR", demoOnlyMessage, { missionId, supportedMissionId: EXAMPLE_MISSION_ID });
-  }
+  assertDemoMissionActionSupported(missionId);
 
   const input = parseActionRequest(MissionActionRequestSchema, body ?? {});
   const result = await runner(buildOptions(input));

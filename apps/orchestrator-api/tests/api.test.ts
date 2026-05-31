@@ -646,6 +646,31 @@ describe("orchestrator api", () => {
     });
   });
 
+  it("rejects queued mission dry-run actions for non-demo missions without creating queue work", async () => {
+    const workerRuntime = new InProcessWorkerRuntime();
+    const { server, storage } = await createTestServer({
+      auth: { disabled: true },
+      actionExecutionMode: "queued",
+      workerRuntime,
+    });
+    const mission = await createMission(server, "Non-demo queued QA mission");
+
+    const response = await server.inject({
+      method: "POST",
+      url: `/missions/${mission.id}/actions/qa-dry-run`,
+      payload: { withSampleBug: true },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      code: "VALIDATION_ERROR",
+      message: "This dry-run action currently supports the ai-novelist demo mission only.",
+    });
+    expect(await storage.listMissionWorkerRuns(mission.id)).toHaveLength(0);
+    expect(await storage.listAllWorkerRuns()).toHaveLength(0);
+    expect(await workerRuntime.listJobs()).toHaveLength(0);
+  });
+
   it("returns not found for queued mission actions when the Mission is missing", async () => {
     const { server } = await createTestServer({
       auth: { disabled: true },
