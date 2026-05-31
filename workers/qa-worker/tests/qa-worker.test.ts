@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { BugReportSchema, QAReportSchema, type ProjectPassport } from "@psf/mission-schema";
-import { createQaDryRun, createSkippedPlaywrightSummary } from "../src/index.js";
+import {
+  createQaDryRun,
+  createSkippedPlaywrightSummary,
+  runDeterministicPlaywrightQa,
+} from "../src/index.js";
 
 const passport: ProjectPassport = {
   id: "ai-novelist",
@@ -60,6 +64,107 @@ describe("QA Worker dry-run", () => {
       status: "skipped",
       browserOpened: false,
       stagingVisited: false,
+    });
+  });
+});
+
+
+describe("Deterministic Playwright QA runner", () => {
+  it("returns blocked manual action without opening a browser when no target URL is configured", async () => {
+    const result = await runDeterministicPlaywrightQa({
+      missionId: input.missionId,
+      projectId: input.projectId,
+      now: input.now,
+      env: {},
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.manualActionRequired).toBe(true);
+    expect(result.browserOpened).toBe(false);
+    expect(result.stagingVisited).toBe(false);
+    expect(result.workerRun.status).toBe("skipped");
+    expect(result.qaRun.status).toBe("skipped");
+    expect(QAReportSchema.parse(result.qaRun).mode).toBe("deterministic");
+  });
+
+  it("creates a QARun, QA report, summary, and artifacts for a passing injected run", async () => {
+    const result = await runDeterministicPlaywrightQa({
+      missionId: input.missionId,
+      projectId: input.projectId,
+      targetUrl: "http://127.0.0.1:4173",
+      now: input.now,
+      execute: async () => ({
+        status: "passed",
+        passed: 3,
+        failed: 0,
+        logs: ["loaded simple-app fixture", "token=secret_fixture_token"],
+        evidence: {
+          fixture: "workers/qa-worker/tests/fixtures/simple-app.html",
+          screenshotPath: "artifacts/missions/mission-0001-ai-novelist-chapter-review/worker-run-mission-0001-ai-novelist-chapter-review-qa-deterministic/qa/home.png",
+        },
+      }),
+    });
+
+    expect(result.status).toBe("passed");
+    expect(result.browserOpened).toBe(false);
+    expect(result.files["qa-report.md"]).toContain("deterministic");
+    expect(result.files["qa-summary.json"]).toContain('"status": "passed"');
+    expect(result.files["qa-summary.json"]).not.toContain("secret_fixture_token");
+    expect(result.qaRun.status).toBe("passed");
+    expect(result.qaRun.passed).toBe(3);
+    expect(result.bugs).toEqual([]);
+    expect(result.artifacts.map((artifact) => artifact.type)).toEqual(expect.arrayContaining(["qa_report", "bugs_json", "other", "screenshot", "playwright_trace", "log"]));
+    expect(result.artifacts.every((artifact) => artifact.path.startsWith("artifacts/missions/"))).toBe(true);
+    expect(QAReportSchema.parse(result.qaRun).status).toBe("passed");
+  });
+
+  it("turns a failing injected assertion into schema-valid bugs.json and BugReport evidence", async () => {
+    const result = await runDeterministicPlaywrightQa({
+      missionId: input.missionId,
+      projectId: input.projectId,
+      targetUrl: "http://127.0.0.1:4173",
+      now: input.now,
+      execute: async () => ({
+        status: "failed",
+        passed: 2,
+        failed: 1,
+        logs: ["expected title to contain Dashboard", "password=hunter2"],
+        failures: [
+          {
+            title: "Home page title mismatch",
+            severity: "P1",
+            reproductionSteps: ["Open the fixture app", "Read the page heading"],
+            expectedResult: "The heading shows Dashboard.",
+            actualResult: "The heading shows Simple App.",
+            evidence: {
+              assertion: "expected heading text",
+              screenshotPath: "artifacts/missions/mission-0001-ai-novelist-chapter-review/worker-run-mission-0001-ai-novelist-chapter-review-qa-deterministic/qa/title-mismatch.png",
+              tracePath: "artifacts/missions/mission-0001-ai-novelist-chapter-review/worker-run-mission-0001-ai-novelist-chapter-review-qa-deterministic/qa/trace.zip",
+              token: "raw_secret_token",
+            },
+          },
+        ],
+      }),
+    });
+
+    const bug = result.bugs[0]!;
+    const bugsJson = JSON.parse(result.files["bugs.json"]);
+
+    expect(result.status).toBe("failed");
+    expect(result.qaRun.status).toBe("failed");
+    expect(bugsJson.bugs).toHaveLength(1);
+    expect(result.files["bugs.json"]).not.toContain("hunter2");
+    expect(result.files["bugs.json"]).not.toContain("raw_secret_token");
+    expect(BugReportSchema.parse(bug)).toMatchObject({
+      title: "Home page title mismatch",
+      expected_result: "The heading shows Dashboard.",
+      actual_result: "The heading shows Simple App.",
+    });
+    expect(bug.reproduction_steps).toEqual(["Open the fixture app", "Read the page heading"]);
+    expect(bug.evidence).toMatchObject({
+      source: "deterministic-playwright",
+      browserOpened: false,
+      stagingVisited: true,
     });
   });
 });

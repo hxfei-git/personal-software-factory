@@ -388,9 +388,15 @@ importers:
 
   workers/qa-worker:
     dependencies:
+      '@psf/artifact-store':
+        specifier: workspace:*
+        version: link:../../packages/artifact-store
       '@psf/mission-schema':
         specifier: workspace:*
         version: link:../../packages/mission-schema
+      '@psf/security':
+        specifier: workspace:*
+        version: link:../../packages/security
     devDependencies:
       typescript:
         specifier: ^5.8.0
