@@ -142,6 +142,17 @@ const GENERATED_BY = "qa-worker";
 const DEFAULT_NOW = "2026-05-31T10:00:00.000Z";
 const GENERATED_REGRESSION_SPEC_FILE = "generated-regression.spec.ts";
 const GENERATED_REGRESSION_SPEC_TYPES_FILE = "generated-regression-spec-types.d.ts";
+const MIN_AI_QA_REPORT_MARKDOWN_LENGTH = 120;
+const AI_QA_REPORT_STRUCTURE_ERROR = "qa-report.md must include a complete AI exploratory QA report structure.";
+const AI_QA_REPORT_REQUIRED_MARKERS: RegExp[] = [
+  /^#\s+AI Exploratory QA Report\b/im,
+  /(^##\s+(?:Mode|Environment)\b|^##\s+测试(?:模式|环境)\b)/im,
+  /(^##\s+Mission\b|^##\s+Mission 信息\b|\bMission ID\s*:)/im,
+  /(^##\s+Project\b|^##\s+Project 信息\b|\bProject ID\s*:)/im,
+  /^##\s+(?:Scope|Summary|Exploration Scope|执行摘要|测试范围)\b/im,
+  /^##\s+(?:Results|Bugs|Findings|Passed Checks|Failed Checks|通过项|失败项|Bug 列表)\b/im,
+  /^##\s+(?:Recommended Next Step|Recommendation|推荐下一步)\b/im,
+];
 const GENERATED_REGRESSION_SPEC_TYPES = `
 declare module '@playwright/test' {
   export type PlaywrightTestArgs = { page: Record<string, any> };
@@ -419,6 +430,8 @@ export function validateAiExploratoryOutput(input: AiExploratoryOutputValidation
   const regressionSpec = redactText(stripMarkdownFence(input.regressionSpec));
   const bugs: BugReport[] = [];
 
+  errors.push(...getAiQaReportMarkdownErrors(reportMarkdown));
+
   const typeScriptErrors = getGeneratedRegressionSpecTypeScriptErrors(regressionSpec);
   const isPlaywrightTypeScriptSpec = isLikelyTypeScriptSpec(regressionSpec);
   if (typeScriptErrors.length > 0) {
@@ -472,6 +485,17 @@ export function validateAiExploratoryOutput(input: AiExploratoryOutputValidation
     },
     bugs,
   };
+}
+
+function getAiQaReportMarkdownErrors(reportMarkdown: string): string[] {
+  const normalized = reportMarkdown.trim();
+  if (normalized.length < MIN_AI_QA_REPORT_MARKDOWN_LENGTH) {
+    return [AI_QA_REPORT_STRUCTURE_ERROR];
+  }
+  if (!AI_QA_REPORT_REQUIRED_MARKERS.every((marker) => marker.test(normalized))) {
+    return [AI_QA_REPORT_STRUCTURE_ERROR];
+  }
+  return [];
 }
 
 function buildResult(input: BuildResultInput): AiExploratoryQaResult {
@@ -724,6 +748,18 @@ function renderManualActionReport(input: AiExploratoryQaInput, targetUrl: string
     "- MCP connected: no",
     "- Staging visited: no",
     "",
+    "## Scope",
+    "- Project Passport core flows",
+    "- QA Charter normal and abnormal paths",
+    "- Mission acceptance criteria",
+    "",
+    "## Results",
+    "- Status: manual action required",
+    "- Bugs: not evaluated",
+    "",
+    "## Recommended Next Step",
+    "Run approved deterministic QA or an approved AI exploratory executor before accepting QA results.",
+    "",
     "## Safety Gate",
     "AI exploratory QA did not connect to Playwright MCP, did not open a browser, and did not call external APIs.",
     "",
@@ -746,6 +782,16 @@ function renderRejectedReport(input: AiExploratoryQaInput, errors: string[]): st
     "## Mission",
     `- Mission ID: ${input.missionId}`,
     `- Project ID: ${input.projectId}`,
+    "",
+    "## Summary",
+    "AI exploratory QA output was rejected by schema validation.",
+    "",
+    "## Results",
+    "- Status: failed",
+    "- Bugs: not accepted",
+    "",
+    "## Recommended Next Step",
+    "Regenerate qa-report.md, bugs.json, and generated-regression.spec.ts with the required structure.",
     "",
     "## Validation Errors",
     ...errors.map((error) => `- ${error}`),

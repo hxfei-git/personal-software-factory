@@ -24,6 +24,38 @@ const passport: ProjectPassport = {
   core_flows: [{ id: "open_home", name: "打开首页", priority: "P0" }],
 };
 
+function validAiExploratoryReport(detail = "No AI exploratory issues were found."): string {
+  return [
+    "# AI Exploratory QA Report",
+    "",
+    "## Mode",
+    "ai_exploratory",
+    "",
+    "## Mission",
+    `- Mission ID: ${input.missionId}`,
+    `- Project ID: ${input.projectId}`,
+    "",
+    "## Scope",
+    "- Project Passport core flows",
+    "- QA Charter normal and abnormal paths",
+    "- Mission acceptance criteria",
+    "",
+    "## Summary",
+    detail,
+    "",
+    "## Results",
+    "- Passed checks: generated output validation",
+    "- Failed checks: none",
+    "",
+    "## Bugs",
+    "- none",
+    "",
+    "## Recommended Next Step",
+    "Convert accepted findings into deterministic Playwright regressions before fixing.",
+    "",
+  ].join("\n");
+}
+
 const input = {
   missionId: "mission-0001-ai-novelist-chapter-review",
   projectId: "ai-novelist",
@@ -311,7 +343,7 @@ describe("AI Exploratory QA runner", () => {
       missionId: input.missionId,
       qaRunId: `qa-run-${input.missionId}-ai-exploratory`,
       now: input.now,
-      reportMarkdown: "# QA Report\n\nAll good.",
+      reportMarkdown: validAiExploratoryReport(),
       bugsJson: "{ invalid json",
       regressionSpec: "import { test } from '@playwright/test';\ntest.describe.skip('generated', () => {});\n",
     });
@@ -326,7 +358,7 @@ describe("AI Exploratory QA runner", () => {
       missionId: input.missionId,
       qaRunId: `qa-run-${input.missionId}-ai-exploratory`,
       now: input.now,
-      reportMarkdown: "# QA Report\n\nPotential blocker.",
+      reportMarkdown: validAiExploratoryReport("Potential blocker was found."),
       bugsJson: JSON.stringify({
         bugs: [
           {
@@ -352,7 +384,7 @@ describe("AI Exploratory QA runner", () => {
       missionId: input.missionId,
       qaRunId: `qa-run-${input.missionId}-ai-exploratory`,
       now: input.now,
-      reportMarkdown: "# QA Report\n\nPotential blocker.",
+      reportMarkdown: validAiExploratoryReport("Potential blocker was found."),
       bugsJson: JSON.stringify({
         bugs: [
           {
@@ -375,12 +407,27 @@ describe("AI Exploratory QA runner", () => {
     expect(errors).toContain("[REDACTED]");
   });
 
+  it("rejects empty AI QA reports before accepting generated outputs", () => {
+    const validation = validateAiExploratoryOutput({
+      missionId: input.missionId,
+      qaRunId: `qa-run-${input.missionId}-ai-exploratory`,
+      now: input.now,
+      reportMarkdown: "",
+      bugsJson: JSON.stringify({ bugs: [] }),
+      regressionSpec: "import { test } from '@playwright/test';\ntest.describe.skip('generated', () => {});\n",
+    });
+
+    expect(validation.ok).toBe(false);
+    expect(validation.errors).toEqual(expect.arrayContaining(["qa-report.md must include a complete AI exploratory QA report structure."]));
+    expect(validation.bugs).toEqual([]);
+  });
+
   it("rejects generated regression specs that are not Playwright TypeScript", () => {
     const validation = validateAiExploratoryOutput({
       missionId: input.missionId,
       qaRunId: `qa-run-${input.missionId}-ai-exploratory`,
       now: input.now,
-      reportMarkdown: "# QA Report\n\nAll good.",
+      reportMarkdown: validAiExploratoryReport(),
       bugsJson: JSON.stringify({ bugs: [] }),
       regressionSpec: "<html><body>not a TypeScript spec</body></html>",
     });
@@ -395,7 +442,7 @@ describe("AI Exploratory QA runner", () => {
       missionId: input.missionId,
       qaRunId: `qa-run-${input.missionId}-ai-exploratory`,
       now: input.now,
-      reportMarkdown: "# QA Report\n\nAll good.",
+      reportMarkdown: validAiExploratoryReport(),
       bugsJson: JSON.stringify({ bugs: [] }),
       regressionSpec: "import { test } from '@playwright/test'; test.describe.skip('generated', () => { const = ; });",
     });
@@ -410,7 +457,7 @@ describe("AI Exploratory QA runner", () => {
       missionId: input.missionId,
       qaRunId: `qa-run-${input.missionId}-ai-exploratory`,
       now: input.now,
-      reportMarkdown: "# QA Report\n\nAll good.",
+      reportMarkdown: validAiExploratoryReport(),
       bugsJson: JSON.stringify({ bugs: [] }),
       regressionSpec: [
         "import { test } from '@playwright/test';",
@@ -462,7 +509,7 @@ describe("AI Exploratory QA runner", () => {
       missionId: input.missionId,
       qaRunId: `qa-run-${input.missionId}-ai-exploratory`,
       now: input.now,
-      reportMarkdown: "# QA Report\n\nObserved console error with token=qa-secret-value.",
+      reportMarkdown: validAiExploratoryReport("Observed console error with token=qa-secret-value."),
       bugsJson: JSON.stringify({
         bugs: [
           {
