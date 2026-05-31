@@ -13,6 +13,7 @@ import type {
   IntegrationStatus,
   MissionDryRunAction,
   MissionSummaryResponse,
+  QueueStatus,
 } from "../src/api/types";
 import App, {
   renderDashboardView,
@@ -313,6 +314,10 @@ function createMockClient(overrides: Partial<OrchestratorClient> = {}): Orchestr
   return {
     getDashboard: vi.fn().mockResolvedValue(dashboard),
     getMissionSummary: vi.fn().mockResolvedValue(missionSummary),
+    getQueueStatus: vi.fn().mockResolvedValue(queueStatus),
+    listWorkerRuns: vi.fn().mockResolvedValue(missionSummary.workerRuns),
+    cancelWorkerRun: vi.fn().mockResolvedValue({ status: "cancelled" }),
+    retryWorkerRun: vi.fn().mockResolvedValue({ status: "queued" }),
     listIntegrations: vi.fn().mockResolvedValue(dashboard.integrationStatuses),
     runIntegrationDryRun: vi.fn().mockResolvedValue(dryRunResponse),
     runMissionAction: vi.fn().mockResolvedValue(dryRunResponse),
@@ -477,6 +482,21 @@ const dashboard: DashboardResponse = {
   ],
 };
 
+const queueStatus: QueueStatus = {
+  runtime: "bullmq",
+  redisConfigured: true,
+  redisReachable: true,
+  queueName: "psf:worker-jobs",
+  counts: {
+    queued: 4,
+    active: 2,
+    completed: 12,
+    failed: 1,
+    cancelled: 1,
+    delayed: 3,
+  },
+};
+
 const missionSummary: MissionSummaryResponse = {
   mission: dashboard.recentMissions[0]!,
   project: {
@@ -501,7 +521,34 @@ const missionSummary: MissionSummaryResponse = {
     },
   ],
   artifacts: dashboard.recentArtifacts,
-  workerRuns: dashboard.recentWorkerRuns,
+  workerRuns: [
+    {
+      id: "queue-wrapper-run",
+      mission_id: "mission-0001-ai-novelist-chapter-review",
+      worker_type: "qa",
+      status: "queued",
+      mode: "dry-run",
+      input: {},
+      output: {
+        jobId: "job-queued-123",
+        jobType: "qa.dry_run",
+        childWorkerRunIds: ["worker-run-dashboard"],
+        childQARunIds: ["qa-run-dashboard"],
+        childArtifactIds: ["artifact-qa"],
+        childBugReportIds: ["bug-dashboard-p1"],
+        recommendedNextAction: "Refresh Mission Summary after Worker Runner processes the job",
+      },
+      logs: [],
+      metadata: {
+        queueWrapper: true,
+        jobId: "job-queued-123",
+        jobType: "qa.dry_run",
+      },
+      created_at: now,
+      updated_at: now,
+    },
+    ...dashboard.recentWorkerRuns,
+  ],
   qaRuns: dashboard.recentQaRuns,
   bugs: dashboard.recentBugs,
   approvals: [
@@ -564,6 +611,17 @@ const dryRunResponse: DryRunActionResponse = {
   recommendedNextAction: "Review QA report and approve release",
 };
 
+const queuedActionResponse: DryRunActionResponse = {
+  accepted: true,
+  executionMode: "queued",
+  workerRunId: "queue-wrapper-run",
+  jobId: "job-queued-123",
+  missionId: "mission-0001-ai-novelist-chapter-review",
+  projectId: "ai-novelist",
+  status: "queued",
+  recommendedNextAction: "Start Worker Runner, then refresh Mission Summary.",
+};
+
 describe("orchestrator API client", () => {
   it("only sends configured token on write requests without leaking token values", async () => {
     const fetchMock = vi
@@ -615,6 +673,50 @@ describe("orchestrator API client", () => {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer hub-token" },
       body: JSON.stringify({ withSampleBug: true }),
+    });
+  });
+
+  it("fetches queue status through Orchestrator API only", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => queueStatus,
+    });
+    const client = createOrchestratorClient({
+      baseUrl: "http://api.local",
+      token: "hub-token",
+      fetchImpl: fetchMock,
+    });
+
+    await client.getQueueStatus();
+
+    expect(fetchMock).toHaveBeenCalledWith("http://api.local/queues/status", {
+      headers: {},
+    });
+  });
+
+  it("calls worker-run cancel and retry through protected Orchestrator APIs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: "queued" }),
+    });
+    const client = createOrchestratorClient({
+      baseUrl: "http://api.local",
+      token: "hub-token",
+      fetchImpl: fetchMock,
+    });
+
+    await client.cancelWorkerRun("queue-wrapper-run");
+    await client.retryWorkerRun("queue-wrapper-run");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://api.local/worker-runs/queue-wrapper-run/cancel", {
+      method: "POST",
+      headers: { authorization: "Bearer hub-token" },
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://api.local/worker-runs/queue-wrapper-run/retry", {
+      method: "POST",
+      headers: { authorization: "Bearer hub-token" },
     });
   });
 
@@ -699,8 +801,33 @@ describe("App wiring", () => {
     mounted.cleanup();
   });
 
+  it("shows queued action accepted details after a mounted Mission Detail action", async () => {
+    const missionId = "mission-0001-ai-novelist-chapter-review";
+    const client = createMockClient({
+      getMissionSummary: vi.fn().mockResolvedValue(missionSummary),
+      runMissionAction: vi.fn().mockResolvedValue(queuedActionResponse),
+    });
+    const mounted = await renderMountedApp(client, appMissionDetailHash);
+
+    await act(async () => {
+      findDomButtonByText(mounted.container, "Run QA dry-run").click();
+      await flushReactWork();
+    });
+
+    expect(client.runMissionAction).toHaveBeenCalledWith(missionId, "qa-dry-run", {});
+    expect(mounted.container.textContent).toContain("accepted");
+    expect(mounted.container.textContent).toContain("job-queued-123");
+    expect(mounted.container.textContent).toContain("queue-wrapper-run");
+
+    await act(async () => mounted.root.unmount());
+    mounted.cleanup();
+  });
+
   it("reuses the default Orchestrator client across dashboard state re-renders", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => dashboard });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => dashboard })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => queueStatus });
     vi.stubGlobal("fetch", fetchMock);
     const mounted = await renderMountedApp(undefined, "#dashboard");
 
@@ -709,7 +836,25 @@ describe("App wiring", () => {
       await flushReactWork();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => mounted.root.unmount());
+    mounted.cleanup();
+  });
+  it("keeps Dashboard usable when queue status fetch fails", async () => {
+    const client = createMockClient({
+      getDashboard: vi.fn().mockResolvedValue(dashboard),
+      getQueueStatus: vi.fn().mockRejectedValue(new Error("Redis is not reachable")),
+    });
+    const mounted = await renderMountedApp(client, "#dashboard");
+
+    await act(async () => {
+      await flushReactWork();
+    });
+
+    expect(mounted.container.textContent).toContain("Dashboard");
+    expect(mounted.container.textContent).toContain("Queue Runtime");
+    expect(mounted.container.textContent).toContain("Redis is not reachable");
 
     await act(async () => mounted.root.unmount());
     mounted.cleanup();
@@ -720,6 +865,7 @@ describe("Hub render helpers", () => {
   it("renders dashboard metrics, recent rows, integrations, and next actions", () => {
     const text = textFromElement(renderDashboardView({
       state: { status: "success", data: dashboard },
+      queueState: { status: "success", data: queueStatus },
       actions: {
         onRunDemo: vi.fn(),
         onRefresh: vi.fn(),
@@ -743,6 +889,24 @@ describe("Hub render helpers", () => {
     expect(text).toContain("AI Novelist chapter review");
     expect(text).toContain("Chapter review blocks ready state");
     expect(text).toContain("Review open P0/P1 bugs");
+    expect(text).toContain("Queue Runtime");
+    expect(text).toContain("bullmq");
+    expect(text).toContain("4 queued");
+    expect(text).toContain("2 active");
+    expect(text).toContain("1 failed");
+    expect(text).toContain("psf:worker-jobs");
+  });
+
+  it("renders queue warning without breaking dashboard content", () => {
+    const text = textFromElement(renderDashboardView({
+      state: { status: "success", data: dashboard },
+      queueState: { status: "error", message: "Redis is not reachable without leaking super-secret-token" },
+    }));
+
+    expect(text).toContain("Queue Runtime");
+    expect(text).toContain("Queue status unavailable");
+    expect(text).toContain("Redis is not reachable");
+    expect(text).not.toContain("super-secret-token");
   });
 
   it("renders mission detail with all highlighted operational resources", () => {
@@ -775,6 +939,12 @@ describe("Hub render helpers", () => {
     expect(text).toContain("fix-mission.md");
     expect(text).toContain("fix-codex-command.sh");
     expect(text).toContain("Review QA report and approve release");
+    expect(text).toContain("Queue wrapper");
+    expect(text).toContain("job-queued-123");
+    expect(text).toContain("qa.dry_run");
+    expect(text).toContain("Child WorkerRuns");
+    expect(text).toContain("worker-run-dashboard");
+    expect(text).toContain("Unit test failed");
   });
 
   it("renders integration dry-run/mock safety state", () => {

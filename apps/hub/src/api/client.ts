@@ -6,6 +6,8 @@ import type {
   IntegrationStatus,
   MissionDryRunAction,
   MissionSummaryResponse,
+  QueueStatus,
+  WorkerRun,
 } from "./types";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<ResponseLike>;
@@ -39,6 +41,10 @@ export class OrchestratorApiError extends Error {
 export interface OrchestratorClient {
   getDashboard: () => Promise<DashboardResponse>;
   getMissionSummary: (missionId: string) => Promise<MissionSummaryResponse>;
+  getQueueStatus: () => Promise<QueueStatus>;
+  listWorkerRuns: () => Promise<WorkerRun[]>;
+  cancelWorkerRun: (id: string) => Promise<unknown>;
+  retryWorkerRun: (id: string) => Promise<unknown>;
   listIntegrations: () => Promise<IntegrationStatus[]>;
   runIntegrationDryRun: (name: ExternalIntegrationName, payload?: Record<string, unknown>) => Promise<IntegrationDryRunResult>;
   runMissionAction: (missionId: string, action: MissionDryRunAction, payload?: Record<string, unknown>) => Promise<DryRunActionResponse>;
@@ -86,6 +92,10 @@ export function createOrchestratorClient(options: OrchestratorClientOptions = {}
   return {
     getDashboard: () => request<DashboardResponse>("/dashboard"),
     getMissionSummary: (missionId: string) => request<MissionSummaryResponse>(`/missions/${encodeURIComponent(missionId)}/summary`),
+    getQueueStatus: () => request<QueueStatus>("/queues/status"),
+    listWorkerRuns: () => request<WorkerRun[]>("/worker-runs"),
+    cancelWorkerRun: (id: string) => request<unknown>(`/worker-runs/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+    retryWorkerRun: (id: string) => request<unknown>(`/worker-runs/${encodeURIComponent(id)}/retry`, { method: "POST" }),
     listIntegrations: () => request<IntegrationStatus[]>("/integrations"),
     runIntegrationDryRun: (name: ExternalIntegrationName, payload: Record<string, unknown> = {}) => request<IntegrationDryRunResult>(
       `/integrations/${encodeURIComponent(name)}/dry-run`,

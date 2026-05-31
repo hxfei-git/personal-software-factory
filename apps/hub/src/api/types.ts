@@ -195,7 +195,9 @@ export interface IntegrationDryRunResult {
 
 export type MissionDryRunAction = "plan" | "codex-dry-run" | "qa-dry-run" | "fix-dry-run" | "loop-dry-run";
 
-export interface DryRunActionResponse {
+export interface InlineDryRunActionResponse {
+  accepted?: true;
+  executionMode?: "inline";
   missionId: string;
   projectId?: string;
   mode: "dry-run";
@@ -211,6 +213,34 @@ export interface DryRunActionResponse {
   eventIds: string[];
   missionDetailUrl?: string;
   recommendedNextAction: string;
+}
+
+export interface QueuedDryRunActionResponse {
+  accepted: true;
+  executionMode: "queued";
+  workerRunId: string;
+  jobId: string;
+  missionId: string;
+  projectId?: string;
+  status: "queued";
+  recommendedNextAction: string;
+}
+
+export type DryRunActionResponse = InlineDryRunActionResponse | QueuedDryRunActionResponse;
+
+export interface QueueStatus {
+  runtime: string;
+  redisConfigured: boolean;
+  redisReachable?: boolean;
+  queueName: string;
+  counts: {
+    queued: number;
+    active: number;
+    completed: number;
+    failed: number;
+    cancelled: number;
+    delayed: number;
+  };
 }
 
 export interface DashboardMetrics {
@@ -247,6 +277,7 @@ export interface DashboardResponse {
   integrationStatuses: IntegrationStatus[];
   recommendedNextActions: string[];
   healthSignals: HealthSignal[];
+  queueStatus?: QueueStatus;
 }
 
 export interface MissionSummaryResponse {

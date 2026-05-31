@@ -10,7 +10,10 @@ import type {
   Mission,
   MissionDryRunAction,
   MissionSummaryResponse,
+  DryRunActionResponse,
+  QueuedDryRunActionResponse,
   QAReport,
+  QueueStatus,
   WorkerRun,
 } from "./api/types";
 
@@ -65,6 +68,7 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
   const client = providedClient ?? getDefaultOrchestratorClient();
   const [route, setRoute] = useState(() => readRoute());
   const [dashboardState, setDashboardState] = useState<LoadState<DashboardResponse>>({ status: "idle" });
+  const [queueState, setQueueState] = useState<LoadState<QueueStatus>>({ status: "idle" });
   const [missionState, setMissionState] = useState<LoadState<MissionSummaryResponse>>({ status: "idle" });
   const [integrationState, setIntegrationState] = useState<LoadState<IntegrationStatus[]>>({ status: "idle" });
   const [dryRunMessage, setDryRunMessage] = useState<string>("");
@@ -80,6 +84,18 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
       const message = errorMessage(error, "GET /dashboard failed");
       setDashboardState({ status: "error", message });
       throw new Error(message);
+    }
+  }, [client]);
+
+  const loadQueueStatus = useCallback(async (): Promise<QueueStatus | undefined> => {
+    setQueueState({ status: "loading" });
+    try {
+      const data = await client.getQueueStatus();
+      setQueueState({ status: "success", data });
+      return data;
+    } catch (error: unknown) {
+      setQueueState({ status: "error", message: queueWarningMessage(error) });
+      return undefined;
     }
   }, [client]);
 
@@ -101,29 +117,29 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
     setActionState({ loading, message: "", error: "" });
     try {
       const result = await client.runAiNovelistDemo(withSampleBug ? { withSampleBug: true } : {});
-      await loadDashboard();
-      setActionState({ loading: "", message: result.recommendedNextAction || "Dry-run completed through Orchestrator API", error: "" });
+      await Promise.all([loadDashboard(), loadQueueStatus()]);
+      setActionState({ loading: "", message: formatActionResult(result), error: "" });
     } catch (error: unknown) {
       setActionState({ loading: "", message: "", error: errorMessage(error, "Demo dry-run failed") });
     }
-  }, [client, loadDashboard]);
+  }, [client, loadDashboard, loadQueueStatus]);
 
   const refreshDashboard = useCallback(async (): Promise<void> => {
     setActionState({ loading: "dashboard-refresh", message: "", error: "" });
     try {
-      await loadDashboard();
+      await Promise.all([loadDashboard(), loadQueueStatus()]);
       setActionState({ loading: "", message: "Dashboard refreshed", error: "" });
     } catch (error: unknown) {
       setActionState({ loading: "", message: "", error: errorMessage(error, "Dashboard refresh failed") });
     }
-  }, [loadDashboard]);
+  }, [loadDashboard, loadQueueStatus]);
 
   const runMissionDryRun = useCallback(async (missionId: string, action: MissionDryRunAction, payload: Record<string, unknown> = {}): Promise<void> => {
     setActionState({ loading: action, message: "", error: "" });
     try {
       const result = await client.runMissionAction(missionId, action, payload);
       await loadMissionSummary(missionId);
-      setActionState({ loading: "", message: result.recommendedNextAction || "Dry-run completed through Orchestrator API", error: "" });
+      setActionState({ loading: "", message: formatActionResult(result), error: "" });
     } catch (error: unknown) {
       setActionState({ loading: "", message: "", error: errorMessage(error, `${action} failed`) });
     }
@@ -150,7 +166,8 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
       return;
     }
     void loadDashboard().catch(() => undefined);
-  }, [loadDashboard, route.page]);
+    void loadQueueStatus();
+  }, [loadDashboard, loadQueueStatus, route.page]);
 
   useEffect(() => {
     if (route.page !== "mission-detail") {
@@ -180,6 +197,7 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
             onRefresh: refreshDashboard,
           },
           actionState,
+          queueState,
         });
       case "mission-detail": {
         const missionId = route.params.get("id") || defaultMissionId;
@@ -205,7 +223,7 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
       default:
         return renderPlaceholderView(route.page);
     }
-  }, [actionState, client, dashboardState, dryRunMessage, integrationState, missionState, refreshDashboard, refreshMissionSummary, route, runDashboardDemo, runMissionDryRun]);
+  }, [actionState, client, dashboardState, dryRunMessage, integrationState, missionState, queueState, refreshDashboard, refreshMissionSummary, route, runDashboardDemo, runMissionDryRun]);
 
   return (
     <div className="app-shell">
@@ -231,9 +249,11 @@ export function renderDashboardView({
   state,
   actions,
   actionState = emptyActionState,
+  queueState,
 }: ViewProps<DashboardResponse> & {
   actions?: DashboardActions;
   actionState?: ActionState;
+  queueState?: LoadState<QueueStatus>;
 }): ReactElement {
   if (state.status === "loading" || state.status === "idle") {
     return renderStatusPage("Dashboard", "Loading /dashboard from Orchestrator API");
@@ -269,6 +289,7 @@ export function renderDashboardView({
       </section>
 
       <section className="panel-grid three-columns">
+        {renderQueueStatusPanel(queueState ?? queueStatusFromDashboard(data))}
         {renderHealthSignals(data.healthSignals)}
         {renderIntegrationCards(data.integrationStatuses)}
         {renderActionList("Recommended next actions", data.recommendedNextActions, "No recommended actions")}
@@ -477,6 +498,49 @@ function metricCard(title: string, value: string, rows: string[]): ReactElement 
   );
 }
 
+function renderQueueStatusPanel(state: LoadState<QueueStatus>): ReactElement {
+  if (state.status === "loading" || state.status === "idle") {
+    return (
+      <section className="panel queue-panel">
+        <div className="panel-heading"><h2>Queue Runtime</h2><span>loading</span></div>
+        <p className="empty-line">Loading GET /queues/status</p>
+      </section>
+    );
+  }
+  if (state.status === "error") {
+    return (
+      <section className="panel queue-panel warning">
+        <div className="panel-heading"><h2>Queue Runtime</h2><span>warning</span></div>
+        <p className="empty-line">Queue status unavailable: {safeQueueMessage(state.message)}</p>
+      </section>
+    );
+  }
+
+  const queue = state.data;
+  const redisWarning = queue.redisConfigured && queue.redisReachable === false ? "Redis unreachable" : "Redis OK or not required";
+  return (
+    <section className="panel queue-panel">
+      <div className="panel-heading"><h2>Queue Runtime</h2><span>{queue.runtime}</span></div>
+      <div className="queue-count-grid">
+        <span>{`${queue.counts.queued} queued`}</span>
+        <span>{`${queue.counts.active} active`}</span>
+        <span>{`${queue.counts.failed} failed`}</span>
+        <span>{`${queue.counts.delayed} delayed`}</span>
+        <span>{`${queue.counts.completed} completed`}</span>
+        <span>{`${queue.counts.cancelled} cancelled`}</span>
+      </div>
+      <dl className="definition-grid compact">
+        <dt>queueName</dt><dd>{queue.queueName}</dd>
+      </dl>
+      <p className={queue.redisConfigured && queue.redisReachable === false ? "inline-warning" : "muted"}>{redisWarning}</p>
+    </section>
+  );
+}
+
+function queueStatusFromDashboard(data: DashboardResponse): LoadState<QueueStatus> {
+  return data.queueStatus ? { status: "success", data: data.queueStatus } : { status: "idle" };
+}
+
 function renderHealthSignals(signals: DashboardResponse["healthSignals"]): ReactElement {
   return (
     <section className="panel">
@@ -561,15 +625,25 @@ function renderWorkerRunList(title: string, workerRuns: WorkerRun[]): ReactEleme
   return (
     <section className="panel">
       <div className="panel-heading"><h2>{title}</h2></div>
-      {workerRuns.length === 0 ? <p className="empty-line">No worker runs yet</p> : workerRuns.map((run) => (
-        <div className="list-row" key={run.id}>
-          <div>
-            <strong>{run.id}</strong>
-            <span>{run.worker_type} / {run.mode ?? "unknown"}</span>
+      {workerRuns.length === 0 ? <p className="empty-line">No worker runs yet</p> : workerRuns.map((run) => {
+        const queueWrapper = isQueueWrapper(run);
+        const jobId = readString(run.metadata, "jobId") ?? readString(run.output, "jobId");
+        const jobType = readString(run.metadata, "jobType") ?? readString(run.output, "jobType");
+        const childWorkerRunIds = readStringArray(run.output, "childWorkerRunIds");
+        return (
+          <div className={queueWrapper ? "list-row worker-run-row queue-wrapper" : "list-row worker-run-row"} key={run.id}>
+            <div>
+              <strong>{run.id}</strong>
+              <span>{queueWrapper ? "Queue wrapper" : "Child WorkerRun"} / {run.worker_type} / {run.mode ?? "unknown"}</span>
+              {jobId ? <span>jobId {jobId}</span> : null}
+              {jobType ? <span>jobType {jobType}</span> : null}
+              {childWorkerRunIds.length > 0 ? <span>Child WorkerRuns {childWorkerRunIds.join(", ")}</span> : null}
+              {run.error ? <span className="error-summary">{run.error}</span> : null}
+            </div>
+            <span>{run.status}</span>
           </div>
-          <span>{run.status}</span>
-        </div>
-      ))}
+        );
+      })}
     </section>
   );
 }
@@ -677,6 +751,40 @@ function renderStatusPage(title: string, message: string, tone: "neutral" | "err
       </header>
     </main>
   );
+}
+
+function formatActionResult(result: DryRunActionResponse): string {
+  if (isQueuedActionResponse(result)) {
+    return `accepted queued job ${result.jobId} for wrapper WorkerRun ${result.workerRunId}. ${result.recommendedNextAction}`;
+  }
+  return result.recommendedNextAction || "Dry-run completed through Orchestrator API";
+}
+
+function isQueuedActionResponse(result: DryRunActionResponse): result is QueuedDryRunActionResponse {
+  return result.executionMode === "queued";
+}
+
+function isQueueWrapper(run: WorkerRun): boolean {
+  return run.metadata.queueWrapper === true || run.output.queueWrapper === true || typeof run.metadata.jobId === "string";
+}
+
+function readString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function readStringArray(record: Record<string, unknown>, key: string): string[] {
+  const value = record[key];
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function queueWarningMessage(error: unknown): string {
+  return safeQueueMessage(errorMessage(error, "GET /queues/status failed"));
+}
+
+function safeQueueMessage(message: string): string {
+  const [firstPart] = message.split(" without ");
+  return (firstPart || "GET /queues/status failed").trim();
 }
 
 function formatProvider(integration: IntegrationStatus): string {

@@ -336,6 +336,47 @@ h2 {
   margin-top: 0.75rem;
 }
 
+
+.queue-panel.warning {
+  border-color: #d5a253;
+}
+
+.queue-count-grid {
+  display: grid;
+  gap: 0.35rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 0.55rem;
+}
+
+.queue-count-grid span {
+  background: #f4f7f9;
+  border: 1px solid #dce4ea;
+  border-radius: 6px;
+  color: #314351;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.45rem;
+}
+
+.definition-grid.compact {
+  margin-bottom: 0.45rem;
+}
+
+.inline-warning,
+.error-summary {
+  color: #8a2929;
+  font-size: 0.8rem;
+}
+
+.worker-run-row.queue-wrapper {
+  border-left: 3px solid #5b7c99;
+  padding-left: 0.55rem;
+}
+
+.worker-run-row div {
+  display: grid;
+  gap: 0.16rem;
+}
+
 .empty-state {
   max-width: 760px;
 }
