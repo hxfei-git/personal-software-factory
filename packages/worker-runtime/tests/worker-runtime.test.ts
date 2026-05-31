@@ -4,6 +4,7 @@ import {
   BullMQWorkerRuntime,
   createWorkerRuntimeFromEnv,
   InProcessWorkerRuntime,
+  mapBullMQJobState,
   QueueWorkerJobSchema,
   WorkerJobSchema,
   type QueuedJobRecord,
@@ -202,6 +203,14 @@ describe("BullMQWorkerRuntime", () => {
     });
 
     await expect(runtime.close()).resolves.toBeUndefined();
+  });
+
+  it("maps BullMQ states without forcing enqueue results to queued", () => {
+    expect(mapBullMQJobState("waiting")).toBe("queued");
+    expect(mapBullMQJobState("delayed")).toBe("delayed");
+    expect(mapBullMQJobState("active")).toBe("active");
+    expect(mapBullMQJobState("completed")).toBe("completed");
+    expect(mapBullMQJobState("failed")).toBe("failed");
   });
 
   it("returns a readable error when Redis is not reachable", async () => {

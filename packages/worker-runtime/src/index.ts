@@ -1,5 +1,5 @@
 import type { MissionEvent, WorkerRun } from "@psf/mission-schema";
-import { Queue, type Job, type JobsOptions, type JobType } from "bullmq";
+import { Queue, type Job, type JobType } from "bullmq";
 import { z } from "zod";
 
 export type WorkerRuntimeType = "qa" | "auto_fix" | "codex" | "planner" | "integration";
@@ -335,6 +335,10 @@ export class BullMQWorkerRuntime implements WorkerRuntime {
   private readonly queueName: string;
   private readonly connectTimeoutMs: number;
   private readonly inProcessRunner = new InProcessWorkerRuntime();
+  // BullMQ removes queued/delayed jobs when cancelled, so this cache only keeps
+  // cancelled job records queryable inside the current process. Durable
+  // cancel/retry semantics must be rebuilt from wrapper WorkerRun metadata/output
+  // by the Queue API layer rather than relying on this in-memory map.
   private readonly cancelledJobs = new Map<string, QueuedJobRecord>();
 
   constructor(options: BullMQWorkerRuntimeOptions = {}) {
@@ -357,7 +361,7 @@ export class BullMQWorkerRuntime implements WorkerRuntime {
     try {
       const options = buildBullMQJobOptions(parsedJob);
       const bullJob = await this.queue.add(parsedJob.type, { job: parsedJob }, options);
-      return this.toRecord(bullJob, "queued");
+      return this.toRecord(bullJob);
     } catch (error) {
       throw readableRedisError(error);
     }
@@ -386,7 +390,7 @@ export class BullMQWorkerRuntime implements WorkerRuntime {
 
     try {
       const job = await this.requireBullMQJob(jobId);
-      const status = mapBullMQState(await job.getState());
+      const status = mapBullMQJobState(await job.getState());
       if (status === "completed" || status === "failed") {
         throw new Error("Cannot cancel failed or completed jobs");
       }
@@ -435,7 +439,7 @@ export class BullMQWorkerRuntime implements WorkerRuntime {
         retryOfJobId: source.job.id,
         retryAttempt,
       }, options);
-      return this.toRecord(bullJob, "queued");
+      return this.toRecord(bullJob);
     } catch (error) {
       throw readableRedisError(error);
     }
@@ -505,7 +509,7 @@ export class BullMQWorkerRuntime implements WorkerRuntime {
   ): Promise<QueuedJobRecord> {
     const parsedJob = QueueWorkerJobSchema.parse(bullJob.data.job);
     assertSafePayload(parsedJob.payload);
-    const state = overrideStatus ?? mapBullMQState(await bullJob.getState());
+    const state = overrideStatus ?? mapBullMQJobState(await bullJob.getState());
     const updatedAtMs = bullJob.finishedOn ?? bullJob.processedOn ?? bullJob.timestamp;
     const record: QueuedJobRecord = {
       job: parsedJob,
@@ -555,15 +559,14 @@ function assertSafePayload(value: unknown, path: string[] = []): void {
 }
 
 
-function buildBullMQJobOptions(job: QueueWorkerJob): JobsOptions & { timeout: number } {
+function buildBullMQJobOptions(job: QueueWorkerJob) {
   return {
     jobId: job.id,
     priority: job.priority,
     attempts: job.attempts,
-    timeout: job.timeoutMs,
     removeOnComplete: false,
     removeOnFail: false,
-  } as JobsOptions & { timeout: number };
+  };
 }
 
 
@@ -583,7 +586,7 @@ function buildRedisConnection(redisUrl: string, connectTimeoutMs: number): Recor
   return connection;
 }
 
-function mapBullMQState(state: string): WorkerJobStatus {
+export function mapBullMQJobState(state: string): WorkerJobStatus {
   if (state === "waiting" || state === "prioritized" || state === "waiting-children") return "queued";
   if (state === "active") return "active";
   if (state === "completed") return "completed";
