@@ -121,6 +121,8 @@ describe("command policy", () => {
     "npm run test||rm -rf /",
     "pnpm test $(rm -rf /)",
     "pnpm test > .env",
+    "pnpm test\nrm -rf /",
+    "npm run test\nrm -rf /",
   ])("blocks unsafe command %s", (command) => {
     const result = evaluateCommandPolicy({
       command,

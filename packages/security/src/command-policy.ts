@@ -45,8 +45,16 @@ function containsShellOperator(command: string): boolean {
   return /&&|\|\||[|<>;`]|\$\(|\$\{/.test(command);
 }
 
+function containsLineSeparator(command: string): boolean {
+  return /[\r\n\u2028\u2029]/.test(command);
+}
+
 export function evaluateCommandPolicy(input: CommandPolicyInput): CommandPolicyResult {
   const normalizedCommand = normalizeCommand(input.command);
+
+  if (containsLineSeparator(input.command)) {
+    return deny(normalizedCommand, "Line separators are blocked in commands.");
+  }
 
   if (normalizedCommand.length === 0) {
     return deny(normalizedCommand, "Command is empty.");
