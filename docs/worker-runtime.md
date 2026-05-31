@@ -1,14 +1,60 @@
 # Worker Runtime
 
-`@psf/worker-runtime` is the lightweight queue facade for Personal Software Factory. It exists so workers do not become ad hoc CRUD scripts while BullMQ and Temporal remain deferred.
+`@psf/worker-runtime` is the queue facade for Personal Software Factory. It gives the API, CLI, tests, and Worker Runner one contract for queue job creation, status, cancellation, retry, and queue stats.
 
-## Current Runtime
+## Implementations
 
-- `InProcessWorkerRuntime` runs a job synchronously in the current Node process.
-- Each job has `id`, `missionId`, `projectId`, `workerType`, `mode`, `input`, and `createdAt`.
-- Successful runs return a `WorkerRun` and `MissionEvent[]`.
-- Failed handlers create failure metadata and rethrow the original error.
+- `InProcessWorkerRuntime`: used by unit tests and local dry-runs that do not require Redis.
+- `BullMQWorkerRuntime`: optional Phase 17B adapter backed by Redis and BullMQ.
 
-## Future Queue Migration
+BullMQ is an implementation of the runtime interface. It does not replace Orchestrator, Mission storage, demo workflow, QA worker, Codex worker, Auto Fix Loop, or integration adapters.
 
-A future `BullMQWorkerRuntime` can implement the same interface and persist queue IDs in WorkerRun metadata. Temporal can also become an adapter later when long-running durable workflows are needed. This batch deliberately avoids both.
+## Queue Job Contract
+
+Queue jobs are validated with Zod and are restricted to whitelisted types:
+
+- `mission.plan`
+- `codex.dry_run`
+- `qa.dry_run`
+- `qa.dry_run_with_sample_bug`
+- `fix.dry_run`
+- `loop.dry_run`
+- `demo.ai_novelist`
+- `integration.dry_run`
+
+The runtime rejects payload keys that look like tokens, passwords, secrets, API keys, authorization headers, or credentials.
+
+## Wrapper WorkerRun Semantics
+
+API queued mode creates a queue wrapper WorkerRun with `status=queued`. The Worker Runner updates it to `running`, then `succeeded` or `failed`. Cancellation of queued/delayed jobs records `cancelled`; active jobs are cooperative best-effort and can record `cancellationRequested` while remaining `running`.
+
+Child business WorkerRuns remain owned by existing planner, QA, Codex dry-run, Auto Fix Loop, demo workflow, and integration modules. Wrapper output records child IDs instead of forcing a schema-wide parent relation in this phase.
+
+## Runtime Methods
+
+The runtime interface supports:
+
+- `enqueue(job)`
+- `getJob(jobId)`
+- `getJobStatus(jobId)`
+- `cancelJob(jobId)`
+- `retryJob(jobId)`
+- `listJobs(filter)`
+- `getQueueStats()`
+- `close()`
+
+It also keeps the older `run()` compatibility method for existing in-process tests.
+
+## Local BullMQ Mode
+
+```bash
+sudo docker compose up -d redis
+PSF_WORKER_RUNTIME=bullmq PSF_ACTION_EXECUTION_MODE=queued pnpm dev:api
+pnpm worker:dev
+```
+
+Ordinary `pnpm test` does not require Redis. Redis-specific checks are optional and should be gated with `PSF_TEST_REDIS=1`.
+
+## Safety
+
+The runtime only handles queue/job/status mechanics. Business handlers live in Worker Runner. Phase 17B jobs remain dry-run/mock only and do not execute Codex, push, create PRs, deploy, or call external providers.

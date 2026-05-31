@@ -32,3 +32,11 @@ Do not place real provider credentials in prompts, logs, artifacts, Hub UI, API 
 ## Reset Safety
 
 `pnpm psf demo:reset` previews by default. It deletes only scoped demo data when `DEMO_RESET_CONFIRM=1`, and it refuses non-demo Mission IDs. Use `--skip-db` when local PostgreSQL is unavailable or when only file cleanup is intended.
+
+## Phase 17B Queue Safety
+
+The queue layer is an execution boundary, not permission to run real work. Phase 17B Worker Runner consumes only whitelisted dry-run/mock jobs. It does not execute Codex, run arbitrary commands, push, create PRs, deploy, create monitors, create Plane issues, or call provider APIs.
+
+Queue payloads must not contain token, password, secret, API key, authorization, credential, session, JWT, or bearer values. Runtime and API responses redact secret-like values before returning errors.
+
+Cancel and retry are scoped to a single queue wrapper WorkerRun. There is no API or CLI command to clear every queue job or perform destructive queue maintenance.

@@ -62,3 +62,27 @@ pnpm psf integrations:status
 ```
 
 Every current integration must report `realNetworkCall: false`.
+
+## Queue Checks
+
+Doctor reports queue-related configuration:
+
+- `PSF_WORKER_RUNTIME`
+- `PSF_ACTION_EXECUTION_MODE`
+- `PSF_REDIS_URL` presence with redacted URL details
+
+Examples:
+
+```bash
+pnpm psf doctor
+PSF_WORKER_RUNTIME=bullmq PSF_ACTION_EXECUTION_MODE=queued pnpm psf doctor
+```
+
+Warnings are expected when queued mode is selected without BullMQ, or when BullMQ is selected without `PSF_REDIS_URL`. Doctor does not print token, password, or secret values.
+
+Queue runtime status is available separately:
+
+```bash
+pnpm psf queues:status
+curl http://127.0.0.1:3000/queues/status
+```

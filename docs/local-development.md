@@ -62,3 +62,30 @@ pnpm test:scripts
 ## Boundaries
 
 Local development remains dry-run only for Phase 16A/16B/17A. It does not execute Codex, push, create PRs, deploy, create monitors, create Plane issues, or call external services.
+
+## Optional Queued Mode
+
+Phase 17B supports a queued dry-run path. Keep inline mode for the smallest local loop:
+
+```bash
+PSF_ACTION_EXECUTION_MODE=inline pnpm dev:api
+```
+
+Use BullMQ only when you want to verify asynchronous Worker Runner behavior:
+
+```bash
+sudo docker compose up -d postgres redis
+PSF_WORKER_RUNTIME=bullmq PSF_ACTION_EXECUTION_MODE=queued pnpm dev:api
+pnpm worker:dev
+VITE_ORCHESTRATOR_API_URL=http://127.0.0.1:3000 pnpm dev:hub
+```
+
+After triggering a Hub dry-run action, refresh Mission Detail to watch the queue wrapper WorkerRun move through queued, running, succeeded, or failed.
+
+Useful queue commands:
+
+```bash
+pnpm psf queues:status
+pnpm psf worker-runs:cancel <workerRunId>
+pnpm psf worker-runs:retry <workerRunId>
+```

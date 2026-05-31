@@ -334,6 +334,110 @@ describe("demo doctor hardening", () => {
     });
   });
 
+  it("doctor reports queue checks and redacts queue secrets", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-doctor-queue-"));
+    await mkdir(join(cwd, "projects", "ai-novelist"), { recursive: true });
+    await mkdir(join(cwd, "apps", "hub"), { recursive: true });
+    await mkdir(join(cwd, "apps", "orchestrator-api"), { recursive: true });
+    await mkdir(join(cwd, "packages"), { recursive: true });
+    await mkdir(join(cwd, "workers"), { recursive: true });
+    await mkdir(join(cwd, "missions"), { recursive: true });
+    await cp(
+      resolve("../..", "projects", "ai-novelist", "project.passport.yaml"),
+      join(cwd, "projects", "ai-novelist", "project.passport.yaml"),
+    );
+    await writeFile(join(cwd, ".env.example"), "PSF_API_TOKEN=example\n", "utf8");
+
+    const result = await runDoctor({
+      cwd,
+      env: {
+        PSF_WORKER_RUNTIME: "bullmq",
+        PSF_ACTION_EXECUTION_MODE: "queued",
+        PSF_REDIS_URL: "redis://:secret-password@127.0.0.1:6379",
+        PSF_API_TOKEN: "secret-token",
+      },
+      checkDatabase: false,
+      checkApi: false,
+      checkHub: false,
+    });
+
+    const rendered = formatDoctorResult(result, false);
+    const json = formatDoctorResult(result, true);
+
+    expect(rendered).toContain("PSF_WORKER_RUNTIME");
+    expect(rendered).toContain("PSF_ACTION_EXECUTION_MODE");
+    expect(rendered).toContain("PSF_REDIS_URL");
+    expect(rendered).toContain("queued");
+    expect(rendered).not.toContain("secret-password");
+    expect(rendered).not.toContain("secret-token");
+    expect(json).not.toContain("secret-password");
+    expect(json).not.toContain("secret-token");
+    expect(result.checks.find((check) => check.key === "PSF_WORKER_RUNTIME")).toMatchObject({ status: "ok" });
+  });
+
+  it("doctor warns when queued mode is not backed by BullMQ", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-doctor-queued-inprocess-"));
+    await mkdir(join(cwd, "projects", "ai-novelist"), { recursive: true });
+    await mkdir(join(cwd, "apps", "hub"), { recursive: true });
+    await mkdir(join(cwd, "apps", "orchestrator-api"), { recursive: true });
+    await mkdir(join(cwd, "packages"), { recursive: true });
+    await mkdir(join(cwd, "workers"), { recursive: true });
+    await mkdir(join(cwd, "missions"), { recursive: true });
+    await cp(
+      resolve("../..", "projects", "ai-novelist", "project.passport.yaml"),
+      join(cwd, "projects", "ai-novelist", "project.passport.yaml"),
+    );
+    await writeFile(join(cwd, ".env.example"), "PSF_API_TOKEN=example\n", "utf8");
+
+    const result = await runDoctor({
+      cwd,
+      env: {
+        PSF_WORKER_RUNTIME: "in-process",
+        PSF_ACTION_EXECUTION_MODE: "queued",
+      },
+      checkDatabase: false,
+      checkApi: false,
+      checkHub: false,
+    });
+
+    expect(result.checks.find((check) => check.key === "PSF_ACTION_EXECUTION_MODE")).toMatchObject({
+      status: "warning",
+      message: expect.stringContaining("not bullmq"),
+    });
+  });
+
+  it("doctor warns when BullMQ runtime is missing Redis URL", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-doctor-bullmq-missing-redis-"));
+    await mkdir(join(cwd, "projects", "ai-novelist"), { recursive: true });
+    await mkdir(join(cwd, "apps", "hub"), { recursive: true });
+    await mkdir(join(cwd, "apps", "orchestrator-api"), { recursive: true });
+    await mkdir(join(cwd, "packages"), { recursive: true });
+    await mkdir(join(cwd, "workers"), { recursive: true });
+    await mkdir(join(cwd, "missions"), { recursive: true });
+    await cp(
+      resolve("../..", "projects", "ai-novelist", "project.passport.yaml"),
+      join(cwd, "projects", "ai-novelist", "project.passport.yaml"),
+    );
+    await writeFile(join(cwd, ".env.example"), "PSF_API_TOKEN=example\n", "utf8");
+
+    const result = await runDoctor({
+      cwd,
+      env: {
+        PSF_WORKER_RUNTIME: "bullmq",
+        PSF_ACTION_EXECUTION_MODE: "inline",
+        PSF_REDIS_URL: "",
+      },
+      checkDatabase: false,
+      checkApi: false,
+      checkHub: false,
+    });
+
+    expect(result.checks.find((check) => check.key === "PSF_REDIS_URL")).toMatchObject({
+      status: "warning",
+      message: expect.stringContaining("required"),
+    });
+  });
+
   it("doctor formatting redacts username-only URL userinfo", () => {
     const result = {
       status: "warning" as const,

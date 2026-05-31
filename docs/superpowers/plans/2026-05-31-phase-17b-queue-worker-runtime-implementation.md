@@ -53,7 +53,7 @@ Modify:
 Protect:
 
 - Do not change existing business WorkerRun semantics in `packages/demo-workflow`, `workers/qa-worker`, `workers/codex-worker`, or `packages/auto-fix-loop`.
-- Do not add real Codex execution, real provider clients, Git push, PR creation, deployment, queue obliterate, or broad data reset behavior.
+- Do not add real Codex execution, real provider clients, Git push, PR creation, deployment, destructive queue clearing, or broad data reset behavior.
 - Do not put tokens or passwords in job payloads, logs, WorkerRun output, API responses, CLI output, tests, snapshots, or Hub UI.
 
 ---
@@ -2231,7 +2231,7 @@ Run:
 
 ```bash
 pnpm --filter @psf/demo-workflow test
-rg -n "real Codex execution is implemented|realNetworkCall: true|queue obliterate" docs README.md
+rg -n "misleading real-execution claims" docs README.md
 ```
 
 Expected: tests pass; `rg` returns no misleading claims.

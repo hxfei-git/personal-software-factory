@@ -169,7 +169,7 @@ Rules:
 - Write routes remain Bearer-token protected.
 - No arbitrary job type is accepted.
 - No arbitrary shell command execution is exposed.
-- No queue obliterate or clear-all endpoint is added.
+- No destructive queue clearing or clear-all endpoint is added.
 - Cancel only targets a specific wrapper WorkerRun/job.
 - Retry only targets failed or cancelled wrapper WorkerRuns.
 - Retry preserves original job type, mission id, project id, and payload, and records a new `jobId` or retry attempt metadata.

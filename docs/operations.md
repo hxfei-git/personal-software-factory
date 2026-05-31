@@ -55,3 +55,39 @@ Doctor is local and read-only. API and Hub HTTP checks are optional and restrict
 ## Dry-Run Boundaries
 
 Current operations do not execute Codex, push branches, create PRs, deploy, create monitors, create Plane issues, or call provider APIs. Real external integrations require a later approved implementation task.
+
+## Queue-Backed Local Actions
+
+Inline mode remains the simplest local path:
+
+```bash
+PSF_ACTION_EXECUTION_MODE=inline pnpm dev:api
+```
+
+To verify the Phase 17B queue path locally:
+
+```bash
+sudo docker compose up -d postgres redis
+pnpm db:generate
+pnpm db:migrate
+pnpm db:seed
+PSF_WORKER_RUNTIME=bullmq PSF_ACTION_EXECUTION_MODE=queued pnpm dev:api
+pnpm worker:dev
+pnpm dev:hub
+```
+
+Use Hub Mission Detail dry-run buttons or call the API to enqueue work. Inspect queue state with:
+
+```bash
+pnpm psf queues:status
+curl http://127.0.0.1:3000/queues/status
+```
+
+Cancel or retry only a specific wrapper WorkerRun:
+
+```bash
+pnpm psf worker-runs:cancel <workerRunId>
+pnpm psf worker-runs:retry <workerRunId>
+```
+
+Queue mode is still dry-run/mock only. Worker Runner reuses existing dry-run workflows and does not execute Codex, push, create PRs, deploy, or call external providers.

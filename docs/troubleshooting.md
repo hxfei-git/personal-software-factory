@@ -126,3 +126,31 @@ pnpm psf demo:reset --skip-db
 DEMO_RESET_CONFIRM=1 pnpm psf demo:reset --skip-db
 pnpm psf demo:ai-novelist --with-sample-bug --skip-db
 ```
+
+## Queue Runtime Problems
+
+Symptom: queued dry-run actions stay queued.
+
+Remedy: verify Redis and Worker Runner are running:
+
+```bash
+sudo docker compose up -d redis
+pnpm psf queues:status
+pnpm worker:dev
+```
+
+Symptom: API returns a queue enqueue error.
+
+Remedy: check `PSF_WORKER_RUNTIME`, `PSF_ACTION_EXECUTION_MODE`, and `PSF_REDIS_URL`. For Redis-free local work, use inline mode:
+
+```bash
+PSF_WORKER_RUNTIME=in-process PSF_ACTION_EXECUTION_MODE=inline pnpm dev:api
+```
+
+Symptom: cancel does not stop an already running job immediately.
+
+Remedy: active cancellation is cooperative and best-effort. Refresh Mission Detail and inspect the wrapper WorkerRun output for `cancellationRequested`.
+
+Symptom: retry is rejected.
+
+Remedy: retry is allowed only for failed or cancelled queue wrapper WorkerRuns, not running or succeeded runs.

@@ -47,6 +47,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorResu
   checks.push(await checkDatabase(options.checkDatabase ?? false));
   checks.push(await checkHttp("api", options.checkApi ?? false, env.PSF_API_URL ?? DEFAULT_DEMO_API_URL));
   checks.push(await checkHttp("hub", options.checkHub ?? false, env.PSF_HUB_URL ?? DEFAULT_DEMO_HUB_URL));
+  checks.push(...checkQueueRuntime(env));
   checks.push(checkIntegrations(env));
   checks.push(...checkRealModeWarnings(env));
 
@@ -209,6 +210,51 @@ function checkIntegrations(env: NodeJS.ProcessEnv): DoctorCheck {
       })),
     },
   };
+}
+
+function checkQueueRuntime(env: NodeJS.ProcessEnv): DoctorCheck[] {
+  const runtime = env.PSF_WORKER_RUNTIME ?? "in-process";
+  const actionMode = env.PSF_ACTION_EXECUTION_MODE ?? "inline";
+  const redisUrl = env.PSF_REDIS_URL;
+  const validRuntime = runtime === "in-process" || runtime === "bullmq";
+  const validActionMode = actionMode === "inline" || actionMode === "queued";
+  const queuedWithoutBullmq = actionMode === "queued" && runtime !== "bullmq";
+  const bullmqMissingRedis = runtime === "bullmq" && !redisUrl;
+
+  return [
+    {
+      key: "PSF_WORKER_RUNTIME",
+      status: validRuntime ? "ok" : "warning",
+      message: validRuntime
+        ? `PSF_WORKER_RUNTIME is ${runtime}.`
+        : `PSF_WORKER_RUNTIME is ${runtime}; expected in-process or bullmq.`,
+      details: { runtime },
+    },
+    {
+      key: "PSF_ACTION_EXECUTION_MODE",
+      status: !validActionMode || queuedWithoutBullmq ? "warning" : "ok",
+      message: queuedWithoutBullmq
+        ? "PSF_ACTION_EXECUTION_MODE is queued, but PSF_WORKER_RUNTIME is not bullmq. Actions may remain queued without a BullMQ runner."
+        : validActionMode
+          ? `PSF_ACTION_EXECUTION_MODE is ${actionMode}.`
+          : `PSF_ACTION_EXECUTION_MODE is ${actionMode}; expected inline or queued.`,
+      details: { actionMode, runtime },
+    },
+    {
+      key: "PSF_REDIS_URL",
+      status: bullmqMissingRedis ? "warning" : "ok",
+      message: bullmqMissingRedis
+        ? "PSF_REDIS_URL is required when PSF_WORKER_RUNTIME=bullmq. Start Redis with docker compose up -d redis."
+        : redisUrl
+          ? "PSF_REDIS_URL is configured for optional BullMQ queue runtime."
+          : "PSF_REDIS_URL is not set; Redis is optional while using in-process runtime.",
+      details: {
+        configured: Boolean(redisUrl),
+        runtime,
+        url: redisUrl ? redactSecretText(redisUrl) : undefined,
+      },
+    },
+  ];
 }
 
 function checkRealModeWarnings(env: NodeJS.ProcessEnv): DoctorCheck[] {

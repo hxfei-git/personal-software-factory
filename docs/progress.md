@@ -1,75 +1,106 @@
-# Phase 16A/16B/17A Progress
+# Phase 17B Progress
 
 ## Completed In This Batch
 
-- Added the Phase 16A/16B/17A brainstorm document for the demo chain, Hub/API dry-run actions, doctor/reset/report operations, forbidden real actions, external-call deferral, and Temporal/LangGraph deferral.
-- Documented safety boundaries, worker permissions, operations, troubleshooting, local development, health checks, final MVP scope, and next steps.
-- Updated README with a zero-to-local dry-run demo path covering install, local services, database setup, doctor, demo generation, API, Hub, reset, tests, and boundaries.
-- Updated API/auth docs for Phase 16B protected dry-run actions and local demo auth.
-- Added demo reset and optional doctor flags to `.env.example`.
+- Added optional queue-backed dry-run execution with `@psf/worker-runtime` supporting in-process and BullMQ runtimes.
+- Added queue wrapper WorkerRun semantics for accepted jobs while preserving existing planner, QA, Codex dry-run, fix, demo, and integration child WorkerRun behavior.
+- Updated Orchestrator action APIs to support `PSF_ACTION_EXECUTION_MODE=inline` and `PSF_ACTION_EXECUTION_MODE=queued`.
+- Added Queue API surfaces for queue status, job lookup, WorkerRun filtering, cancel, and retry.
+- Added Worker Runner for consuming whitelisted dry-run jobs and updating wrapper WorkerRun status.
+- Added CLI queue helpers for status, worker guidance, WorkerRun cancel, and WorkerRun retry.
+- Updated Hub Web to show queue runtime status, accepted queued action metadata, wrapper WorkerRuns, child IDs, and failed WorkerRun errors.
+- Added doctor queue checks, queue environment variables, queue runtime docs, and future real Codex readiness docs.
 
 ## Created Or Modified Files
 
 - `.env.example`
 - `README.md`
-- `docs/brainstorms/phase-16-17a.md`
-- `docs/safety.md`
-- `docs/worker-permissions.md`
+- `apps/orchestrator-api/*`
+- `apps/hub/*`
+- `apps/worker-runner/*`
+- `packages/worker-runtime/*`
+- `packages/demo-workflow/src/doctor.ts`
+- `packages/demo-workflow/tests/demo-workflow.test.ts`
+- `scripts/psf.ts`
+- `scripts/psf.test.ts`
+- `docs/brainstorms/phase-17-queue-worker-runtime.md`
+- `docs/queue-runtime.md`
+- `docs/real-codex-execution-readiness.md`
+- `docs/worker-runtime.md`
+- `docs/api.md`
 - `docs/operations.md`
 - `docs/troubleshooting.md`
-- `docs/local-development.md`
 - `docs/health-checks.md`
-- `docs/final-mvp-scope.md`
-- `docs/next-steps.md`
+- `docs/local-development.md`
+- `docs/safety.md`
 - `docs/progress.md`
-- `docs/auth.md`
-- `docs/api.md`
 
 ## Database Migration
 
-No Prisma migration is required for this documentation batch. The changes only document existing Phase 16A/16B/17A behavior and add environment placeholders. Local demo commands may sync existing Prisma models, but no schema or migration file changed.
+No Prisma migration is required for Phase 17B. Queue wrapper metadata and child ID references use existing WorkerRun `metadata` and `output` JSON fields.
 
-## Commands Documented
+## Environment Variables
 
-```bash
-pnpm install
-cp .env.example .env
-sudo docker compose up -d postgres redis
-pnpm db:generate
-pnpm db:migrate
-pnpm db:seed
-pnpm psf doctor
-pnpm psf doctor --check-db
-pnpm psf doctor --check-api
-pnpm psf doctor --check-hub
-pnpm psf demo:ai-novelist --with-sample-bug
-pnpm psf demo:ai-novelist --with-sample-bug --skip-db
-pnpm psf demo:report --with-sample-bug
-pnpm psf demo:reset --skip-db
-DEMO_RESET_CONFIRM=1 pnpm psf demo:reset --skip-db
-PSF_AUTH_DISABLED=true pnpm dev:api
-VITE_ORCHESTRATOR_API_URL=http://127.0.0.1:3000 pnpm dev:hub
-pnpm psf integrations:status
-pnpm test:scripts
+```dotenv
+PSF_WORKER_RUNTIME=in-process
+PSF_ACTION_EXECUTION_MODE=inline
+PSF_REDIS_URL=redis://127.0.0.1:6379
+PSF_QUEUE_PREFIX=psf
+PSF_WORKER_CONCURRENCY=2
+PSF_JOB_ATTEMPTS=2
+PSF_JOB_TIMEOUT_MS=300000
+PSF_TEST_REDIS=0
 ```
 
-## Dry-Run Boundaries
+## Commands
 
-- Phase 16A demo chain is local dry-run only.
-- Phase 16B Hub/API action buttons call only the Orchestrator API.
-- Phase 17A doctor is read-only, demo reset is scoped and confirmation-gated, and report generation writes a local acceptance report.
-- Codex execution, GitHub push/PR/Issue, Coolify deploy, Uptime Kuma monitor creation, Plane issue creation, production deployment, and external provider network calls remain disabled.
-- Integration responses must keep `realNetworkCall: false`.
-- Demo workflow responses must keep `realCodexExecuted: false`, `realExternalCall: false`, `realPush: false`, and `realDeploy: false`.
+```bash
+sudo docker compose up -d redis
+PSF_WORKER_RUNTIME=bullmq PSF_ACTION_EXECUTION_MODE=queued pnpm dev:api
+pnpm worker:dev
+pnpm worker:once
+pnpm psf queues:status
+pnpm psf worker-runs:list
+pnpm psf worker-runs:cancel <workerRunId>
+pnpm psf worker-runs:retry <workerRunId>
+```
+
+## Test Commands
+
+Focused checks:
+
+```bash
+pnpm --filter @psf/demo-workflow test
+pnpm --filter @psf/demo-workflow typecheck
+rg -n "misleading real-execution claims" docs README.md
+```
+
+Full gates:
+
+```bash
+pnpm test
+pnpm typecheck
+pnpm build
+git diff --check
+git status --short --branch
+```
+
+## Dry-Run And Mock Boundaries
+
+- Queue jobs are whitelisted dry-run/mock jobs only.
+- Worker Runner does not execute Codex.
+- Worker Runner does not push, create PRs, deploy, create monitors, create Plane issues, or call external provider APIs.
+- Integration adapters must continue to return `realNetworkCall: false`.
+- Active cancel is cooperative and best-effort; it does not promise a hard process kill.
+- Retry is limited to failed or cancelled queue wrapper WorkerRuns.
 
 ## Plan Alignment
 
-This batch aligns with `plan.md`, `docs/00-system-architecture.md`, and `docs/01-execution-roadmap.md` by keeping the Hub as a control surface, the Orchestrator as the API boundary, local artifacts first, and real integrations deferred until explicit approval and safety gates exist.
-
-It uses Phase 16A/16B/17A naming to distinguish the local demo chain, Hub/API dry-run actions, and operations hardening work. It does not claim that real Codex execution, PR creation, deployment, monitoring, or Plane sync is complete.
+Phase 17B aligns with `plan.md` by adding a local queue-backed Worker Runtime while keeping Orchestrator as the API boundary and existing business workflows intact. It does not introduce Temporal, LangGraph, real Codex execution, or real external integrations.
 
 ## Next Suggestions
 
-1. Run Task 8 focused and broad verification gates for the completed Phase 16A/16B/17A batch.
-2. Manually exercise the README local demo flow from a fresh `.env`.
-3. Add real worker or provider clients only after approval gates, redaction tests, idempotency, retry behavior, and audit fields are implemented.
+1. Manually verify queued mode with Redis, API, Worker Runner, and Hub running together.
+2. Add stronger parent/child WorkerRun relations only after queue semantics are stable.
+3. Prepare workspace isolation, command policy, approval checks, and log/artifact retention before considering real Codex execution.
+4. Keep real GitHub PR, Coolify deploy, Uptime Kuma monitor, and Plane issue adapters behind later explicit approval.

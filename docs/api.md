@@ -443,3 +443,46 @@ pnpm psf demo:reset --skip-db
 ```
 
 Reset is intentionally CLI-only and confirmation-gated.
+
+## Phase 17B Queue Runtime APIs
+
+Phase 17B adds optional queued execution for protected dry-run action endpoints. The same action routes support two modes:
+
+- `PSF_ACTION_EXECUTION_MODE=inline`: API executes the existing dry-run workflow and returns the completed dry-run result.
+- `PSF_ACTION_EXECUTION_MODE=queued`: API creates a queue wrapper WorkerRun, enqueues a whitelisted job, and returns accepted metadata without running the long workflow in the API process.
+
+Queued action response shape:
+
+```json
+{
+  "accepted": true,
+  "executionMode": "queued",
+  "workerRunId": "worker-run-queue-123",
+  "jobId": "job-123",
+  "missionId": "mission-0001-ai-novelist-chapter-review",
+  "status": "queued",
+  "recommendedNextAction": "Start or refresh Worker Runner, then refresh Mission Summary."
+}
+```
+
+### GET /queues/status
+
+Returns queue runtime, queue name, counts, and any runtime warning. This is a read endpoint and has no side effects.
+
+### GET /jobs/:jobId
+
+Returns one queue job status when the active runtime can inspect it.
+
+### GET /worker-runs?status=&missionId=&workerType=
+
+Lists WorkerRuns with optional filters. Queue wrapper WorkerRuns can be identified by `metadata.queueWrapper` or `output.queueWrapper`.
+
+### POST /worker-runs/:id/cancel
+
+Protected. Cancels a specific queue wrapper WorkerRun. Queued or delayed jobs can become `cancelled`. Active cancellation is cooperative and best-effort, so the API records `cancellationRequested` rather than claiming a hard kill.
+
+### POST /worker-runs/:id/retry
+
+Protected. Retries a specific failed or cancelled queue wrapper WorkerRun. Retry preserves the original job type, Mission ID, Project ID, and safe payload, and records the previous and new job IDs.
+
+No queue API accepts arbitrary commands, clears all jobs, or performs destructive queue maintenance.

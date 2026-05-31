@@ -2,7 +2,7 @@
 
 Personal Software Factory / 个人 AI 软件工厂 is a single-user control plane for turning natural-language software requests into structured Missions, Codex-driven development, Playwright QA, structured bug reports, approval gates, and reviewable release work.
 
-The repository currently contains the foundation through Phase 16A/16B/17A demo operations hardening: shared schemas, Prisma persistence, Mission state machine, Fastify Orchestrator API, API token auth, Project Registry, Project Passport intake for `ai-novelist`, deterministic Mission Planner, local CLI helpers, Codex Worker dry-run artifact generation, QA/fix dry-runs, Hub Web, dashboard APIs, mock integration adapters, local demo workflow, doctor, scoped demo reset, and report generation.
+The repository currently contains the foundation through Phase 17B queue-backed worker runtime: shared schemas, Prisma persistence, Mission state machine, Fastify Orchestrator API, API token auth, Project Registry, Project Passport intake for `ai-novelist`, deterministic Mission Planner, local CLI helpers, Codex Worker dry-run artifact generation, QA/fix dry-runs, Hub Web, dashboard APIs, mock integration adapters, local demo workflow, doctor, scoped demo reset, report generation, optional BullMQ queue runtime, and Worker Runner.
 
 ## Current Scope
 
@@ -15,9 +15,11 @@ Implemented:
 - `packages/project-registry`: scanner for `projects/*/project.passport.yaml` and Project metadata sync inputs.
 - `packages/mission-planner`: deterministic template planner that does not call an LLM.
 - `packages/integrations`: mock/dry-run GitHub, Coolify, Uptime Kuma, and Plane adapters. They never call real external APIs.
-- `packages/demo-workflow`: shared Phase 16A/16B/17A local ai-novelist demo workflow, doctor, reset, and report helpers.
+- `packages/demo-workflow`: shared local ai-novelist demo workflow, doctor, reset, and report helpers.
+- `packages/worker-runtime`: in-process and optional BullMQ queue facade for dry-run action jobs.
 - `apps/orchestrator-api`: Fastify API with health, dashboard, project sync/passport, Mission planning/summary, Approval, WorkerRun, Artifact, BugReport, QARun, and Integration routes.
-- `apps/hub`: React/Vite Hub Web console for dashboard, Mission detail, Integration status, and simple placeholder navigation for QA, bugs, WorkerRun, artifact, approval, and project list pages.
+- `apps/hub`: React/Vite Hub Web console for dashboard, Mission detail, queue status, Integration status, and simple placeholder navigation for QA, bugs, WorkerRun, artifact, approval, and project list pages.
+- `apps/worker-runner`: BullMQ Worker Runner that consumes whitelisted dry-run jobs and updates queue wrapper WorkerRuns.
 - `workers/codex-worker`: dry-run prompt, command review artifact, and dev summary generator. It never executes Codex.
 - `scripts/psf.ts`: local dry-run CLI for registry sync, example Mission creation, planning, Codex/QA/fix dry-run artifacts, Integration dry-runs, doctor, demo reset, and demo report.
 
@@ -25,7 +27,7 @@ Not implemented yet:
 
 - Real Codex execution, repository clone/update, worktree creation, project test execution, local commits, remote push, or PR creation.
 - Real Playwright QA execution and browser report collection beyond the optional local smoke gate.
-- BullMQ queues and real external integrations with GitHub, Coolify, Uptime Kuma, Plane, or n8n.
+- Real external integrations with GitHub, Coolify, Uptime Kuma, Plane, or n8n. Current adapters remain dry-run/mock only.
 
 ## Run The Local MVP Demo
 
@@ -53,6 +55,7 @@ Useful follow-up commands:
 ```bash
 pnpm psf doctor --check-db
 pnpm psf integrations:status
+pnpm psf queues:status
 pnpm psf demo:report --with-sample-bug
 pnpm psf demo:reset --skip-db
 DEMO_RESET_CONFIRM=1 pnpm psf demo:reset --skip-db
@@ -223,7 +226,9 @@ pnpm test
 
 - `docs/api.md`: Orchestrator API routes and request shapes.
 - `docs/auth.md`: API token auth and local/dev/test boundaries.
-- `docs/safety.md`: Phase 16A/16B/17A dry-run and secret safety boundaries.
+- `docs/safety.md`: dry-run, queue, and secret safety boundaries.
+- `docs/queue-runtime.md`: Phase 17B queue runtime, wrapper WorkerRun, cancel/retry, and Worker Runner usage.
+- `docs/real-codex-execution-readiness.md`: guardrails required before any future real Codex execution.
 - `docs/worker-permissions.md`: current dry-run worker and Hub/API permission model.
 - `docs/operations.md`: local startup, doctor, demo report, and reset operations.
 - `docs/troubleshooting.md`: local remedies for common dry-run failures.
@@ -271,3 +276,48 @@ QA_TEST_URL=http://127.0.0.1:8000 ENABLE_REAL_PLAYWRIGHT=1 pnpm test:e2e:smoke
 ```
 
 Playwright MCP is documented for later AI exploratory QA. It is not installed or run by default. Real Codex execution, remote push, PR creation, external APIs, and production deploy remain disabled.
+
+## Phase 17B Queue Runtime
+
+Phase 17B adds optional queue-backed dry-run actions. Inline mode remains the default for tests and simple demos:
+
+```bash
+PSF_WORKER_RUNTIME=in-process PSF_ACTION_EXECUTION_MODE=inline pnpm dev:api
+```
+
+Queued mode uses Redis and Worker Runner:
+
+```bash
+sudo docker compose up -d postgres redis
+PSF_WORKER_RUNTIME=bullmq PSF_ACTION_EXECUTION_MODE=queued pnpm dev:api
+pnpm worker:dev
+VITE_ORCHESTRATOR_API_URL=http://127.0.0.1:3000 pnpm dev:hub
+```
+
+Trigger a queued QA dry-run from Hub Mission Detail, or through API:
+
+```bash
+curl -H "Authorization: Bearer $PSF_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -X POST http://127.0.0.1:3000/missions/mission-0001-ai-novelist-chapter-review/actions/qa-dry-run \
+  -d '{"withSampleBug":true}'
+```
+
+View queue status and WorkerRuns:
+
+```bash
+pnpm psf queues:status
+curl http://127.0.0.1:3000/queues/status
+curl 'http://127.0.0.1:3000/worker-runs?status=queued'
+```
+
+Cancel or retry a specific queue wrapper WorkerRun:
+
+```bash
+pnpm psf worker-runs:cancel <workerRunId>
+pnpm psf worker-runs:retry <workerRunId>
+```
+
+The queue wrapper WorkerRun records the queue job state. Child planner, QA, Codex dry-run, fix, and demo WorkerRuns keep their existing semantics and are referenced from wrapper output.
+
+Queued mode is still dry-run/mock only. It does not execute Codex, push, create PRs, deploy, create provider records, or call external services.
