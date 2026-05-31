@@ -1,3 +1,36 @@
+# Real Execution And Integrations Design Progress
+
+## Completed In This Batch
+
+- Reviewed the Phase 17B codebase, queue runtime, Worker Runner, Orchestrator action API, Codex dry-run worker, QA dry-run worker, integration adapters, Project Passport, and safety docs.
+- Chose a design-only scope for the post-Phase-17B path covering Batch A through Batch M.
+- Added the overall real execution and gated integrations design spec.
+- Added ADRs for current architecture alignment, real execution safety boundary, external integration gated mode, artifact store policy, and Temporal/LangGraph deferral.
+
+## Created Or Modified Files
+
+- `docs/superpowers/specs/2026-05-31-real-execution-and-integrations-design.md`
+- `docs/adr/0001-current-architecture-alignment.md`
+- `docs/adr/0002-real-execution-safety-boundary.md`
+- `docs/adr/0003-external-integrations-gated-mode.md`
+- `docs/adr/0004-artifact-store-and-retention-policy.md`
+- `docs/adr/0005-temporal-langgraph-decision.md`
+- `docs/progress.md`
+
+## Implementation Status
+
+No business code was implemented in this batch. No real Codex execution, provider network call, push, PR creation, deployment, monitor creation, Plane sync, schema migration, or dependency installation was performed.
+
+## Verification
+
+This is a documentation-only design batch. Recommended checks are `git diff --check` and `git status --short --branch`.
+
+## Next Suggestions
+
+1. Review the design spec and ADRs.
+2. If accepted, create a separate implementation plan for Batch A only.
+3. Do not proceed to real Codex or real integrations until Batch A safety utilities and tests exist.
+
 # Phase 17B Progress
 
 ## Completed In This Batch
