@@ -38,6 +38,14 @@ describe("redaction", () => {
     }
   });
 
+  it("redacts stringified JSON secret fields with spaces", () => {
+    const output = redactText('{"password": "hunter 2", "token": "abc def"}');
+
+    expect(output).toContain("[REDACTED]");
+    expect(output).not.toContain("hunter 2");
+    expect(output).not.toContain("abc def");
+  });
+
   it("redacts URL userinfo credentials while preserving diagnostic URL parts", () => {
     const output = redactText([
       "DATABASE_URL=postgres://user:dbpass@example.test/app",
@@ -93,6 +101,7 @@ describe("redaction", () => {
 
   it("throws when unredacted secrets remain", () => {
     expect(() => assertNoSecrets("Authorization: Bearer abc")).toThrow(/secret/i);
+    expect(() => assertNoSecrets('{"password": "hunter 2"}')).toThrow(/secret/i);
     expect(() => assertNoSecrets({ password: "hunter2" })).toThrow(/secret/i);
     expect(() => assertNoSecrets("safe output")).not.toThrow();
   });
@@ -138,6 +147,9 @@ describe("command policy", () => {
     "pnpm test > .env",
     "pnpm test\nrm -rf /",
     "npm run test\nrm -rf /",
+    "pnpm test rm -rf /",
+    "npm run test -- rm -rf /",
+    "pytest -q rm -rf /",
   ])("blocks unsafe command %s", (command) => {
     const result = evaluateCommandPolicy({
       command,

@@ -49,6 +49,10 @@ function containsLineSeparator(command: string): boolean {
   return /[\r\n\u2028\u2029]/.test(command);
 }
 
+function containsDangerousSequence(command: string): boolean {
+  return /(?:^|\s|--\s*)rm\s+-(?:[^\s]*r[^\s]*f|[^\s]*f[^\s]*r)\s+(?:\/|\*)/.test(command);
+}
+
 export function evaluateCommandPolicy(input: CommandPolicyInput): CommandPolicyResult {
   const normalizedCommand = normalizeCommand(input.command);
 
@@ -76,7 +80,7 @@ export function evaluateCommandPolicy(input: CommandPolicyInput): CommandPolicyR
     return deny(normalizedCommand, "sudo is blocked.");
   }
 
-  if (/^rm\s+.*(?:-[^\s]*r[^\s]*f|-[^\s]*f[^\s]*r).*(?:\s\/|\s\*)/.test(normalizedCommand)) {
+  if (containsDangerousSequence(normalizedCommand)) {
     return deny(normalizedCommand, "Destructive rm command is blocked.");
   }
 
