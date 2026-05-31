@@ -423,7 +423,7 @@ export function validateAiExploratoryOutput(input: AiExploratoryOutputValidation
   if (errors.length > 0) {
     return {
       ok: false,
-      errors,
+      errors: errors.map((error) => redactText(error)),
       files: {
         "qa-report.md": reportMarkdown,
         "bugs.json": `${JSON.stringify({ bugs: [] }, null, 2)}\n`,

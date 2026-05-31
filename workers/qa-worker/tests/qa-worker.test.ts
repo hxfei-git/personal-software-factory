@@ -347,6 +347,34 @@ describe("AI Exploratory QA runner", () => {
     expect(validation.bugs).toEqual([]);
   });
 
+  it("redacts secret-like AI bug titles from validation errors", () => {
+    const validation = validateAiExploratoryOutput({
+      missionId: input.missionId,
+      qaRunId: `qa-run-${input.missionId}-ai-exploratory`,
+      now: input.now,
+      reportMarkdown: "# QA Report\n\nPotential blocker.",
+      bugsJson: JSON.stringify({
+        bugs: [
+          {
+            title: "Checkout fails with token=leaked-secret",
+            severity: "P1",
+            reproduction_steps: ["Open checkout", "Click Pay"],
+            expected_result: "Payment starts.",
+            actual_result: "Nothing happens.",
+            evidence: {},
+          },
+        ],
+      }),
+      regressionSpec: "import { test } from '@playwright/test';\ntest.describe.skip('generated', () => {});\n",
+    });
+
+    const errors = validation.errors.join("\n");
+
+    expect(validation.ok).toBe(false);
+    expect(errors).not.toContain("leaked-secret");
+    expect(errors).toContain("[REDACTED]");
+  });
+
   it("rejects generated regression specs that are not Playwright TypeScript", () => {
     const validation = validateAiExploratoryOutput({
       missionId: input.missionId,
