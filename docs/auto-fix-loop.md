@@ -1,6 +1,6 @@
 # Auto Fix Loop
 
-The Auto Fix Loop keeps dry-run behavior as the default. It turns QA bugs into fix Mission artifacts and reuses the existing Codex Worker dry-run generator to produce reviewable Codex prompt and command artifacts.
+The Auto Fix Loop keeps dry-run behavior as the default. It turns QA bugs into fix Mission artifacts and reuses the existing Codex Worker dry-run generator to produce reviewable Codex prompt and command artifacts. Rendered dry-run artifacts are redacted before they are returned.
 
 A gated real mode now exists as an orchestration surface, but it is disabled by default and does not construct or execute a real Codex process, shell command, Git push, deploy, or external API call. Callers must inject mock or controlled runners for any execution-like behavior in this phase.
 
@@ -29,14 +29,15 @@ Required gates before a fix-mode Codex runner can be called:
 - `enableRealMode: true`; omitted or false returns `blocked`.
 - `real_codex_execution` approval through `@psf/security` approval policy.
 - Verification commands accepted by `@psf/security` command policy with network and Git push disabled.
-- Regression coverage for reproducible bugs.
+- Regression coverage for reproducible bugs, with meaningful test structure and a reference to the bug or reproduction signal.
+- At least one verification command before a fix can be marked complete.
 - Injected `codexRunner` and `testRunner`; otherwise the result is a safe `manual_action` plan.
 
 The real loop passes a fix-mode request to the injected Codex runner only after gates pass. It still records `realNetworkCall: false`, `pushed: false`, and external-service-disabled metadata. Outputs, errors, runner summaries, and event payloads are redacted before returning.
 
 ## Regression-First Policy
 
-A reproducible bug cannot be claimed fixed unless one of these is present:
+A reproducible bug cannot be claimed fixed unless one of these is present and validates as meaningful test content tied to the reported bug or reproduction:
 
 - Existing regression spec path and content.
 - Generated regression spec path and content with a valid generated-spec validation result.
@@ -73,8 +74,8 @@ Gated real-mode outputs:
 
 - Default max Mission fix attempts: 3.
 - Default max per-bug attempts: 2.
-- Mission attempts greater than 3 return `paused` by default.
-- Per-bug attempts greater than 2 return `paused` by default.
+- Mission attempts greater than or equal to 3 return `paused` by default.
+- Per-bug attempts greater than or equal to 2 return `paused` by default.
 - Exceeding limits never invokes Codex or test runners and moves the intended next status to `paused` when the state machine permits it.
 
 ## Safety Boundary

@@ -6,6 +6,8 @@ const JSON_SECRET_FIELD_PATTERN =
   /(["'])([A-Za-z0-9_.-]*(?:token|password|secret|authorization|credential|cookie|session|jwt|api[_-]?key)[A-Za-z0-9_.-]*)\1(\s*:\s*)(?:("(?:\\.|[^"\\])*")|('(?:\\.|[^'\\])*')|([^\s,}\]]+))/gi;
 const SECRET_ASSIGNMENT_PATTERN =
   /\b([A-Za-z0-9_.-]*(?:token|password|secret|authorization|credential|cookie|session|jwt|api[_-]?key)[A-Za-z0-9_.-]*)\b(\s*[:=]\s*)(?:Bearer\s+)?(?:("[^"]*")|('[^']*')|([^\s,;\n]+))/gi;
+const CLI_SECRET_FLAG_PATTERN =
+  /(^|\s)(--[A-Za-z0-9_.-]*(?:token|password|secret|authorization|credential|cookie|session|jwt|api[_-]?key)[A-Za-z0-9_.-]*)(?:(=)(?:"[^"]*"|'[^']*'|[^\s]+)|(\s+)(?:"[^"]*"|'[^']*'|[^\s]+))/gi;
 
 const SECRET_NAME_PARTS = [
   "token",
@@ -63,6 +65,9 @@ export function redactText(input: string, extraSecrets: string[] = []): string {
   return redactUrlUserinfo(applyExtraSecrets(input, extraSecrets))
     .replace(AUTHORIZATION_VALUE_PATTERN, (_match, prefix: string) => `${prefix}${REDACTED}`)
     .replace(JWT_PATTERN, REDACTED)
+    .replace(CLI_SECRET_FLAG_PATTERN, (_match, prefix: string, flag: string, equals: string | undefined, whitespace: string | undefined) => {
+      return `${prefix}${flag}${equals ?? whitespace ?? "="}${REDACTED}`;
+    })
     .replace(
       JSON_SECRET_FIELD_PATTERN,
       (_match, quote: string, key: string, separator: string) => `${quote}${key}${quote}${separator}${REDACTED}`,

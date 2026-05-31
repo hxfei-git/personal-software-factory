@@ -154,7 +154,7 @@ export async function runGatedRealAutoFixLoop(input: GatedRealAutoFixLoopInput):
     timeoutMs,
   }));
   const approval = evaluateApprovalPolicy("real_codex_execution", input.approvalIds ?? []);
-  const regressionCoverage = evaluateRegressionCoverage(input.regressionEvidence);
+  const regressionCoverage = evaluateRegressionCoverage(input.regressionEvidence, input.bugs);
   const baseGates: GatedRealAutoFixLoopGates = {
     realModeEnabled: input.enableRealMode === true,
     approval,
@@ -245,6 +245,21 @@ export async function runGatedRealAutoFixLoop(input: GatedRealAutoFixLoopInput):
     });
   }
 
+  if (commands.length === 0) {
+    return finish(input, {
+      decision: "manual_action",
+      status: "skipped",
+      now,
+      gates: baseGates,
+      regressionCoverage,
+      recommendedNextAction: "At least one verification command is required before marking a real auto-fix complete.",
+      testResults: [],
+      errors: ["missing verification command"],
+      output: { blockedBy: "missing_verification_commands" },
+      extraSecrets,
+    });
+  }
+
   if (!input.codexRunner || !input.testRunner) {
     return finish(input, {
       decision: "manual_action",
@@ -260,20 +275,37 @@ export async function runGatedRealAutoFixLoop(input: GatedRealAutoFixLoopInput):
     });
   }
 
-  const codexResult = await input.codexRunner.run({
-    missionId: input.missionId,
-    projectId: input.projectId,
-    repoUrl: input.passport.repo.url,
-    defaultBranch: input.passport.repo.default_branch,
-    missionFiles: input.missionFiles,
-    approvalIds: input.approvalIds ?? [],
-    commands: commandPolicyResults.map((result) => result.normalizedCommand),
-    branchName: input.branchName,
-    workspaceRoot,
-    timeoutMs,
-    mode: "real",
-    fixMode: true,
-  });
+  let codexResult: GatedRealCodexRunnerResult;
+  try {
+    codexResult = await input.codexRunner.run({
+      missionId: input.missionId,
+      projectId: input.projectId,
+      repoUrl: input.passport.repo.url,
+      defaultBranch: input.passport.repo.default_branch,
+      missionFiles: input.missionFiles,
+      approvalIds: input.approvalIds ?? [],
+      commands: commandPolicyResults.map((result) => result.normalizedCommand),
+      branchName: input.branchName,
+      workspaceRoot,
+      timeoutMs,
+      mode: "real",
+      fixMode: true,
+    });
+  } catch (error) {
+    const message = formatRunnerError("Codex runner", error, extraSecrets);
+    return finish(input, {
+      decision: "fix_failed",
+      status: "failed",
+      now,
+      gates: baseGates,
+      regressionCoverage,
+      recommendedNextAction: message,
+      testResults: [],
+      errors: [message],
+      output: { codexStatus: "runner_exception" },
+      extraSecrets,
+    });
+  }
   const redactedCodexResult = redactJson(codexResult, extraSecrets);
 
   if (redactedCodexResult.status !== "succeeded") {
@@ -297,13 +329,23 @@ export async function runGatedRealAutoFixLoop(input: GatedRealAutoFixLoopInput):
 
   const testResults: Array<GatedRealTestRunnerResult & { command: string; group: VerificationCommandGroup }> = [];
   for (const command of commands) {
-    const testResult = await input.testRunner.run({
-      command: command.command,
-      group: command.group,
-      cwd: workspaceRoot,
-      workspaceRoot,
-      timeoutMs,
-    });
+    let testResult: GatedRealTestRunnerResult;
+    try {
+      testResult = await input.testRunner.run({
+        command: command.command,
+        group: command.group,
+        cwd: workspaceRoot,
+        workspaceRoot,
+        timeoutMs,
+      });
+    } catch (error) {
+      testResult = {
+        status: "failed",
+        output: "",
+        error: formatRunnerError("Test runner", error, extraSecrets),
+      };
+    }
+
     const redactedTestResult = redactJson(testResult, extraSecrets);
     testResults.push({ ...redactedTestResult, command: command.command, group: command.group });
     if (redactedTestResult.status !== "passed") {
@@ -358,15 +400,15 @@ function attemptsExceededDecision(
   const currentAttempt = input.currentAttempt ?? 0;
   const maxAttempts = input.maxAttempts ?? DEFAULT_MAX_MISSION_ATTEMPTS;
   const maxBugAttempts = input.maxBugAttempts ?? DEFAULT_MAX_BUG_ATTEMPTS;
-  const exhaustedBug = input.bugs.find((bug) => (input.perBugAttempts?.[bug.id] ?? 0) > maxBugAttempts);
+  const exhaustedBug = input.bugs.find((bug) => (input.perBugAttempts?.[bug.id] ?? 0) >= maxBugAttempts);
 
-  if (currentAttempt <= maxAttempts && exhaustedBug === undefined) {
+  if (currentAttempt < maxAttempts && exhaustedBug === undefined) {
     return undefined;
   }
 
   const reason = exhaustedBug
-    ? `Bug ${exhaustedBug.id} exceeded max attempts ${maxBugAttempts}; pause for human review.`
-    : `Mission attempts ${currentAttempt} exceeded max attempts ${maxAttempts}; pause for human review.`;
+    ? `Bug ${exhaustedBug.id} reached max attempts ${maxBugAttempts}; pause for human review.`
+    : `Mission attempts ${currentAttempt} reached max attempts ${maxAttempts}; pause for human review.`;
 
   return finish(input, {
     decision: "paused",
@@ -383,16 +425,24 @@ function attemptsExceededDecision(
   });
 }
 
-function evaluateRegressionCoverage(input: RegressionCoverageInput | undefined): RegressionCoverageResult {
+function evaluateRegressionCoverage(input: RegressionCoverageInput | undefined, bugs: BugReport[]): RegressionCoverageResult {
   const existingPath = input?.existingSpecPath?.trim();
   const existingContent = input?.existingSpecContent?.trim();
   if (existingPath && existingContent) {
-    return { present: true, source: "existing", path: existingPath, errors: [] };
+    const errors = validateRegressionContent(existingContent, bugs);
+    return errors.length === 0
+      ? { present: true, source: "existing", path: existingPath, errors: [] }
+      : { present: false, source: "missing", path: existingPath, errors };
   }
 
   const generated = input?.generatedSpec;
-  if (generated?.valid === true && generated.path?.trim() && generated.content?.trim()) {
-    return { present: true, source: "generated", path: generated.path.trim(), errors: [] };
+  const generatedPath = generated?.path?.trim();
+  const generatedContent = generated?.content?.trim();
+  if (generated?.valid === true && generatedPath && generatedContent) {
+    const errors = validateRegressionContent(generatedContent, bugs);
+    return errors.length === 0
+      ? { present: true, source: "generated", path: generatedPath, errors: [] }
+      : { present: false, source: "missing", path: generatedPath, errors };
   }
 
   return {
@@ -400,6 +450,48 @@ function evaluateRegressionCoverage(input: RegressionCoverageInput | undefined):
     source: "missing",
     errors: generated?.errors?.length ? generated.errors : ["Regression coverage is required for reproducible bugs."],
   };
+}
+
+function validateRegressionContent(content: string, bugs: BugReport[]): string[] {
+  const errors: string[] = [];
+
+  if (!hasRegressionTestStructure(content)) {
+    errors.push("Regression coverage must contain meaningful test structure.");
+  }
+
+  if (!referencesBugOrReproduction(content, bugs)) {
+    errors.push("Regression coverage must reference a bug id, bug title, or reproduction signal.");
+  }
+
+  return errors;
+}
+
+function hasRegressionTestStructure(content: string): boolean {
+  return /\b(?:test|it|describe)\s*\(/i.test(content) || /\b(?:async\s+def|def)\s+test_[A-Za-z0-9_]+\s*\(/.test(content);
+}
+
+function referencesBugOrReproduction(content: string, bugs: BugReport[]): boolean {
+  if (bugs.length === 0) {
+    return true;
+  }
+
+  const normalizedContent = normalizeRegressionSignal(content);
+  return bugs.some((bug) => {
+    const signals = [bug.id, bug.title, ...bug.reproduction_steps]
+      .map(normalizeRegressionSignal)
+      .filter((signal) => signal.length >= 3);
+
+    return signals.some((signal) => normalizedContent.includes(signal));
+  });
+}
+
+function normalizeRegressionSignal(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function formatRunnerError(label: string, error: unknown, extraSecrets: string[]): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return redactText(`${label} threw: ${message}`, extraSecrets);
 }
 
 function hasReproducibleBug(bugs: BugReport[]): boolean {

@@ -102,6 +102,17 @@ describe("redaction", () => {
     expect(output).not.toContain("beta");
   });
 
+  it("redacts CLI flag secret values", () => {
+    const output = redactText("pnpm test --token secret-token --password='hunter 2' --api-key=alpha");
+
+    expect(output).toContain("--token [REDACTED]");
+    expect(output).toContain("--password=[REDACTED]");
+    expect(output).toContain("--api-key=[REDACTED]");
+    expect(output).not.toContain("secret-token");
+    expect(output).not.toContain("hunter");
+    expect(output).not.toContain("alpha");
+  });
+
   it("recursively masks nested JSON secret fields and extra secret values", () => {
     const input = {
       service: "github",

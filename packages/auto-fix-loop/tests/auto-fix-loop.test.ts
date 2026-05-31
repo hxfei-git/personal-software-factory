@@ -112,6 +112,27 @@ describe("auto-fix loop dry-run", () => {
     expect(result.nextStatus).toBe(MissionStatus.paused);
     expect(result.codexDryRun).toBeUndefined();
   });
+
+
+  it("redacts user-supplied secret text from dry-run artifacts", () => {
+    const result = createAutoFixDryRun({
+      ...baseInput,
+      bugs: [makeBug({
+        title: "password=super-secret duplicate submit",
+        expected_result: "Do not expose token=expected-secret.",
+        actual_result: "Rendered --token actual-secret in UI.",
+        reproduction_steps: ["Open /settings?api_key=step-secret", "Run command with --password step-password"],
+        suggested_fix_direction: "Remove --api-key suggested-secret from output.",
+      })],
+    });
+
+    const rendered = JSON.stringify({ files: result.files, artifacts: result.artifacts, codexDryRun: result.codexDryRun });
+
+    for (const secret of ["super-secret", "expected-secret", "actual-secret", "step-secret", "step-password", "suggested-secret"]) {
+      expect(rendered).not.toContain(secret);
+    }
+    expect(rendered).toContain("[REDACTED]");
+  });
 });
 
 
@@ -256,6 +277,237 @@ describe("gated real auto-fix loop", () => {
     expect(result.recommendedNextAction).toMatch(/Command blocked/i);
     expect(result.gates.commands[0]?.allowed).toBe(false);
     expect(codexCalls).toBe(0);
+  });
+
+  it("pauses without invoking runners when Mission attempts equal the configured max", async () => {
+    let codexCalls = 0;
+
+    const result = await runGatedRealAutoFixLoop({
+      ...baseInput,
+      bugs: [makeBug()],
+      currentAttempt: 3,
+      maxAttempts: 3,
+      enableRealMode: true,
+      approvalIds: ["real_codex_execution"],
+      regressionEvidence: { existingSpecPath: "tests/e2e/bug-sample.spec.ts", existingSpecContent: "test('bug-sample', async () => {})" },
+      codexRunner: {
+        async run() {
+          codexCalls += 1;
+          throw new Error("must not run");
+        },
+      },
+    });
+
+    expect(result.decision).toBe("paused");
+    expect(result.nextStatus).toBe(MissionStatus.paused);
+    expect(codexCalls).toBe(0);
+  });
+
+  it("pauses without invoking runners when bug attempts equal the configured max", async () => {
+    let codexCalls = 0;
+
+    const result = await runGatedRealAutoFixLoop({
+      ...baseInput,
+      bugs: [makeBug()],
+      perBugAttempts: { "bug-sample": 2 },
+      maxBugAttempts: 2,
+      enableRealMode: true,
+      approvalIds: ["real_codex_execution"],
+      regressionEvidence: { existingSpecPath: "tests/e2e/bug-sample.spec.ts", existingSpecContent: "test('bug-sample', async () => {})" },
+      codexRunner: {
+        async run() {
+          codexCalls += 1;
+          throw new Error("must not run");
+        },
+      },
+    });
+
+    expect(result.decision).toBe("paused");
+    expect(result.nextStatus).toBe(MissionStatus.paused);
+    expect(codexCalls).toBe(0);
+  });
+
+  it("returns a redacted failure result when the Codex runner throws", async () => {
+    const result = await runGatedRealAutoFixLoop({
+      ...baseInput,
+      bugs: [makeBug()],
+      enableRealMode: true,
+      approvalIds: ["real_codex_execution"],
+      extraSecrets: ["super-secret"],
+      regressionEvidence: { existingSpecPath: "tests/e2e/bug-sample.spec.ts", existingSpecContent: "test('bug-sample', async () => {})" },
+      codexRunner: {
+        async run() {
+          throw new Error("password=super-secret");
+        },
+      },
+      testRunner: {
+        async run() {
+          throw new Error("must not run");
+        },
+      },
+    });
+
+    expect(result.decision).toBe("fix_failed");
+    expect(result.workerRun.status).toBe("failed");
+    expect(JSON.stringify(result)).not.toContain("super-secret");
+    expect(JSON.stringify(result)).toContain("[REDACTED]");
+  });
+
+  it("returns a redacted failure result when the test runner throws", async () => {
+    const result = await runGatedRealAutoFixLoop({
+      ...baseInput,
+      bugs: [makeBug()],
+      enableRealMode: true,
+      approvalIds: ["real_codex_execution"],
+      extraSecrets: ["super-secret"],
+      regressionEvidence: { existingSpecPath: "tests/e2e/bug-sample.spec.ts", existingSpecContent: "test('bug-sample', async () => {})" },
+      verificationCommands: { regression: ["pytest -q"] },
+      codexRunner: {
+        async run() {
+          return {
+            status: "succeeded",
+            executed: false,
+            reason: "mock fix applied",
+            workerRun: {
+              id: "worker-run-codex-real-fix",
+              mission_id: baseInput.missionId,
+              worker_type: "codex",
+              status: "succeeded",
+              mode: "mock",
+              input: {},
+              output: {},
+              logs: [],
+              metadata: { realNetworkCall: false },
+              created_at: baseInput.now,
+              updated_at: baseInput.now,
+            },
+            artifacts: [],
+            events: [],
+            stdout: "fixed",
+            stderr: "",
+            exitCode: 0,
+          };
+        },
+      },
+      testRunner: {
+        async run() {
+          throw new Error("password=super-secret");
+        },
+      },
+    });
+
+    expect(result.decision).toBe("test_failed");
+    expect(result.workerRun.status).toBe("failed");
+    expect(JSON.stringify(result)).not.toContain("super-secret");
+    expect(JSON.stringify(result)).toContain("[REDACTED]");
+  });
+
+  it("rejects generated regression content without meaningful test structure", async () => {
+    let codexCalls = 0;
+
+    const result = await runGatedRealAutoFixLoop({
+      ...baseInput,
+      bugs: [makeBug()],
+      enableRealMode: true,
+      approvalIds: ["real_codex_execution"],
+      regressionEvidence: {
+        generatedSpec: {
+          path: "tests/e2e/generated/bug-sample.spec.ts",
+          content: "# bug-sample notes only",
+          valid: true,
+        },
+      },
+      codexRunner: {
+        async run() {
+          codexCalls += 1;
+          throw new Error("must not run");
+        },
+      },
+    });
+
+    expect(result.decision).toBe("needs_human");
+    expect(result.regressionCoverage.present).toBe(false);
+    expect(result.errors.join("\n")).toMatch(/regression/i);
+    expect(codexCalls).toBe(0);
+  });
+
+  it("rejects generated regression content that does not reference the bug or reproduction", async () => {
+    let codexCalls = 0;
+
+    const result = await runGatedRealAutoFixLoop({
+      ...baseInput,
+      bugs: [makeBug()],
+      enableRealMode: true,
+      approvalIds: ["real_codex_execution"],
+      regressionEvidence: {
+        generatedSpec: {
+          path: "tests/e2e/generated/other.spec.ts",
+          content: "import { test } from '@playwright/test';\ntest('unrelated happy path', async () => {});",
+          valid: true,
+        },
+      },
+      codexRunner: {
+        async run() {
+          codexCalls += 1;
+          throw new Error("must not run");
+        },
+      },
+    });
+
+    expect(result.decision).toBe("needs_human");
+    expect(result.regressionCoverage.present).toBe(false);
+    expect(codexCalls).toBe(0);
+  });
+
+  it("does not return fixed when no verification commands are configured", async () => {
+    let testCalls = 0;
+
+    const result = await runGatedRealAutoFixLoop({
+      ...baseInput,
+      passport: { ...passport, commands: { ...passport.commands, test: [] } },
+      bugs: [makeBug()],
+      enableRealMode: true,
+      approvalIds: ["real_codex_execution"],
+      regressionEvidence: { existingSpecPath: "tests/e2e/bug-sample.spec.ts", existingSpecContent: "test('bug-sample', async () => {})" },
+      verificationCommands: { regression: [] },
+      codexRunner: {
+        async run() {
+          return {
+            status: "succeeded",
+            executed: false,
+            reason: "mock fix applied",
+            workerRun: {
+              id: "worker-run-codex-real-fix",
+              mission_id: baseInput.missionId,
+              worker_type: "codex",
+              status: "succeeded",
+              mode: "mock",
+              input: {},
+              output: {},
+              logs: [],
+              metadata: { realNetworkCall: false },
+              created_at: baseInput.now,
+              updated_at: baseInput.now,
+            },
+            artifacts: [],
+            events: [],
+            stdout: "fixed",
+            stderr: "",
+            exitCode: 0,
+          };
+        },
+      },
+      testRunner: {
+        async run() {
+          testCalls += 1;
+          return { status: "passed", output: "should not run" };
+        },
+      },
+    });
+
+    expect(result.decision).toBe("manual_action");
+    expect(result.recommendedNextAction).toMatch(/verification command/i);
+    expect(testCalls).toBe(0);
   });
 
   it("claims fixed only after gated Codex and injected tests pass with regression coverage", async () => {
