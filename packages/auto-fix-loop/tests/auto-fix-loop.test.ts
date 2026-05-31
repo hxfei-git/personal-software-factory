@@ -255,6 +255,46 @@ describe("gated real auto-fix loop", () => {
     expect(codexCalls).toBe(0);
   });
 
+  it("requires every reproducible bug in a batch to have regression coverage", async () => {
+    let codexCalls = 0;
+    const uncoveredBug = makeBug({
+      id: "bug-second",
+      title: "导出按钮泄露 token=secret-value-123",
+      reproduction_steps: ["打开导出页", "点击导出按钮"],
+      expected_result: "导出内容不包含敏感值。",
+      actual_result: "导出内容包含敏感值。",
+    });
+
+    const result = await runGatedRealAutoFixLoop({
+      ...baseInput,
+      bugs: [makeBug(), uncoveredBug],
+      enableRealMode: true,
+      approvalIds: ["real_codex_execution"],
+      extraSecrets: ["secret-value-123"],
+      regressionEvidence: {
+        existingSpecPath: "tests/e2e/bug-sample.spec.ts",
+        existingSpecContent: "import { test } from '@playwright/test';\ntest('bug-sample regression', async () => {});",
+      },
+      codexRunner: {
+        async run() {
+          codexCalls += 1;
+          throw new Error("must not run");
+        },
+      },
+    });
+
+    expect(["blocked", "manual_action", "needs_human"]).toContain(result.decision);
+    expect(result.decision).not.toBe("fixed");
+    expect(result.workerRun.status).toBe("skipped");
+    expect(result.regressionCoverage.present).toBe(false);
+    expect(result.regressionCoverage.errors.join("\n")).toContain("bug-second");
+    expect(result.regressionCoverage.errors.join("\n")).toContain("导出按钮泄露 token=[REDACTED]");
+    expect(JSON.stringify(result.workerRun.output)).toContain("bug-second");
+    expect(JSON.stringify(result.workerRun.output)).toContain("导出按钮泄露 token=[REDACTED]");
+    expect(JSON.stringify(result)).not.toContain("secret-value-123");
+    expect(codexCalls).toBe(0);
+  });
+
   it("blocks unsafe verification commands before invoking Codex", async () => {
     let codexCalls = 0;
 

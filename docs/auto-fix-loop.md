@@ -42,7 +42,7 @@ A reproducible bug cannot be claimed fixed unless one of these is present and va
 - Existing regression spec path and content.
 - Generated regression spec path and content with a valid generated-spec validation result.
 
-If regression coverage is missing, the loop returns `needs_human` with an intended pause when the state machine permits it. It does not call Codex and does not run verification.
+If regression coverage is missing, the loop returns `needs_human` with an intended pause when the state machine permits it. It does not call Codex and does not run verification. For multi-bug batches, every active reproducible bug must be covered; skipped output includes redacted `missingCoverage` entries with the bug id and title.
 
 ## Verification Commands
 

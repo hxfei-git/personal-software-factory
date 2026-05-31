@@ -21,11 +21,17 @@ export interface RegressionCoverageInput {
   generatedSpec?: RegressionGeneratedSpecValidation;
 }
 
+export interface RegressionCoverageMissingBug {
+  id: string;
+  title: string;
+}
+
 export interface RegressionCoverageResult {
   present: boolean;
   source: "existing" | "generated" | "missing";
   path?: string;
   errors: string[];
+  missingCoverage?: RegressionCoverageMissingBug[];
 }
 
 export interface GatedRealCodexRunnerInput {
@@ -224,7 +230,10 @@ export async function runGatedRealAutoFixLoop(input: GatedRealAutoFixLoopInput):
       recommendedNextAction: "Add or validate regression coverage before allowing a reproducible bug to be marked fixed.",
       testResults: [],
       errors: regressionCoverage.errors,
-      output: { blockedBy: "missing_regression_coverage" },
+      output: {
+        blockedBy: "missing_regression_coverage",
+        missingCoverage: regressionCoverage.missingCoverage ?? [],
+      },
       extraSecrets,
     });
   }
@@ -429,60 +438,86 @@ function evaluateRegressionCoverage(input: RegressionCoverageInput | undefined, 
   const existingPath = input?.existingSpecPath?.trim();
   const existingContent = input?.existingSpecContent?.trim();
   if (existingPath && existingContent) {
-    const errors = validateRegressionContent(existingContent, bugs);
-    return errors.length === 0
+    const validation = validateRegressionContent(existingContent, bugs);
+    return validation.errors.length === 0
       ? { present: true, source: "existing", path: existingPath, errors: [] }
-      : { present: false, source: "missing", path: existingPath, errors };
+      : {
+        present: false,
+        source: "missing",
+        path: existingPath,
+        errors: validation.errors,
+        missingCoverage: validation.missingCoverage,
+      };
   }
 
   const generated = input?.generatedSpec;
   const generatedPath = generated?.path?.trim();
   const generatedContent = generated?.content?.trim();
   if (generated?.valid === true && generatedPath && generatedContent) {
-    const errors = validateRegressionContent(generatedContent, bugs);
-    return errors.length === 0
+    const validation = validateRegressionContent(generatedContent, bugs);
+    return validation.errors.length === 0
       ? { present: true, source: "generated", path: generatedPath, errors: [] }
-      : { present: false, source: "missing", path: generatedPath, errors };
+      : {
+        present: false,
+        source: "missing",
+        path: generatedPath,
+        errors: validation.errors,
+        missingCoverage: validation.missingCoverage,
+      };
   }
 
+  const missingCoverage = reproducibleBugsRequiringCoverage(bugs).map(toRegressionCoverageMissingBug);
   return {
     present: false,
     source: "missing",
     errors: generated?.errors?.length ? generated.errors : ["Regression coverage is required for reproducible bugs."],
+    ...(missingCoverage.length === 0 ? {} : { missingCoverage }),
   };
 }
 
-function validateRegressionContent(content: string, bugs: BugReport[]): string[] {
+interface RegressionContentValidation {
+  errors: string[];
+  missingCoverage: RegressionCoverageMissingBug[];
+}
+
+function validateRegressionContent(content: string, bugs: BugReport[]): RegressionContentValidation {
   const errors: string[] = [];
+  const missingCoverage = missingRegressionCoverage(content, bugs);
 
   if (!hasRegressionTestStructure(content)) {
     errors.push("Regression coverage must contain meaningful test structure.");
   }
 
-  if (!referencesBugOrReproduction(content, bugs)) {
-    errors.push("Regression coverage must reference a bug id, bug title, or reproduction signal.");
+  for (const bug of missingCoverage) {
+    errors.push(`Missing regression coverage for reproducible bug ${bug.id}: ${bug.title}.`);
   }
 
-  return errors;
+  return { errors, missingCoverage };
 }
 
 function hasRegressionTestStructure(content: string): boolean {
   return /\b(?:test|it|describe)\s*\(/i.test(content) || /\b(?:async\s+def|def)\s+test_[A-Za-z0-9_]+\s*\(/.test(content);
 }
 
-function referencesBugOrReproduction(content: string, bugs: BugReport[]): boolean {
-  if (bugs.length === 0) {
-    return true;
-  }
-
+function missingRegressionCoverage(content: string, bugs: BugReport[]): RegressionCoverageMissingBug[] {
   const normalizedContent = normalizeRegressionSignal(content);
-  return bugs.some((bug) => {
-    const signals = [bug.id, bug.title, ...bug.reproduction_steps]
-      .map(normalizeRegressionSignal)
-      .filter((signal) => signal.length >= 3);
+  return reproducibleBugsRequiringCoverage(bugs)
+    .filter((bug) => !bugRegressionSignals(bug).some((signal) => normalizedContent.includes(signal)))
+    .map(toRegressionCoverageMissingBug);
+}
 
-    return signals.some((signal) => normalizedContent.includes(signal));
-  });
+function bugRegressionSignals(bug: BugReport): string[] {
+  return [bug.id, bug.title, ...bug.reproduction_steps]
+    .map(normalizeRegressionSignal)
+    .filter((signal) => signal.length >= 3);
+}
+
+function toRegressionCoverageMissingBug(bug: BugReport): RegressionCoverageMissingBug {
+  return { id: bug.id, title: bug.title };
+}
+
+function reproducibleBugsRequiringCoverage(bugs: BugReport[]): BugReport[] {
+  return bugs.filter((bug) => bug.reproduction_steps.length > 0 && bug.status !== "accepted" && bug.status !== "wont_fix");
 }
 
 function normalizeRegressionSignal(value: string): string {
@@ -495,7 +530,7 @@ function formatRunnerError(label: string, error: unknown, extraSecrets: string[]
 }
 
 function hasReproducibleBug(bugs: BugReport[]): boolean {
-  return bugs.some((bug) => bug.reproduction_steps.length > 0 && bug.status !== "accepted" && bug.status !== "wont_fix");
+  return reproducibleBugsRequiringCoverage(bugs).length > 0;
 }
 
 function buildVerificationCommands(input: GatedRealAutoFixLoopInput): Array<{ group: VerificationCommandGroup; command: string }> {
