@@ -1,4 +1,5 @@
 import type { MissionEvent, WorkerRun } from "@psf/mission-schema";
+import { Queue, type Job, type JobsOptions, type JobType } from "bullmq";
 import { z } from "zod";
 
 export type WorkerRuntimeType = "qa" | "auto_fix" | "codex" | "planner" | "integration";
@@ -77,6 +78,7 @@ export interface QueueStats {
   runtime: "in-process" | "bullmq" | string;
   redisConfigured: boolean;
   redisReachable?: boolean;
+  queueName?: string;
   counts: Record<WorkerJobStatus, number>;
 }
 
@@ -310,6 +312,230 @@ export class InProcessWorkerRuntime implements WorkerRuntime {
   }
 }
 
+export interface BullMQWorkerRuntimeOptions {
+  redisUrl?: string;
+  queueName?: string;
+  prefix?: string;
+  connectTimeoutMs?: number;
+}
+
+interface WorkerRuntimeFromEnvOptions {
+  env?: Record<string, string | undefined>;
+}
+
+interface BullMQJobData {
+  job: QueueWorkerJob;
+  retryOfJobId?: string;
+  retryAttempt?: number;
+  cancellationRequested?: boolean;
+}
+
+export class BullMQWorkerRuntime implements WorkerRuntime {
+  private readonly queue: Queue<BullMQJobData, QueuedJobRecord, string>;
+  private readonly queueName: string;
+  private readonly connectTimeoutMs: number;
+  private readonly inProcessRunner = new InProcessWorkerRuntime();
+  private readonly cancelledJobs = new Map<string, QueuedJobRecord>();
+
+  constructor(options: BullMQWorkerRuntimeOptions = {}) {
+    const redisUrl = options.redisUrl ?? "redis://127.0.0.1:6379";
+    const prefix = options.prefix ?? "psf";
+    this.queueName = options.queueName ?? `${prefix}-worker-jobs`;
+    this.connectTimeoutMs = options.connectTimeoutMs ?? 500;
+    this.queue = new Queue<BullMQJobData, QueuedJobRecord, string>(this.queueName, {
+      connection: buildRedisConnection(redisUrl, this.connectTimeoutMs),
+      prefix,
+    });
+    this.queue.on("error", () => {
+      // Errors are converted into readable operation-level messages.
+    });
+  }
+
+  async enqueue(job: QueueWorkerJob): Promise<QueuedJobRecord> {
+    const parsedJob = QueueWorkerJobSchema.parse(job);
+    assertSafePayload(parsedJob.payload);
+    try {
+      const options = buildBullMQJobOptions(parsedJob);
+      const bullJob = await this.queue.add(parsedJob.type, { job: parsedJob }, options);
+      return this.toRecord(bullJob, "queued");
+    } catch (error) {
+      throw readableRedisError(error);
+    }
+  }
+
+  async getJob(jobId: string): Promise<QueuedJobRecord | null> {
+    const cancelled = this.cancelledJobs.get(jobId);
+    if (cancelled) return cancelled;
+
+    try {
+      const job = await this.queue.getJob(jobId);
+      if (!job) return null;
+      return this.toRecord(job);
+    } catch (error) {
+      throw readableRedisError(error);
+    }
+  }
+
+  async getJobStatus(jobId: string): Promise<WorkerJobStatus | null> {
+    return (await this.getJob(jobId))?.status ?? null;
+  }
+
+  async cancelJob(jobId: string): Promise<QueuedJobRecord> {
+    const existingCancelled = this.cancelledJobs.get(jobId);
+    if (existingCancelled) return existingCancelled;
+
+    try {
+      const job = await this.requireBullMQJob(jobId);
+      const status = mapBullMQState(await job.getState());
+      if (status === "completed" || status === "failed") {
+        throw new Error("Cannot cancel failed or completed jobs");
+      }
+      if (status === "active") {
+        await job.updateData({ ...job.data, cancellationRequested: true });
+        return this.toRecord(job, "active", "Active job cancellation is cooperative; cancellation was requested but the job was not force-killed.");
+      }
+
+      const cancelled = await this.toRecord(job, "cancelled");
+      await job.remove();
+      this.cancelledJobs.set(jobId, cancelled);
+      return cancelled;
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Cannot cancel")) throw error;
+      throw readableRedisError(error);
+    }
+  }
+
+  async retryJob(jobId: string): Promise<QueuedJobRecord> {
+    const source = await this.getJob(jobId);
+    if (!source) {
+      throw new Error(`Queue job not found: ${jobId}`);
+    }
+    if (source.status !== "failed" && source.status !== "cancelled") {
+      throw new Error("Only failed or cancelled jobs can be retried");
+    }
+
+    const retryAttempt = (source.retryAttempt ?? 0) + 1;
+    const retryJob = buildWorkerJob({
+      missionId: source.job.missionId,
+      projectId: source.job.projectId,
+      workerRunId: source.job.workerRunId,
+      type: source.job.type,
+      mode: source.job.mode,
+      payload: source.job.payload,
+      idempotencyKey: `${source.job.idempotencyKey ?? source.job.id}:retry:${retryAttempt}`,
+      priority: source.job.priority,
+      attempts: source.job.attempts,
+      timeoutMs: source.job.timeoutMs,
+    });
+
+    try {
+      const options = buildBullMQJobOptions(retryJob);
+      const bullJob = await this.queue.add(retryJob.type, {
+        job: retryJob,
+        retryOfJobId: source.job.id,
+        retryAttempt,
+      }, options);
+      return this.toRecord(bullJob, "queued");
+    } catch (error) {
+      throw readableRedisError(error);
+    }
+  }
+
+  async listJobs(filter: ListJobsFilter = {}): Promise<QueuedJobRecord[]> {
+    if (filter.status === "cancelled") {
+      return Array.from(this.cancelledJobs.values()).filter((record) => matchesJobFilter(record, filter));
+    }
+
+    try {
+      const bullStatuses: JobType[] = filter.status ? bullMQStatusesFor(filter.status) : ["waiting", "delayed", "active", "completed", "failed", "prioritized", "waiting-children"];
+      const jobs = await this.queue.getJobs(bullStatuses, 0, -1, false);
+      const records = await Promise.all(jobs.map((job) => this.toRecord(job)));
+      const allRecords = filter.status ? records : [...records, ...this.cancelledJobs.values()];
+      return allRecords.filter((record) => matchesJobFilter(record, filter));
+    } catch (error) {
+      throw readableRedisError(error);
+    }
+  }
+
+  async getQueueStats(): Promise<QueueStats> {
+    try {
+      const counts = await withTimeout(
+        this.queue.getJobCounts("waiting", "delayed", "active", "completed", "failed", "prioritized", "waiting-children"),
+        this.connectTimeoutMs + 150,
+      );
+      return {
+        runtime: "bullmq",
+        redisConfigured: true,
+        redisReachable: true,
+        queueName: this.queueName,
+        counts: {
+          queued: (counts.waiting ?? 0) + (counts.prioritized ?? 0) + (counts["waiting-children"] ?? 0),
+          delayed: counts.delayed ?? 0,
+          active: counts.active ?? 0,
+          completed: counts.completed ?? 0,
+          failed: counts.failed ?? 0,
+          cancelled: this.cancelledJobs.size,
+        },
+      };
+    } catch (error) {
+      throw readableRedisError(error);
+    }
+  }
+
+  async close(): Promise<void> {
+    await this.queue.close();
+  }
+
+  async run(job: WorkerJob, handler: (job: WorkerJob) => Promise<WorkerHandlerResult>): Promise<WorkerRuntimeResult> {
+    return this.inProcessRunner.run(job, handler);
+  }
+
+  private async requireBullMQJob(jobId: string): Promise<Job<BullMQJobData, QueuedJobRecord, string>> {
+    const job = await this.queue.getJob(jobId);
+    if (!job) {
+      throw new Error(`Queue job not found: ${jobId}`);
+    }
+    return job;
+  }
+
+  private async toRecord(
+    bullJob: Job<BullMQJobData, QueuedJobRecord, string>,
+    overrideStatus?: WorkerJobStatus,
+    error?: string,
+  ): Promise<QueuedJobRecord> {
+    const parsedJob = QueueWorkerJobSchema.parse(bullJob.data.job);
+    assertSafePayload(parsedJob.payload);
+    const state = overrideStatus ?? mapBullMQState(await bullJob.getState());
+    const updatedAtMs = bullJob.finishedOn ?? bullJob.processedOn ?? bullJob.timestamp;
+    const record: QueuedJobRecord = {
+      job: parsedJob,
+      status: state,
+      attemptsMade: bullJob.attemptsMade,
+      createdAt: parsedJob.createdAt,
+      updatedAt: new Date(updatedAtMs).toISOString(),
+    };
+    if (bullJob.processedOn) record.startedAt = new Date(bullJob.processedOn).toISOString();
+    if (bullJob.finishedOn) record.finishedAt = new Date(bullJob.finishedOn).toISOString();
+    if (error ?? bullJob.failedReason) record.error = error ?? bullJob.failedReason;
+    if (bullJob.data.retryOfJobId) record.retryOfJobId = bullJob.data.retryOfJobId;
+    if (bullJob.data.retryAttempt) record.retryAttempt = bullJob.data.retryAttempt;
+    return record;
+  }
+}
+
+export function createWorkerRuntimeFromEnv(options: WorkerRuntimeFromEnvOptions = {}): WorkerRuntime {
+  const env = options.env ?? process.env;
+  if ((env.PSF_WORKER_RUNTIME ?? "in-process").toLowerCase() === "bullmq") {
+    const prefix = env.PSF_QUEUE_PREFIX ?? "psf";
+    return new BullMQWorkerRuntime({
+      redisUrl: env.PSF_REDIS_URL ?? "redis://127.0.0.1:6379",
+      queueName: `${prefix}-worker-jobs`,
+      prefix,
+    });
+  }
+  return new InProcessWorkerRuntime();
+}
+
 function assertSafePayload(value: unknown, path: string[] = []): void {
   if (Array.isArray(value)) {
     value.forEach((item, index) => assertSafePayload(item, [...path, String(index)]));
@@ -326,6 +552,94 @@ function assertSafePayload(value: unknown, path: string[] = []): void {
     }
     assertSafePayload(childValue, [...path, key]);
   }
+}
+
+
+function buildBullMQJobOptions(job: QueueWorkerJob): JobsOptions & { timeout: number } {
+  return {
+    jobId: job.id,
+    priority: job.priority,
+    attempts: job.attempts,
+    timeout: job.timeoutMs,
+    removeOnComplete: false,
+    removeOnFail: false,
+  } as JobsOptions & { timeout: number };
+}
+
+
+function buildRedisConnection(redisUrl: string, connectTimeoutMs: number): Record<string, unknown> {
+  const parsed = new URL(redisUrl);
+  const dbText = parsed.pathname.replace("/", "");
+  const connection: Record<string, unknown> = {
+    host: parsed.hostname,
+    port: parsed.port ? Number(parsed.port) : 6379,
+    connectTimeout: connectTimeoutMs,
+    maxRetriesPerRequest: 0,
+    retryStrategy: () => null,
+  };
+  if (parsed.username) connection.username = decodeURIComponent(parsed.username);
+  if (parsed.password) connection.password = decodeURIComponent(parsed.password);
+  if (dbText) connection.db = Number(dbText);
+  return connection;
+}
+
+function mapBullMQState(state: string): WorkerJobStatus {
+  if (state === "waiting" || state === "prioritized" || state === "waiting-children") return "queued";
+  if (state === "active") return "active";
+  if (state === "completed") return "completed";
+  if (state === "failed") return "failed";
+  if (state === "delayed") return "delayed";
+  return "queued";
+}
+
+function bullMQStatusesFor(status: WorkerJobStatus): JobType[] {
+  switch (status) {
+    case "queued":
+      return ["waiting", "prioritized", "waiting-children"];
+    case "active":
+      return ["active"];
+    case "completed":
+      return ["completed"];
+    case "failed":
+      return ["failed"];
+    case "delayed":
+      return ["delayed"];
+    case "cancelled":
+      return [];
+  }
+}
+
+function matchesJobFilter(record: QueuedJobRecord, filter: ListJobsFilter): boolean {
+  if (filter.status && record.status !== filter.status) return false;
+  if (filter.missionId && record.job.missionId !== filter.missionId) return false;
+  if (filter.workerRunId && record.job.workerRunId !== filter.workerRunId) return false;
+  if (filter.type && record.job.type !== filter.type) return false;
+  return true;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Redis is not reachable: operation timed out")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function readableRedisError(error: unknown): Error {
+  if (error instanceof Error && error.message.startsWith("Redis is not reachable")) {
+    return error;
+  }
+  if (error instanceof Error && (error.message.startsWith("Cannot cancel") || error.message.startsWith("Only failed") || error.message.startsWith("Queue job not found"))) {
+    return error;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return new Error(`Redis is not reachable: ${message}`);
 }
 
 function createEmptyCounts(): Record<WorkerJobStatus, number> {

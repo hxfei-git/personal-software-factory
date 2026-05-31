@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildWorkerJob,
+  BullMQWorkerRuntime,
+  createWorkerRuntimeFromEnv,
   InProcessWorkerRuntime,
   QueueWorkerJobSchema,
   WorkerJobSchema,
@@ -186,6 +188,51 @@ describe("InProcessWorkerRuntime", () => {
       error: "qa exploded",
     });
     expect(runtime.lastFailure?.events.at(-1)?.type).toBe("worker_runtime.failed");
+  });
+});
+
+
+describe("BullMQWorkerRuntime", () => {
+  it("can be constructed and closed without requiring Redis to be reachable", async () => {
+    const runtime = new BullMQWorkerRuntime({
+      redisUrl: "redis://127.0.0.1:6399",
+      queueName: "psf-worker-runtime-test",
+      prefix: "psf-test",
+      connectTimeoutMs: 50,
+    });
+
+    await expect(runtime.close()).resolves.toBeUndefined();
+  });
+
+  it("returns a readable error when Redis is not reachable", async () => {
+    const runtime = new BullMQWorkerRuntime({
+      redisUrl: "redis://127.0.0.1:6399",
+      queueName: "psf-worker-runtime-test",
+      prefix: "psf-test",
+      connectTimeoutMs: 50,
+    });
+
+    await expect(runtime.getQueueStats()).rejects.toThrow(/Redis is not reachable/i);
+    await runtime.close();
+  });
+});
+
+describe("createWorkerRuntimeFromEnv", () => {
+  it("defaults to the in-process runtime", () => {
+    expect(createWorkerRuntimeFromEnv({ env: {} })).toBeInstanceOf(InProcessWorkerRuntime);
+  });
+
+  it("creates the BullMQ runtime when PSF_WORKER_RUNTIME is bullmq", async () => {
+    const runtime = createWorkerRuntimeFromEnv({
+      env: {
+        PSF_WORKER_RUNTIME: "bullmq",
+        PSF_REDIS_URL: "redis://127.0.0.1:6399",
+        PSF_QUEUE_PREFIX: "psf-test",
+      },
+    });
+
+    expect(runtime).toBeInstanceOf(BullMQWorkerRuntime);
+    await runtime.close();
   });
 });
 
