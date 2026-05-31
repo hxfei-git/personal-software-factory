@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { BugReportSchema, QAReportSchema, type ProjectPassport } from "@psf/mission-schema";
+import { BugReportSchema, QAReportSchema, type BugReport, type ProjectPassport } from "@psf/mission-schema";
 import {
+  AiExploratoryQaRunner,
   createQaDryRun,
   createSkippedPlaywrightSummary,
   runDeterministicPlaywrightQa,
+  validateAiExploratoryOutput,
 } from "../src/index.js";
 
 const passport: ProjectPassport = {
@@ -209,5 +211,135 @@ describe("Deterministic Playwright QA runner", () => {
     expect(result.qaRun.target_url).toBe("");
     expect(result.qaRun.summary).toContain("Invalid target URL");
     expect(QAReportSchema.parse(result.qaRun).status).toBe("skipped");
+  });
+});
+
+describe("AI Exploratory QA runner", () => {
+  it("returns manual-action dry-run output without MCP or browser when explicitly disabled", async () => {
+    let executorCalled = false;
+    const runner = new AiExploratoryQaRunner();
+
+    const result = await runner.run({
+      ...input,
+      targetUrl: "http://127.0.0.1:4173",
+      mode: "real",
+      env: { ENABLE_AI_EXPLORATORY_QA: "0" },
+      execute: async () => {
+        executorCalled = true;
+        throw new Error("executor must not be called when AI exploratory QA is disabled");
+      },
+    });
+
+    expect(executorCalled).toBe(false);
+    expect(result.status).toBe("blocked");
+    expect(result.manualActionRequired).toBe(true);
+    expect(result.browserOpened).toBe(false);
+    expect(result.mcpConnected).toBe(false);
+    expect(result.workerRun.mode).toBe("dry-run");
+    expect(result.workerRun.status).toBe("skipped");
+    expect(result.qaRun.status).toBe("skipped");
+    expect(result.files["qa-report.md"]).toContain("manual action required");
+    expect(result.files["bugs.json"]).toContain('"bugs": []');
+    expect(result.files["generated-regression.spec.ts"]).toContain("test.describe.skip");
+    expect(QAReportSchema.parse(result.qaRun).mode).toBe("ai_exploratory");
+  });
+
+  it("rejects invalid AI bugs JSON before producing accepted BugReports", () => {
+    const validation = validateAiExploratoryOutput({
+      missionId: input.missionId,
+      qaRunId: `qa-run-${input.missionId}-ai-exploratory`,
+      now: input.now,
+      reportMarkdown: "# QA Report\n\nAll good.",
+      bugsJson: "{ invalid json",
+      regressionSpec: "import { test } from '@playwright/test';\ntest.describe.skip('generated', () => {});\n",
+    });
+
+    expect(validation.ok).toBe(false);
+    expect(validation.errors).toEqual(expect.arrayContaining(["bugs.json must be valid JSON."]));
+    expect(validation.bugs).toEqual([]);
+  });
+
+  it("rejects P0 and P1 AI bugs that do not include evidence", () => {
+    const validation = validateAiExploratoryOutput({
+      missionId: input.missionId,
+      qaRunId: `qa-run-${input.missionId}-ai-exploratory`,
+      now: input.now,
+      reportMarkdown: "# QA Report\n\nPotential blocker.",
+      bugsJson: JSON.stringify({
+        bugs: [
+          {
+            title: "Checkout is impossible",
+            severity: "P1",
+            reproduction_steps: ["Open checkout", "Click Pay"],
+            expected_result: "Payment starts.",
+            actual_result: "Nothing happens.",
+            evidence: {},
+          },
+        ],
+      }),
+      regressionSpec: "import { test } from '@playwright/test';\ntest.describe.skip('generated', () => {});\n",
+    });
+
+    expect(validation.ok).toBe(false);
+    expect(validation.errors).toEqual(expect.arrayContaining(["P0/P1 AI bug \"Checkout is impossible\" requires evidence."]));
+    expect(validation.bugs).toEqual([]);
+  });
+
+  it("rejects generated regression specs that are not Playwright TypeScript", () => {
+    const validation = validateAiExploratoryOutput({
+      missionId: input.missionId,
+      qaRunId: `qa-run-${input.missionId}-ai-exploratory`,
+      now: input.now,
+      reportMarkdown: "# QA Report\n\nAll good.",
+      bugsJson: JSON.stringify({ bugs: [] }),
+      regressionSpec: "<html><body>not a TypeScript spec</body></html>",
+    });
+
+    expect(validation.ok).toBe(false);
+    expect(validation.errors).toEqual(expect.arrayContaining(["generated-regression.spec.ts must be a Playwright TypeScript spec."]));
+    expect(validation.bugs).toEqual([]);
+  });
+
+  it("accepts schema-valid redacted AI output and parses the generated regression TypeScript", () => {
+    const validation = validateAiExploratoryOutput({
+      missionId: input.missionId,
+      qaRunId: `qa-run-${input.missionId}-ai-exploratory`,
+      now: input.now,
+      reportMarkdown: "# QA Report\n\nObserved console error with token=qa-secret-value.",
+      bugsJson: JSON.stringify({
+        bugs: [
+          {
+            title: "Console error after chapter review",
+            severity: "P2",
+            reproduction_steps: ["Open the review page", "Start chapter review"],
+            expected_result: "Review completes without console errors.",
+            actual_result: "The page logs an exception.",
+            evidence: {
+              console: "TypeError: review is undefined",
+              screenshotPath: "artifacts/missions/mission-0001-ai-novelist-chapter-review/qa/review-error.png",
+              token: "qa-secret-value",
+            },
+          },
+        ],
+      }),
+      regressionSpec: [
+        "import { test, expect } from '@playwright/test';",
+        "",
+        "test.describe.skip('AI exploratory regression', () => {",
+        "  test('captures chapter review console regression', async ({ page }) => {",
+        "    await page.goto(process.env.QA_TEST_URL ?? 'http://127.0.0.1:4173');",
+        "    await expect(page.locator('body')).toBeVisible();",
+        "  });",
+        "});",
+        "",
+      ].join("\n"),
+    });
+
+    expect(validation.ok).toBe(true);
+    expect(validation.files["qa-report.md"]).not.toContain("qa-secret-value");
+    expect(validation.files["bugs.json"]).not.toContain("qa-secret-value");
+    expect(validation.files["generated-regression.spec.ts"]).toContain("test.describe.skip");
+    expect(validation.bugs).toHaveLength(1);
+    expect(BugReportSchema.parse(validation.bugs[0] as BugReport).severity).toBe("P2");
   });
 });

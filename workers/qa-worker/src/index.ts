@@ -19,3 +19,17 @@ export {
   type DeterministicQaStatus,
   type DeterministicQaSummary,
 } from "./deterministic.js";
+export {
+  AiExploratoryQaRunner,
+  validateAiExploratoryOutput,
+  type AiExploratoryOutputValidationInput,
+  type AiExploratoryOutputValidationResult,
+  type AiExploratoryQaExecutionInput,
+  type AiExploratoryQaExecutionOutput,
+  type AiExploratoryQaExecutor,
+  type AiExploratoryQaInput,
+  type AiExploratoryQaMode,
+  type AiExploratoryQaResult,
+  type AiExploratoryQaStatus,
+  type AiExploratoryQaSummary,
+} from "./ai-exploratory.js";
