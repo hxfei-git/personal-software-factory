@@ -167,4 +167,47 @@ describe("Deterministic Playwright QA runner", () => {
       stagingVisited: true,
     });
   });
+
+  it("redacts injected runner summary from all visible outputs", async () => {
+    const result = await runDeterministicPlaywrightQa({
+      missionId: input.missionId,
+      projectId: input.projectId,
+      targetUrl: "http://127.0.0.1:4173",
+      now: input.now,
+      execute: async () => ({
+        status: "passed",
+        passed: 1,
+        failed: 0,
+        summary: "deterministic fixture passed with token=qa-secret-value",
+        logs: ["summary included token=qa-secret-value"],
+        evidence: { summary: "token=qa-secret-value" },
+      }),
+    });
+
+    expect(result.qaRun.summary).not.toContain("qa-secret-value");
+    expect(result.files["qa-report.md"]).not.toContain("qa-secret-value");
+    expect(result.files["qa-summary.json"]).not.toContain("qa-secret-value");
+    expect(result.artifacts.map((artifact) => artifact.content ?? "").join("\n")).not.toContain("qa-secret-value");
+    expect(JSON.stringify(result)).not.toContain("qa-secret-value");
+  });
+
+  it("blocks invalid target URLs while keeping QARun schema-compatible", async () => {
+    const result = await runDeterministicPlaywrightQa({
+      missionId: input.missionId,
+      projectId: input.projectId,
+      targetUrl: "not a url",
+      now: input.now,
+      execute: async () => ({
+        status: "passed",
+        passed: 1,
+        failed: 0,
+      }),
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.manualActionRequired).toBe(true);
+    expect(result.qaRun.target_url).toBe("");
+    expect(result.qaRun.summary).toContain("Invalid target URL");
+    expect(QAReportSchema.parse(result.qaRun).status).toBe("skipped");
+  });
 });

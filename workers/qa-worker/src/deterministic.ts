@@ -92,8 +92,32 @@ export async function runDeterministicPlaywrightQa(input: DeterministicQaInput):
   const now = input.now ?? DEFAULT_NOW;
   const workerRunId = `worker-run-${input.missionId}-qa-deterministic`;
   const qaRunId = `qa-run-${input.missionId}-deterministic`;
-  const targetUrl = resolveTargetUrl(input);
+  const targetUrlResolution = resolveTargetUrl(input);
+  const targetUrl = targetUrlResolution.targetUrl;
   const paths = createArtifactPaths(input.missionId, workerRunId);
+
+  if (targetUrlResolution.reason !== undefined) {
+    return buildResult({
+      input,
+      now,
+      workerRunId,
+      qaRunId,
+      targetUrl: "",
+      paths,
+      status: "blocked",
+      qaStatus: "skipped",
+      workerStatus: "skipped",
+      manualActionRequired: true,
+      browserOpened: false,
+      stagingVisited: false,
+      passed: 0,
+      failed: 0,
+      logs: [targetUrlResolution.reason],
+      failures: [],
+      workerMode: "dry-run",
+      executionSummary: targetUrlResolution.reason,
+    });
+  }
 
   if (targetUrl.length === 0) {
     return buildResult({
@@ -249,6 +273,7 @@ interface BuildResultInput {
 function buildResult(input: BuildResultInput): DeterministicQaResult {
   const redactedTargetUrl = redactText(input.targetUrl);
   const logs = input.logs.map((line) => redactText(line));
+  const redactedExecutionSummary = redactText(input.executionSummary ?? defaultSummary(input.status, input.failures.length));
   const bugs = input.failures.map((failure, index) => createBugReport(input, failure, index));
   const summary: DeterministicQaSummary = redactJson({
     missionId: input.input.missionId,
@@ -273,7 +298,7 @@ function buildResult(input: BuildResultInput): DeterministicQaResult {
     target_url: redactedTargetUrl,
     mode: "deterministic",
     status: input.qaStatus,
-    summary: input.executionSummary ?? defaultSummary(input.status, bugs.length),
+    summary: redactedExecutionSummary,
     report_path: artifacts.find((artifact) => artifact.type === "qa_report")?.path,
     screenshots_dir: input.paths.screenshotsDir,
     trace_path: input.paths.tracePath,
@@ -576,9 +601,35 @@ interface RealPlaywrightPage {
   locator: (selector: string) => { isVisible: () => Promise<boolean> };
 }
 
-function resolveTargetUrl(input: DeterministicQaInput): string {
+interface TargetUrlResolution {
+  targetUrl: string;
+  reason?: string;
+}
+
+function resolveTargetUrl(input: DeterministicQaInput): TargetUrlResolution {
   const env = input.env ?? process.env;
-  return firstNonEmpty(input.targetUrl, env.QA_TEST_URL, env.STAGING_URL);
+  const targetUrl = firstNonEmpty(input.targetUrl, env.QA_TEST_URL, env.STAGING_URL);
+  if (targetUrl.length === 0) {
+    return { targetUrl };
+  }
+
+  if (!isValidHttpUrl(targetUrl)) {
+    return {
+      targetUrl: "",
+      reason: "Invalid target URL: provide an absolute http(s) URL via targetUrl, QA_TEST_URL, or STAGING_URL.",
+    };
+  }
+
+  return { targetUrl };
+}
+
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function resolveRealPlaywrightEnabled(env?: Env): boolean {
