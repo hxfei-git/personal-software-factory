@@ -130,6 +130,8 @@ Task 9 wires these real/gated job contracts into Worker Runner handlers:
 
 The real/gated handlers preserve queue wrapper output semantics: the wrapper records `childWorkerRunIds`, `childQARunIds`, `childArtifactIds`, `childBugReportIds`, `summary`, and `recommendedNextAction`, while child resources are persisted when the underlying runner returns them. Integration handlers currently return safe manual-action summaries and no child resources.
 
+Phase 18 also records Mission-level audit events from Worker Runner completions. Successful or blocked action handling appends `mission.action_result` with the action outcome, child resource IDs, and safe recommended next action. Worker Runner may also append `mission.status.auto_transition` when the result maps to a conservative legal Mission status transition; if the state machine rejects the transition, the Mission status is left unchanged and the action result event remains the audit record.
+
 Unknown job types are rejected by the Zod schema before enqueue. Payloads are recursively rejected when keys look like tokens, passwords, secrets, API keys, authorization headers, or credentials.
 
 ## Gated Real-Mode Routes

@@ -4,7 +4,7 @@ Current default real capabilities are disabled: Codex execution, GitHub push/PR/
 
 ## Dry-Run Boundary
 
-Phase 16A/16B/17A is local dry-run only. Demo workflow and integration outputs must keep:
+Phase 16A/16B/17A/18 is local dry-run/default-safe. Demo workflow, generic Mission dry-run preflight, Hub control-plane views, and integration outputs must keep:
 
 - `dryRun: true`
 - `realCodexExecuted: false`
@@ -14,6 +14,8 @@ Phase 16A/16B/17A is local dry-run only. Demo workflow and integration outputs m
 - integration `realNetworkCall: false`
 
 Do not treat the current CLI, API, or Hub surfaces as real Codex automation, PR creation, deployment, monitoring, or Plane sync.
+
+Phase 18 Approval decisions are records only. Recording an approved Approval does not execute real Codex, queue real actions by itself, create PRs, deploy, create monitors, sync provider records, or bypass `PSF_ACTION_EXECUTION_MODE`, `PSF_ENABLE_REAL_*`, worker, provider, injected runner/transport, or explicit operator approval gates.
 
 ## Verify Dry-Run Mode
 

@@ -46,6 +46,18 @@ Public endpoint.
 
 Public read endpoint for the local MVP API. Returns dashboard metrics, recent Missions, bugs, WorkerRuns, QA runs, Artifacts, Integration statuses, real-mode readiness, policy failures, recommended next actions, and health signals. This route has no side effects and is intended for Hub Web.
 
+### GET /bugs
+
+Public read endpoint for Hub resource pages. Returns all BugReports sorted by creation order. This route has no side effects and does not inspect provider systems.
+
+### GET /artifacts
+
+Public read endpoint for Hub resource pages. Returns all Artifacts. Large artifact records should expose paths and metadata, not inline copies of large evidence files or secret values.
+
+### GET /approvals
+
+Public read endpoint for Hub resource pages. Returns all Approval records. Approval records are audit/readiness data and do not execute real actions.
+
 ### GET /missions/:id/summary
 
 Public read endpoint for Mission detail screens. Returns the Mission, Project, current status, events, artifacts, WorkerRuns, QA runs, bugs, approvals, selected key artifacts such as QA report and Codex prompt, real-mode readiness, policy failures, external links, external status summaries, artifact retention summaries, and one recommended next action.
@@ -122,13 +134,15 @@ Returns the normalized Project Passport for a registered project. The Project mu
 
 Protected. Creates a Mission with status `received` and appends `mission.created`.
 
+Hub sends camelCase request fields:
+
 ```json
 {
-  "project_id": "ai-novelist",
-  "title": "增加章节审稿和自动修复流程",
-  "raw_request": "增加章节审稿和自动修复流程",
+  "projectId": "ai-novelist",
+  "title": "Review chapter export",
+  "rawRequest": "Add review coverage for export flow",
   "priority": "P2",
-  "risk_level": "medium"
+  "riskLevel": "medium"
 }
 ```
 
@@ -167,9 +181,9 @@ Request body fields are optional:
 ### POST /missions/:id/actions/fix-dry-run
 ### POST /missions/:id/actions/loop-dry-run
 
-Protected. Runs local Orchestrator action entrypoints backed by `@psf/demo-workflow`. These endpoints are dry-run only: they do not execute shell commands, Codex, external APIs, pushes, PR creation, or deployments.
+Protected. Runs local Orchestrator action entrypoints backed by `@psf/demo-workflow` for the fixed demo Mission and controlled generic dry-run responses for other supported Missions. These endpoints are dry-run only: they do not execute shell commands, Codex, external APIs, pushes, PR creation, or deployments.
 
-In this batch, mission-scoped dry-run actions support only the fixed ai-novelist demo Mission ID `mission-0001-ai-novelist-chapter-review`. Missing Missions return `404 NOT_FOUND`; other existing Mission IDs return `400 VALIDATION_ERROR` with a clear demo-only message.
+In Phase 18, Mission action preflight no longer rejects non-demo Missions solely because the Mission ID is not `mission-0001-ai-novelist-chapter-review`. The API verifies that the Mission exists, the linked Project exists, and the Project Passport is available when an action needs project context. Missing Missions return `404 NOT_FOUND`; missing Projects or unavailable Project Passports return `400 VALIDATION_ERROR` with a specific blocker. Default action responses remain dry-run/manual-action oriented and report `realCodexExecuted: false`, `realExternalCall: false`, `realPush: false`, and `realDeploy: false`.
 
 Request body:
 
@@ -313,6 +327,10 @@ Protected. Creates a pending Approval and appends `approval.created`.
 
 Lists Approvals for a Mission.
 
+### GET /approvals
+
+Lists all Approvals for Hub resource pages.
+
 ### GET /approvals/:approvalId
 
 Returns one Approval or `404_NOT_FOUND`.
@@ -330,6 +348,8 @@ Protected. Records a decision while the Approval is still `pending` and appends 
 ```
 
 `status` may be `approved`, `rejected`, or `cancelled`.
+
+In Phase 18, this route records the decision only. It does not execute Codex, queue real actions, create PRs, deploy, create monitors, sync provider records, or bypass real-action gates.
 
 ## Worker Runs
 
@@ -399,6 +419,10 @@ Lists Artifacts for a Mission.
 
 Returns one Artifact or `404 NOT_FOUND`.
 
+### GET /artifacts
+
+Lists all Artifacts for Hub resource pages.
+
 ## Bug Reports
 
 ### POST /missions/:missionId/bugs
@@ -425,6 +449,10 @@ Lists BugReports for a Mission.
 ### GET /bugs/:bugId
 
 Returns one BugReport or `404 NOT_FOUND`.
+
+### GET /bugs
+
+Lists all BugReports for Hub resource pages.
 
 ### PATCH /bugs/:bugId
 
@@ -483,9 +511,9 @@ Protected. Updates a QA run and appends `qa_run.updated`.
 
 Stable error codes currently include `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_MISSION_TRANSITION`, `UNAUTHORIZED`, and `INTERNAL_SERVER_ERROR`.
 
-## Phase 16A/16B/17A Demo Surfaces
+## Phase 16A/16B/17A/18 Demo Surfaces
 
-Phase 16A is the local ai-novelist dry-run chain. Phase 16B exposes protected Hub/API dry-run actions. Phase 17A adds CLI doctor, reset, report, and operations docs.
+Phase 16A is the local ai-novelist dry-run chain. Phase 16B exposes protected Hub/API dry-run actions. Phase 17A adds CLI doctor, reset, report, and operations docs. Phase 18 turns Hub resource pages into Orchestrator API-backed views, adds Hub Mission creation, records Approval decisions from Hub, and generalizes Mission dry-run preflight beyond the fixed demo Mission ID.
 
 The API surfaces in this batch are still dry-run only. They do not execute Codex, run shell commands from the Hub, push, create PRs, deploy, create provider records, or call external services.
 

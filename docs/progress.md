@@ -2,9 +2,21 @@
 
 ## Latest Update
 
-Task 14 documents the gated real execution and integration phase. README, `.env.example`, and this progress rollup now describe which real capabilities exist, which gates keep them disabled by default, and what remains manual before any real external action should run.
+Phase 18 documents Hub as an API-backed control plane for core resources and Mission creation, generic Mission dry-run action preflight, Approval decision recording, and WorkerRunner Mission action result/status events while preserving the default dry-run safety boundary.
 
-Detailed phase rollup: `docs/progress/phase-real-execution-and-integrations.md`.
+Detailed phase rollups:
+
+- `docs/progress/phase-18-hub-control-plane-and-generic-actions.md`
+- `docs/progress/phase-real-execution-and-integrations.md`
+
+## Phase 18 Documentation
+
+- Hub resource pages now read Projects, Missions, Bugs, WorkerRuns, Artifacts, and Approvals from Orchestrator API.
+- Hub can create Missions through `/missions/new`, then open the created Mission detail page.
+- Approval decisions can be recorded but do not execute real Codex, PR creation, deploy, monitor sync, or provider sync.
+- Mission dry-run action preflight now checks Mission, Project, and Project Passport availability instead of rejecting non-demo Mission IDs by default.
+- WorkerRunner records `mission.action_result` and conservative `mission.status.auto_transition` events.
+- Real external actions remain disabled by default and integration dry-run/status responses keep `realNetworkCall: false`.
 
 ## Completed Tasks 1-13
 

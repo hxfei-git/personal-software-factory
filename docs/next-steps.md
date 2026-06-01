@@ -2,10 +2,10 @@
 
 ## Recommended Next Batch
 
-1. Finish post-real-mode gated verification with focused package/API/Hub checks first, then broader typecheck/test/build gates only where the changed surface requires them.
-2. Exercise the local demo manually from README on a clean `.env`, confirming real-mode gates stay explicit and dry-run integration responses keep `realNetworkCall: false`.
-3. Keep the BullMQ-backed queue runtime and explicit TypeScript Mission state machine as the baseline while collecting operational evidence.
-4. Add any missing operator screenshots or report examples only if they clarify the gated real-mode or dry-run workflow without committing runtime noise.
+1. After Phase 18, focus the next implementation batch on deterministic QA for `ai-novelist` or carefully gated real local Codex execution.
+2. Do not expand external providers next; keep GitHub, Coolify, Uptime Kuma, Plane, and other provider network calls disabled until local QA/Codex control-plane behavior is proven.
+3. Exercise the Hub control plane manually from README on a clean `.env`, confirming Mission creation, resource pages, Approval decisions, and dry-run action preflight keep real-mode gates explicit and integration responses keep `realNetworkCall: false`.
+4. Keep the BullMQ-backed queue runtime and explicit TypeScript Mission state machine as the baseline while collecting operational evidence.
 
 ## Before Real Codex
 
