@@ -30,7 +30,7 @@ import { createDeterministicMissionPlan } from "@psf/mission-planner";
 import { ProjectRegistryError, findProjectById, scanProjectRegistry } from "@psf/project-registry";
 import { z } from "zod";
 import {
-  assertDemoMissionActionSupported,
+  assertMissionActionWhitelisted,
   buildQueuedActionJob,
   gatedRealActionContracts,
   buildQueuedRealActionJob,
@@ -43,6 +43,7 @@ import {
   runMissionPlanAction as runMissionPlanDryRunAction,
   runQaDryRunAction as runQaDryRunDryRunAction,
   toBlockedRealActionResponse,
+  toGenericInlineDryRunActionResponse,
   toQueuedActionResponse,
   toQueuedRealActionResponse,
   type ActionExecutionMode,
@@ -350,18 +351,35 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
   }
 
 
+  async function preflightMissionAction(id: string, action: QueuedActionKind) {
+    const mission = await getRawMission(id);
+    const project = await storage.getProject(mission.project_id);
+    if (!project) {
+      throw notFound("Project", mission.project_id);
+    }
+    assertMissionActionWhitelisted(action);
+    return mission;
+  }
+
   async function runMissionAction(
     id: string,
     body: unknown,
     action: QueuedActionKind,
     inlineRunner: (missionId: string, body: unknown) => Promise<unknown>,
   ) {
-    const mission = await getRawMission(id);
+    const mission = await preflightMissionAction(id, action);
     if (actionExecutionMode === "queued") {
-      assertDemoMissionActionSupported(id);
       return sanitizeApiResponse(await queueAction(mission, body, action));
     }
-    return sanitizeApiResponse(await inlineRunner(id, body));
+    if (mission.id === EXAMPLE_MISSION_ID) {
+      return sanitizeApiResponse(await inlineRunner(id, body));
+    }
+    return sanitizeApiResponse(toGenericInlineDryRunActionResponse({
+      action,
+      missionId: mission.id,
+      projectId: mission.project_id,
+      body,
+    }));
   }
 
   async function runGatedRealAction(id: string, body: unknown, action: GatedRealActionKind) {

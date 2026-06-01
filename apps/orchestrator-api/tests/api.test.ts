@@ -632,6 +632,83 @@ describe("orchestrator api", () => {
     }
   });
 
+  it("returns a non-demo inline dry-run response for mission actions/plan when the Project exists", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "Non-demo inline plan action mission");
+
+    const response = await server.inject({
+      method: "POST",
+      url: `/missions/${mission.id}/actions/plan`,
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      accepted: true,
+      executionMode: "inline",
+      missionId: mission.id,
+      projectId: "ai-novelist",
+      mode: "dry-run",
+      dryRun: true,
+      realCodexExecuted: false,
+      realExternalCall: false,
+      realPush: false,
+      realDeploy: false,
+      generatedArtifacts: [],
+      workerRunIds: [],
+      qaRunIds: [],
+      bugIds: [],
+      eventIds: [],
+    });
+    expect(response.json().recommendedNextAction).toContain("queued");
+  });
+
+  it("returns a readable preflight error for non-demo mission actions when the Project is missing", async () => {
+    const { server, storage } = await createTestServer({ auth: { disabled: true } });
+    const now = "2026-05-31T00:00:00.000Z";
+    await storage.createMission({
+      mission: {
+        id: "mission-non-demo-missing-project",
+        project_id: "missing-project",
+        title: "Missing project action mission",
+        slug: "missing-project-action-mission",
+        raw_request: "Exercise action preflight for a missing project.",
+        mission_markdown: "",
+        acceptance_markdown: "",
+        status: MissionStatus.received,
+        priority: "P2",
+        risk_level: "medium",
+        branch_name: "",
+        workspace_path: "",
+        pr_url: "",
+        current_attempt: 0,
+        max_attempts: 3,
+        created_at: now,
+        updated_at: now,
+      },
+      event: {
+        id: "event-mission-non-demo-missing-project-created",
+        mission_id: "mission-non-demo-missing-project",
+        type: "mission.created",
+        message: "Mission created",
+        payload: { status: MissionStatus.received },
+        created_at: now,
+      },
+    });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/missions/mission-non-demo-missing-project/actions/plan",
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({
+      code: "NOT_FOUND",
+      message: "Project not found: missing-project",
+    });
+  });
+
   it("queues mission qa dry-run action without executing child workflow resources", async () => {
     const workerRuntime = new InProcessWorkerRuntime();
     const { server, storage } = await createTestServer({
@@ -917,7 +994,7 @@ describe("orchestrator api", () => {
     expect(response.json().code).toBe("UNAUTHORIZED");
   });
 
-  it("rejects queued mission dry-run actions for non-demo missions without creating queue work", async () => {
+  it("queues non-demo mission dry-run actions when the Project exists", async () => {
     const workerRuntime = new InProcessWorkerRuntime();
     const { server, storage } = await createTestServer({
       auth: { disabled: true },
@@ -932,14 +1009,21 @@ describe("orchestrator api", () => {
       payload: { withSampleBug: true },
     });
 
-    expect(response.statusCode).toBe(400);
+    expect(response.statusCode).toBe(202);
     expect(response.json()).toMatchObject({
-      code: "VALIDATION_ERROR",
-      message: "This dry-run action currently supports the ai-novelist demo mission only.",
+      accepted: true,
+      executionMode: "queued",
+      missionId: mission.id,
+      projectId: "ai-novelist",
+      status: "queued",
+      dryRun: true,
+      realCodexExecuted: false,
+      realExternalCall: false,
+      realPush: false,
+      realDeploy: false,
     });
-    expect(await storage.listMissionWorkerRuns(mission.id)).toHaveLength(0);
-    expect(await storage.listAllWorkerRuns()).toHaveLength(0);
-    expect(await workerRuntime.listJobs()).toHaveLength(0);
+    expect(await storage.listMissionWorkerRuns(mission.id)).toHaveLength(1);
+    expect(await workerRuntime.listJobs()).toHaveLength(1);
   });
 
   it("returns not found for queued mission actions when the Mission is missing", async () => {

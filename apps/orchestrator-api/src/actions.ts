@@ -30,6 +30,8 @@ export const RealActionRequestSchema = z.object({
   approvalId: z.string().min(1).optional(),
 }).strict();
 
+const queuedActionKinds = new Set<QueuedActionKind>(["plan", "codex", "qa", "fix", "loop", "demo"]);
+
 export const gatedRealActionContracts: Record<GatedRealActionKind, { jobType: WorkerJobType; gateEnv: string; label: string }> = {
   "codex-real": { jobType: "codex.real", gateEnv: "PSF_ENABLE_REAL_CODEX", label: "Codex real execution" },
   "qa-playwright": { jobType: "qa.playwright", gateEnv: "PSF_ENABLE_REAL_QA_PLAYWRIGHT", label: "Playwright QA" },
@@ -101,6 +103,29 @@ export function toActionResponse(result: DemoWorkflowResult) {
     eventIds: result.eventIds,
     missionDetailUrl: result.missionDetailUrl,
     recommendedNextAction: result.message,
+  };
+}
+
+export function toGenericInlineDryRunActionResponse(input: { action: QueuedActionKind; missionId: string; projectId: string; body: unknown }) {
+  parseActionRequest(MissionActionRequestSchema, input.body ?? {});
+
+  return {
+    accepted: true,
+    executionMode: "inline" as const,
+    missionId: input.missionId,
+    projectId: input.projectId,
+    mode: "dry-run",
+    dryRun: true,
+    realCodexExecuted: false,
+    realExternalCall: false,
+    realPush: false,
+    realDeploy: false,
+    generatedArtifacts: [],
+    workerRunIds: [],
+    qaRunIds: [],
+    bugIds: [],
+    eventIds: [],
+    recommendedNextAction: "Generic " + input.action + " dry-run preflight passed. Switch to PSF_ACTION_EXECUTION_MODE=queued to create a WorkerRun for project-specific execution when worker support is available.",
   };
 }
 
@@ -208,6 +233,12 @@ export function toQueuedRealActionResponse(input: QueuedRealActionResponseInput)
 
 export function isGatedRealActionEnabled(action: GatedRealActionKind, env: Record<string, string | undefined> = process.env): boolean {
   return env[gatedRealActionContracts[action].gateEnv] === "true";
+}
+
+export function assertMissionActionWhitelisted(action: QueuedActionKind) {
+  if (!queuedActionKinds.has(action)) {
+    throw badRequest("VALIDATION_ERROR", "Mission action is not supported", { action, supportedActions: [...queuedActionKinds] });
+  }
 }
 
 export function assertDemoMissionActionSupported(missionId: string) {
