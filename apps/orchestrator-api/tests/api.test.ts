@@ -633,34 +633,39 @@ describe("orchestrator api", () => {
   });
 
   it("returns a non-demo inline dry-run response for mission actions/plan when the Project exists", async () => {
-    const { server } = await createTestServer({ auth: { disabled: true } });
-    const mission = await createMission(server, "Non-demo inline plan action mission");
+    const registryRoot = await createAiNovelistRegistryRoot();
+    try {
+      const { server } = await createTestServer({ auth: { disabled: true }, registryRoot });
+      const mission = await createMission(server, "Non-demo inline plan action mission");
 
-    const response = await server.inject({
-      method: "POST",
-      url: `/missions/${mission.id}/actions/plan`,
-      payload: {},
-    });
+      const response = await server.inject({
+        method: "POST",
+        url: `/missions/${mission.id}/actions/plan`,
+        payload: {},
+      });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      accepted: true,
-      executionMode: "inline",
-      missionId: mission.id,
-      projectId: "ai-novelist",
-      mode: "dry-run",
-      dryRun: true,
-      realCodexExecuted: false,
-      realExternalCall: false,
-      realPush: false,
-      realDeploy: false,
-      generatedArtifacts: [],
-      workerRunIds: [],
-      qaRunIds: [],
-      bugIds: [],
-      eventIds: [],
-    });
-    expect(response.json().recommendedNextAction).toContain("queued");
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        accepted: true,
+        executionMode: "inline",
+        missionId: mission.id,
+        projectId: "ai-novelist",
+        mode: "dry-run",
+        dryRun: true,
+        realCodexExecuted: false,
+        realExternalCall: false,
+        realPush: false,
+        realDeploy: false,
+        generatedArtifacts: [],
+        workerRunIds: [],
+        qaRunIds: [],
+        bugIds: [],
+        eventIds: [],
+      });
+      expect(response.json().recommendedNextAction).toContain("queued");
+    } finally {
+      await rm(registryRoot, { recursive: true, force: true });
+    }
   });
 
   it("returns a readable preflight error for non-demo mission actions when the Project is missing", async () => {
@@ -707,6 +712,28 @@ describe("orchestrator api", () => {
       code: "NOT_FOUND",
       message: "Project not found: missing-project",
     });
+  });
+
+  it("returns a readable preflight error when the Project Passport is missing", async () => {
+    const registryRoot = await createRegistryRoot();
+    try {
+      const { server } = await createTestServer({ auth: { disabled: true }, registryRoot });
+      const mission = await createMission(server, "Missing passport action mission");
+
+      const response = await server.inject({
+        method: "POST",
+        url: `/missions/${mission.id}/actions/plan`,
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toMatchObject({
+        code: "NOT_FOUND",
+        message: "ProjectPassport not found: ai-novelist",
+      });
+    } finally {
+      await rm(registryRoot, { recursive: true, force: true });
+    }
   });
 
   it("queues mission qa dry-run action without executing child workflow resources", async () => {
@@ -995,35 +1022,41 @@ describe("orchestrator api", () => {
   });
 
   it("queues non-demo mission dry-run actions when the Project exists", async () => {
-    const workerRuntime = new InProcessWorkerRuntime();
-    const { server, storage } = await createTestServer({
-      auth: { disabled: true },
-      actionExecutionMode: "queued",
-      workerRuntime,
-    });
-    const mission = await createMission(server, "Non-demo queued QA mission");
+    const registryRoot = await createAiNovelistRegistryRoot();
+    try {
+      const workerRuntime = new InProcessWorkerRuntime();
+      const { server, storage } = await createTestServer({
+        auth: { disabled: true },
+        actionExecutionMode: "queued",
+        workerRuntime,
+        registryRoot,
+      });
+      const mission = await createMission(server, "Non-demo queued QA mission");
 
-    const response = await server.inject({
-      method: "POST",
-      url: `/missions/${mission.id}/actions/qa-dry-run`,
-      payload: { withSampleBug: true },
-    });
+      const response = await server.inject({
+        method: "POST",
+        url: `/missions/${mission.id}/actions/qa-dry-run`,
+        payload: { withSampleBug: true },
+      });
 
-    expect(response.statusCode).toBe(202);
-    expect(response.json()).toMatchObject({
-      accepted: true,
-      executionMode: "queued",
-      missionId: mission.id,
-      projectId: "ai-novelist",
-      status: "queued",
-      dryRun: true,
-      realCodexExecuted: false,
-      realExternalCall: false,
-      realPush: false,
-      realDeploy: false,
-    });
-    expect(await storage.listMissionWorkerRuns(mission.id)).toHaveLength(1);
-    expect(await workerRuntime.listJobs()).toHaveLength(1);
+      expect(response.statusCode).toBe(202);
+      expect(response.json()).toMatchObject({
+        accepted: true,
+        executionMode: "queued",
+        missionId: mission.id,
+        projectId: "ai-novelist",
+        status: "queued",
+        dryRun: true,
+        realCodexExecuted: false,
+        realExternalCall: false,
+        realPush: false,
+        realDeploy: false,
+      });
+      expect(await storage.listMissionWorkerRuns(mission.id)).toHaveLength(1);
+      expect(await workerRuntime.listJobs()).toHaveLength(1);
+    } finally {
+      await rm(registryRoot, { recursive: true, force: true });
+    }
   });
 
   it("returns not found for queued mission actions when the Mission is missing", async () => {

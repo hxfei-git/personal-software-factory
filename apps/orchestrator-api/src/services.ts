@@ -207,6 +207,7 @@ export interface MissionServiceOptions {
 
 export function createMissionServices(storage: MissionStorage, options: MissionServiceOptions = {}) {
   const registryRoot = options.registryRoot ?? "projects";
+  const shouldTryPackageRelativeRegistryRoot = options.registryRoot === undefined && registryRoot === "projects";
   const actionExecutionMode = options.actionExecutionMode ?? "inline";
   const workerRuntime = options.workerRuntime;
   async function getRawMission(id: string) {
@@ -251,10 +252,20 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
   async function getRegistryProject(projectId: string) {
     const registryProjects = await scanRegistryOrValidationError(registryRoot);
     const registryProject = findProjectById(registryProjects, projectId);
-    if (!registryProject) {
-      throw notFound("ProjectPassport", projectId);
+    if (registryProject) {
+      return registryProject;
     }
-    return registryProject;
+
+    if (shouldTryPackageRelativeRegistryRoot) {
+      const packageRelativeRoot = join(process.cwd(), "..", "..", "projects");
+      const fallbackProjects = await scanRegistryOrValidationError(packageRelativeRoot);
+      const fallbackProject = findProjectById(fallbackProjects, projectId);
+      if (fallbackProject) {
+        return fallbackProject;
+      }
+    }
+
+    throw notFound("ProjectPassport", projectId);
   }
 
   async function readQaCharterNextToPassport(passportPath: string) {
@@ -357,6 +368,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     if (!project) {
       throw notFound("Project", mission.project_id);
     }
+    await getRegistryProject(mission.project_id);
     assertMissionActionWhitelisted(action);
     return mission;
   }
