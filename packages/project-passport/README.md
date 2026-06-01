@@ -21,9 +21,10 @@ Project Passport defines and validates `project.passport.yaml`, the local contra
 - `commands.build`
 - `commands.run_staging`
 - `urls.production`
-- `urls.staging`
 - `quality_gates`
 - `core_flows`
+
+`urls.local` and `urls.staging` are optional. They may be empty or missing until the local or staging environments are verified.
 
 ## Example
 

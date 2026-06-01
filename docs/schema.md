@@ -52,7 +52,7 @@ The list is a plan-compatible superset. The Orchestrator API MVP uses the requir
 
 `packages/project-passport` reads YAML, validates through `ProjectPassportSchema`, and normalizes command fields to arrays.
 
-Required fields include `id`, `name`, `repo`, `runtime`, `commands.install`, `commands.test`, `commands.build`, `commands.run_staging`, `urls.production`, `urls.staging`, `quality_gates`, and `core_flows`.
+Required fields include `id`, `name`, `repo`, `runtime`, `commands.install`, `commands.test`, `commands.build`, `commands.run_staging`, `urls.production`, `quality_gates`, and `core_flows`. `urls.local` and `urls.staging` are optional and may be empty or missing until those environments are verified.
 
 ## Prisma Models
 
