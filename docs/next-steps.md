@@ -2,9 +2,10 @@
 
 ## Recommended Next Batch
 
-1. Run Task 8 verification for Phase 16A/16B/17A: focused package tests, API tests, Hub tests, full test/typecheck/build gates, and diff checks.
-2. Exercise the local demo manually from README on a clean `.env`.
-3. Add any missing operator screenshots or report examples only if they clarify the dry-run workflow without committing runtime noise.
+1. Finish post-real-mode gated verification with focused package/API/Hub checks first, then broader typecheck/test/build gates only where the changed surface requires them.
+2. Exercise the local demo manually from README on a clean `.env`, confirming real-mode gates stay explicit and dry-run integration responses keep `realNetworkCall: false`.
+3. Keep the BullMQ-backed queue runtime and explicit TypeScript Mission state machine as the baseline while collecting operational evidence.
+4. Add any missing operator screenshots or report examples only if they clarify the gated real-mode or dry-run workflow without committing runtime noise.
 
 ## Before Real Codex
 
@@ -24,4 +25,6 @@
 
 ## Before Temporal/LangGraph
 
-Stay with the explicit TypeScript state machine until there is evidence of long-running workflow recovery problems, complex graph branching, or multi-project scheduling pressure that the current stack cannot handle cleanly.
+Stay with BullMQ plus the explicit TypeScript state machine until ADR 0005 evidence exists across recovery failures, compensation needs, durable timers, branching graph complexity, or multi-project pressure.
+
+If that evidence appears, use `docs/temporal-langgraph-migration.md` as the migration sketch: wrap current job handlers as Temporal activities or LangGraph nodes while preserving Orchestrator, WorkerRun, and MissionEvent contracts.
