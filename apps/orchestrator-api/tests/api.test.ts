@@ -1795,6 +1795,19 @@ describe("orchestrator api", () => {
     expect(updated.json().status).toBe("succeeded");
   });
 
+  it("accepts auto_fix worker runs", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "Auto fix WorkerRun mission");
+    const created = await server.inject({
+      method: "POST",
+      url: `/missions/${mission.id}/worker-runs`,
+      payload: { workerType: "auto_fix", status: "queued", mode: "dry-run" },
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(created.json().worker_type).toBe("auto_fix");
+  });
+
   it("creates, lists, and reads artifacts", async () => {
     const { server } = await createTestServer({ auth: { disabled: true } });
     const mission = await createMission(server, "Artifact mission");

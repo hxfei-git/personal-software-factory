@@ -111,7 +111,7 @@ const DecideApprovalRequestSchema = z.object({
 
 const WorkerRunStatusSchema = z.enum(["queued", "running", "succeeded", "failed", "cancelled", "skipped"]);
 const WorkerRunModeSchema = z.enum(["dry-run", "mock", "real"]);
-const WorkerTypeSchema = z.enum(["codex", "qa", "deploy", "monitor", "planner", "integration", "orchestrator"]);
+const WorkerTypeSchema = z.enum(["codex", "qa", "deploy", "monitor", "planner", "integration", "orchestrator", "auto_fix"]);
 const ListWorkerRunsQuerySchema = z.object({
   status: WorkerRunStatusSchema.optional(),
   missionId: z.string().min(1).optional(),
