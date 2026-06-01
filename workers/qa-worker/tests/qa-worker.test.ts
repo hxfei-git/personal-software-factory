@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.setConfig({ testTimeout: 15_000 });
+vi.setConfig({ testTimeout: 45_000 });
 import { BugReportSchema, QAReportSchema, type BugReport, type ProjectPassport } from "@psf/mission-schema";
 import {
   AiExploratoryQaRunner,

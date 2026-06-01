@@ -66,6 +66,8 @@ export interface BuildQueuedRealActionJobInput {
   projectId: string;
   workerRunId: string;
   body: unknown;
+  approvalRecordIds?: string[];
+  approvalGrantIds?: string[];
 }
 
 export interface GatedRealActionResponseInput {
@@ -120,9 +122,17 @@ export function buildQueuedActionJob(input: BuildQueuedActionJobInput): QueueWor
 }
 
 export function buildQueuedRealActionJob(input: BuildQueuedRealActionJobInput): QueueWorkerJob {
-  const parsedBody = parseActionRequest(RealActionRequestSchema, input.body ?? {});
+  const bodyRecord = input.body && typeof input.body === "object" && !Array.isArray(input.body)
+    ? input.body as Record<string, unknown>
+    : {};
+  const parsedBody = parseActionRequest(RealActionRequestSchema, { approvalId: bodyRecord.approvalId });
   const contract = gatedRealActionContracts[input.action];
-  const payload = parsedBody.approvalId ? { approvalId: parsedBody.approvalId } : {};
+  const payload = {
+    enableRealMode: true,
+    approvalRecordIds: input.approvalRecordIds ?? [],
+    approvalIds: input.approvalGrantIds ?? [],
+    ...(parsedBody.approvalId ? { requestedApprovalId: parsedBody.approvalId } : {}),
+  };
 
   return buildWorkerJob({
     missionId: input.missionId,

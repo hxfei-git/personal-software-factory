@@ -42,11 +42,11 @@ function gitOutput(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 }
 
-async function createTempGitRepo(name = "repo"): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "psf-codex-worker-"));
-  const repo = path.join(root, name);
+async function createTempGitRepo(name = "repo", root?: string): Promise<string> {
+  const repoRoot = root ?? await mkdtemp(path.join(os.tmpdir(), "psf-codex-worker-"));
+  const repo = path.join(repoRoot, name);
 
-  git(root, ["init", repo]);
+  git(repoRoot, ["init", repo]);
   git(repo, ["config", "user.email", "codex-worker-test@example.com"]);
   git(repo, ["config", "user.name", "Codex Worker Test"]);
   await writeFile(path.join(repo, "README.md"), "# Fixture\n", "utf8");
@@ -56,6 +56,12 @@ async function createTempGitRepo(name = "repo"): Promise<string> {
   git(repo, ["remote", "add", "origin", repo]);
 
   return repo;
+}
+
+async function createWorkspaceMirrorRepo(workspaceRoot: string, name = "repo"): Promise<string> {
+  const mirrorRoot = path.join(workspaceRoot, "mirrors");
+  await mkdir(mirrorRoot, { recursive: true });
+  return createTempGitRepo(name, mirrorRoot);
 }
 
 async function createFakeCodexExecutable(exitCode: 0 | 1): Promise<string> {
@@ -247,8 +253,8 @@ describe("real Codex runner gated mode", () => {
   });
 
   it("leases a git worktree under PSF_WORKSPACE_ROOT using an agent branch", async () => {
-    const repo = await createTempGitRepo();
     const root = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const repo = await createWorkspaceMirrorRepo(root);
 
     const lease = await leaseCodexWorkspace(realRequest({
       repoUrl: repo,
@@ -267,8 +273,8 @@ describe("real Codex runner gated mode", () => {
   });
 
   it("refuses an existing agent branch without resetting its tip", async () => {
-    const repo = await createTempGitRepo();
     const root = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const repo = await createWorkspaceMirrorRepo(root);
     const branchName = "agent/ai-novelist-existing-branch";
 
     git(repo, ["checkout", "-b", branchName]);
@@ -290,8 +296,8 @@ describe("real Codex runner gated mode", () => {
   });
 
   it("refuses an existing target worktree path without deleting or overwriting it", async () => {
-    const repo = await createTempGitRepo();
     const root = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const repo = await createWorkspaceMirrorRepo(root);
     const missionId = "existing-worktree-path";
     const workspacePath = path.join(root, "ai-novelist", missionId);
     const sentinel = path.join(workspacePath, "sentinel.txt");
@@ -310,9 +316,11 @@ describe("real Codex runner gated mode", () => {
   });
 
   it("refuses protected execution branches and repositories without git remotes", async () => {
-    const repoWithoutRemote = await mkdtemp(path.join(os.tmpdir(), "psf-codex-no-remote-"));
-    git(repoWithoutRemote, ["init"]);
     const root = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const mirrorRoot = path.join(root, "mirrors");
+    await mkdir(mirrorRoot, { recursive: true });
+    const repoWithoutRemote = await mkdtemp(path.join(mirrorRoot, "psf-codex-no-remote-"));
+    git(repoWithoutRemote, ["init"]);
 
     await expect(leaseCodexWorkspace(realRequest({
       repoUrl: repoWithoutRemote,
@@ -331,8 +339,8 @@ describe("real Codex runner gated mode", () => {
   });
 
   it.each([0, 1] as const)("runs an explicit mock executable with exit code %i and stores redacted output artifacts", async (exitCode) => {
-    const repo = await createTempGitRepo();
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const repo = await createWorkspaceMirrorRepo(workspaceRoot);
     const executable = await createFakeCodexExecutable(exitCode);
     const runner = new RealCodexRunner({
       env: {
@@ -368,8 +376,8 @@ describe("real Codex runner gated mode", () => {
   });
 
   it("redacts raw secret-like environment values from result output and artifact files", async () => {
-    const repo = await createTempGitRepo();
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const repo = await createWorkspaceMirrorRepo(workspaceRoot);
     const executable = await createShellExecutable([
       "echo \"stdout $PSF_API_TOKEN\"",
       "echo \"stderr $PLANE_API_TOKEN\" >&2",
@@ -396,8 +404,8 @@ describe("real Codex runner gated mode", () => {
       }));
 
       expect(result.status).toBe("succeeded");
-      expect(result.stdout).toContain("[REDACTED]");
-      expect(result.stderr).toContain("[REDACTED]");
+      expect(result.stdout).not.toContain(rawApiSecret);
+      expect(result.stderr).not.toContain(rawPlaneSecret);
       expect(JSON.stringify(result)).not.toContain(rawApiSecret);
       expect(JSON.stringify(result)).not.toContain(rawPlaneSecret);
 
@@ -411,12 +419,74 @@ describe("real Codex runner gated mode", () => {
     });
   });
 
+
+  it("passes only an allowlisted environment to the Codex child process", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const repo = await createWorkspaceMirrorRepo(workspaceRoot);
+    const executable = await createFakeCodexExecutable(0);
+    let childEnv: Record<string, string | undefined> | undefined;
+    const runner = new RealCodexRunner({
+      env: {
+        ENABLE_REAL_CODEX: "1",
+        CODEX_EXECUTABLE: executable,
+        CODEX_SANDBOX: "workspace-write",
+        CODEX_APPROVAL_MODE: "on-request",
+        PSF_WORKSPACE_ROOT: workspaceRoot,
+        PSF_REAL_CODEX_MAX_RUNTIME_MS: "10000",
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        PSF_API_TOKEN: "api-token-must-not-reach-child",
+        DATABASE_URL: "postgres://user:db-secret@example.test/db",
+        GITHUB_TOKEN: "github-token-must-not-reach-child",
+      },
+      spawnCodex: async (spawnInput) => {
+        childEnv = spawnInput.env;
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    const result = await runner.run(realRequest({
+      repoUrl: repo,
+      workspaceRoot,
+      branchName: "agent/ai-novelist-env-allowlist",
+    }));
+
+    expect(result.status).toBe("succeeded");
+    expect(childEnv).toBeDefined();
+    expect(childEnv?.CODEX_SANDBOX).toBe("workspace-write");
+    expect(childEnv?.CODEX_APPROVAL_MODE).toBe("on-request");
+    expect(childEnv?.PSF_API_TOKEN).toBeUndefined();
+    expect(childEnv?.DATABASE_URL).toBeUndefined();
+    expect(childEnv?.GITHUB_TOKEN).toBeUndefined();
+    expect(JSON.stringify(childEnv)).not.toContain("api-token-must-not-reach-child");
+    expect(JSON.stringify(childEnv)).not.toContain("db-secret");
+    expect(JSON.stringify(childEnv)).not.toContain("github-token-must-not-reach-child");
+  });
+
+  it("refuses to create Codex worktrees from local repositories outside the workspace mirror root", async () => {
+    const repo = await createTempGitRepo();
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+
+    const lease = await leaseCodexWorkspace(realRequest({
+      repoUrl: repo,
+      workspaceRoot,
+      branchName: "agent/ai-novelist-outside-mirror",
+    }));
+
+    expect(lease.status).toBe("manual_action");
+    if (lease.status !== "manual_action") {
+      throw new Error("Expected manual action for repository outside workspace mirror root.");
+    }
+    expect(lease.reason).toMatch(/mirror/i);
+    expect(gitBranchExists(repo, "agent/ai-novelist-outside-mirror")).toBe(false);
+  });
+
   it.each([
     { envKey: "CODEX_SANDBOX", envValue: "danger-full-access", reason: /sandbox/i },
     { envKey: "CODEX_APPROVAL_MODE", envValue: "never", reason: /approval/i },
   ] as const)("blocks unsafe $envKey=$envValue before spawning", async ({ envKey, envValue, reason }) => {
-    const repo = await createTempGitRepo();
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const repo = await createWorkspaceMirrorRepo(workspaceRoot);
     const executable = await createFakeCodexExecutable(0);
     let spawned = false;
     const runner = new RealCodexRunner({
@@ -446,8 +516,8 @@ describe("real Codex runner gated mode", () => {
   });
 
   it("preflights blocked commands before creating a worktree or agent branch", async () => {
-    const repo = await createTempGitRepo();
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const repo = await createWorkspaceMirrorRepo(workspaceRoot);
     const executable = await createFakeCodexExecutable(0);
     const missionId = "dangerous-command-mission";
     const branchName = "agent/ai-novelist-dangerous-command-mission";
@@ -482,8 +552,8 @@ describe("real Codex runner gated mode", () => {
   });
 
   it("escalates timed out Codex processes that ignore SIGTERM", async () => {
-    const repo = await createTempGitRepo();
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const repo = await createWorkspaceMirrorRepo(workspaceRoot);
     const executable = await createShellExecutable([
       "trap '' TERM",
       "echo started",

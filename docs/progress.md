@@ -28,7 +28,7 @@ Detailed phase rollup: `docs/progress/phase-real-execution-and-integrations.md`.
 - `.env.example` now lists the phase real-mode variables and Orchestrator route gates with empty placeholders/comments for secrets.
 - This progress file and `docs/progress/phase-real-execution-and-integrations.md` summarize changed capabilities, safety boundaries, migrations, test commands, and remaining manual actions.
 - Real external APIs were not called during this documentation task.
-- Final verification passed after the documentation rollup and targeted test-stability commits.
+- Final verification passed after the documentation rollup, targeted test-stability commits, and final security-review fixes.
 
 ## Changed Capability List
 
@@ -38,6 +38,9 @@ Default-safe capabilities remain local dry-runs, mock integration status/dry-run
 
 ## Default Safety Boundaries
 
+- Codex child processes now receive only an allowlisted non-secret environment, and local repository mirrors must live under `PSF_WORKSPACE_ROOT/mirrors`.
+- Queued real-action jobs record approved approval records separately from worker policy grant ids.
+- Uptime Kuma runtime session tokens are redacted from post-login transport error results.
 - `realNetworkCall` remains `false` on default integration status and dry-run surfaces.
 - Orchestrator real-action routes require `PSF_ACTION_EXECUTION_MODE=queued` plus route-specific `PSF_ENABLE_REAL_*` gates.
 - Worker/provider gates such as `ENABLE_REAL_CODEX`, `ENABLE_REAL_PLAYWRIGHT`, `ENABLE_AI_EXPLORATORY_QA`, and `ENABLE_REAL_GITHUB` remain disabled in `.env.example`.

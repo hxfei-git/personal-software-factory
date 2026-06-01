@@ -388,7 +388,11 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
           : blocked.recommendedNextAction,
       });
     }
-    return sanitizeApiResponse(await queueAction(mission, input, action, "real"));
+    return sanitizeApiResponse(await queueAction(mission, {
+      ...input,
+      approvalRecordIds: approvedApprovalRecordIdsForAction(action, approvals),
+      approvalIds: approvalGrantIdsForAction(action),
+    }, action, "real"));
   }
 
   async function queueAction(mission: Mission, body: unknown, action: QueuedActionKind | GatedRealActionKind, mode: "dry-run" | "real" = "dry-run") {
@@ -404,6 +408,12 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         projectId: mission.project_id,
         workerRunId,
         body,
+        approvalRecordIds: isRecord(body) && Array.isArray(body.approvalRecordIds)
+          ? body.approvalRecordIds.filter((value): value is string => typeof value === "string")
+          : [],
+        approvalGrantIds: isRecord(body) && Array.isArray(body.approvalIds)
+          ? body.approvalIds.filter((value): value is string => typeof value === "string")
+          : [],
       })
       : buildQueuedActionJob({
         action: action as QueuedActionKind,
@@ -1590,6 +1600,30 @@ const readinessDefinitions: Record<ReadinessKey, {
 
 function buildActionApprovalCoverage(action: GatedRealActionKind, approvals: Approval[]) {
   return buildApprovalCoverage(requiredApprovalTypesForAction(action), approvals);
+}
+
+function approvedApprovalRecordIdsForAction(action: GatedRealActionKind, approvals: Approval[]): string[] {
+  const required = new Set(requiredApprovalTypesForAction(action));
+  return approvals
+    .filter((approval) => approval.status === "approved" && required.has(approval.type))
+    .map((approval) => approval.id);
+}
+
+function approvalGrantIdsForAction(action: GatedRealActionKind): string[] {
+  switch (action) {
+    case "codex-real":
+    case "fix-real":
+      return ["real_codex_execution"];
+    case "qa-ai-exploratory":
+      return ["external_cost_risk"];
+    case "deploy-staging":
+      return ["production_deploy"];
+    case "github-pr":
+    case "qa-playwright":
+    case "monitor-sync":
+    case "plane-sync":
+      return [];
+  }
 }
 
 function requiredApprovalTypesForAction(action: GatedRealActionKind): string[] {

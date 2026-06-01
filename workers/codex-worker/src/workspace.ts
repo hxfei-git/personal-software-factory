@@ -126,6 +126,12 @@ export async function leaseCodexWorkspace(rawInput: CodexExecutionRequest): Prom
 
     const repoPath = path.resolve(localPathFromRepoUrl(input.repoUrl));
     assertNotForbiddenPath(repoPath);
+    const mirrorRoot = path.join(workspaceRoot, "mirrors");
+    try {
+      assertInsideWorkspace(repoPath, mirrorRoot);
+    } catch {
+      return manualAction("Local repository mirror must be inside the Codex workspace mirrors directory.");
+    }
     await assertGitRepository(repoPath);
 
     const remoteUrl = await git(repoPath, ["remote", "get-url", "origin"]).catch(() => "");

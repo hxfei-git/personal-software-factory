@@ -1,4 +1,5 @@
 import { INTEGRATION_DEFINITIONS, getMissingEnv, isRealEnabled } from "./base.js";
+import { redactText } from "./redaction.js";
 import type { IntegrationEnv, UptimeKumaMonitorInput } from "./types.js";
 import {
   buildRealResult,
@@ -156,7 +157,10 @@ export async function runUptimeKumaReal(input: UptimeKumaRealInput = {}): Promis
       safeToRun: true,
     });
   } catch (error) {
-    const message = thrownErrorMessage("Uptime Kuma", error);
+    const message = redactText(thrownErrorMessage("Uptime Kuma", error), {
+      ...env,
+      ...(sessionToken ? { UPTIME_KUMA_SESSION_TOKEN: sessionToken } : {}),
+    });
     return buildRealResult(definition, input, {
       decision: "degraded",
       message,

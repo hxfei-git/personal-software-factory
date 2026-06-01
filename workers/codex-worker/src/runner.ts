@@ -39,6 +39,45 @@ function configuredApprovalMode(env: Record<string, string | undefined>): string
   return env.CODEX_APPROVAL_MODE ?? SAFE_CODEX_APPROVAL_MODE;
 }
 
+const CODEX_CHILD_ENV_ALLOWLIST = new Set([
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "TMPDIR",
+  "TEMP",
+  "TMP",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "TERM",
+  "CI",
+  "NO_COLOR",
+  "FORCE_COLOR",
+  "XDG_CACHE_HOME",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "CODEX_SANDBOX",
+  "CODEX_APPROVAL_MODE",
+]);
+
+function buildCodexChildEnv(env: Record<string, string | undefined>, input: CodexExecutionRequest): Record<string, string | undefined> {
+  const childEnv: Record<string, string | undefined> = {};
+  for (const key of CODEX_CHILD_ENV_ALLOWLIST) {
+    if (SECRET_ENV_KEY_PATTERN.test(key)) {
+      continue;
+    }
+    const value = env[key];
+    if (typeof value === "string" && value.length > 0) {
+      childEnv[key] = value;
+    }
+  }
+  childEnv.PSF_MISSION_ID = input.missionId;
+  childEnv.PSF_PROJECT_ID = input.projectId;
+  return childEnv;
+}
+
 function validateCodexCliPolicy(env: Record<string, string | undefined>): string | undefined {
   const sandbox = configuredSandbox(env);
   if (!SAFE_CODEX_SANDBOXES.has(sandbox)) {
@@ -262,7 +301,7 @@ async function defaultSpawnCodex(input: SpawnCodexInput): Promise<SpawnCodexResu
     const useProcessGroup = process.platform !== "win32";
     const child = spawn(input.executable, input.args, {
       cwd: input.cwd,
-      env: { ...process.env, ...input.env },
+      env: input.env,
       stdio: ["ignore", "pipe", "pipe"],
       detached: useProcessGroup,
     });
@@ -481,7 +520,7 @@ export class RealCodexRunner implements CodexRunner {
         args,
         cwd: lease.workspacePath,
         timeoutMs: input.timeoutMs,
-        env: this.env,
+        env: buildCodexChildEnv(this.env, input),
       });
     } catch (error) {
       spawned = {

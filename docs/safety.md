@@ -56,7 +56,7 @@ This package does not enable real Codex execution, network calls, pushes, pull r
 
 `ENABLE_REAL_*` and `PSF_ENABLE_REAL_*` values are readiness signals only in this phase. Doctor warns when they are enabled, and integrations must still return `realNetworkCall: false` until a later approved task intentionally wires real provider calls.
 
-Before any real action is allowed in a future phase, the operator must verify approvals, queue mode, Worker Runner health, artifact/workspace roots, redaction, token rotation procedures, backup/restore procedures, and action-specific provider configuration.
+Before any real action is allowed in a future phase, the operator must verify approvals, queue mode, Worker Runner health, artifact/workspace roots, redaction, token rotation procedures, backup/restore procedures, and action-specific provider configuration. Real Codex must use an operator-prepared mirror under `PSF_WORKSPACE_ROOT/mirrors`, and the child process receives only an allowlisted non-secret environment.
 
 ## Retention And Recovery Safety
 

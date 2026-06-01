@@ -821,7 +821,14 @@ describe("orchestrator api", () => {
         realNetworkCall: false,
       });
       expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(1);
-      expect(await workerRuntime.listJobs()).toHaveLength(1);
+      const jobs = await workerRuntime.listJobs();
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]?.job.payload).toMatchObject({
+        enableRealMode: true,
+        approvalRecordIds: [approval.id],
+        approvalIds: ["real_codex_execution"],
+        requestedApprovalId: approval.id,
+      });
     });
   });
 
@@ -884,7 +891,18 @@ describe("orchestrator api", () => {
             workerRunId: body.workerRunId,
             type: route.jobType,
             mode: "real",
-            payload: { approvalId: approvals[0]?.id ?? "approval-real-mode" },
+            payload: {
+              enableRealMode: true,
+              approvalRecordIds: approvals.map((approval) => approval.id),
+              approvalIds: route.path === "codex-real" || route.path === "fix-real"
+                ? ["real_codex_execution"]
+                : route.path === "qa-ai-exploratory"
+                  ? ["external_cost_risk"]
+                  : route.path === "deploy-staging"
+                    ? ["production_deploy"]
+                    : [],
+              requestedApprovalId: approvals[0]?.id ?? "approval-real-mode",
+            },
           },
         });
       });

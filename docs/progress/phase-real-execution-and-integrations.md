@@ -119,6 +119,9 @@ No real secrets should be committed. Tokens and passwords must not appear in pro
 
 ## Default Safety Boundaries
 
+- Codex child processes now receive only an allowlisted non-secret environment, and local repository mirrors must live under `PSF_WORKSPACE_ROOT/mirrors`.
+- Queued real-action jobs record approved approval records separately from worker policy grant ids.
+- Uptime Kuma runtime session tokens are redacted from post-login transport error results.
 - `realNetworkCall` stays `false` until a gated real adapter actually invokes an injected transport.
 - `realExternalCall`, `realPush`, and `realDeploy` stay false in default API/Worker Runner paths.
 - Missing gates or credentials produce blocked/manual-action output, not best-effort execution.
@@ -131,7 +134,7 @@ Task 14 is documentation-only and adds no Prisma migration. This rollup does not
 
 ## Verification Results
 
-Final coordinator verification was run after this rollup and the follow-up test-stability commits.
+Final coordinator verification was run after this rollup, the follow-up test-stability commits, and final security-review fixes.
 
 Passed:
 
