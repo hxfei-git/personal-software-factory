@@ -16,7 +16,8 @@ body {
   min-height: 100vh;
 }
 
-button {
+button,
+.button-link {
   border: 1px solid #8fa1b3;
   border-radius: 6px;
   background: #f8fafc;
@@ -26,7 +27,8 @@ button {
   padding: 0.45rem 0.7rem;
 }
 
-button:hover {
+button:hover,
+.button-link:hover {
   background: #e8eef3;
 }
 
@@ -152,6 +154,12 @@ h2 {
   gap: 0.5rem;
 }
 
+.button-link {
+  align-items: center;
+  display: inline-flex;
+  min-height: 2.15rem;
+}
+
 .action-status {
   color: #314351;
   font-size: 0.85rem;
@@ -227,6 +235,68 @@ h2 {
 .panel {
   min-width: 0;
   padding: 0.85rem;
+}
+
+.record-list {
+  display: grid;
+  gap: 0;
+}
+
+.record-row {
+  align-items: start;
+  border-top: 1px solid #edf1f4;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 0.75rem 0;
+}
+
+.record-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.record-row:last-child {
+  padding-bottom: 0;
+}
+
+.record-row > div {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.record-row p,
+.record-meta {
+  color: #61717f;
+  font-size: 0.82rem;
+}
+
+.record-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.65rem;
+}
+
+.record-meta span,
+.resource-code {
+  overflow-wrap: anywhere;
+}
+
+.record-actions {
+  align-items: end;
+  display: grid;
+  gap: 0.45rem;
+  justify-items: end;
+}
+
+.resource-code {
+  background: #f4f7f9;
+  border: 1px solid #dce4ea;
+  border-radius: 6px;
+  color: #263540;
+  display: block;
+  padding: 0.35rem 0.45rem;
 }
 
 .panel-heading,
@@ -413,5 +483,14 @@ h2 {
   .page-header {
     align-items: start;
     flex-direction: column;
+  }
+
+  .record-row {
+    grid-template-columns: 1fr;
+  }
+
+  .record-actions {
+    align-items: start;
+    justify-items: start;
   }
 }

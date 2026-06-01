@@ -907,6 +907,87 @@ describe("orchestrator API client", () => {
 });
 
 describe("App wiring", () => {
+  it("renders API-backed Projects route data and calls listProjects", async () => {
+    const client = createMockClient({
+      listProjects: vi.fn().mockResolvedValue([{ ...projectFixture, name: "API Project", slug: "api-project" }]),
+      getMissionSummary: vi.fn().mockResolvedValue(missionSummary),
+    });
+    const mounted = await renderMountedApp(client, "#projects");
+
+    await act(async () => {
+      await flushReactWork();
+    });
+
+    expect(client.listProjects).toHaveBeenCalledOnce();
+    expect(client.getMissionSummary).not.toHaveBeenCalled();
+    expect(mounted.container.textContent).toContain("Projects");
+    expect(mounted.container.textContent).toContain("API Project");
+    expect(mounted.container.textContent).toContain("api-project");
+
+    await act(async () => mounted.root.unmount());
+    mounted.cleanup();
+  });
+
+  it("renders API-backed Missions route data and calls listMissions without loading a summary", async () => {
+    const client = createMockClient({
+      listMissions: vi.fn().mockResolvedValue([{ ...missionFixture, title: "API Mission" }]),
+      getMissionSummary: vi.fn().mockResolvedValue(missionSummary),
+    });
+    const mounted = await renderMountedApp(client, "#missions");
+
+    await act(async () => {
+      await flushReactWork();
+    });
+
+    expect(client.listMissions).toHaveBeenCalledOnce();
+    expect(client.getMissionSummary).not.toHaveBeenCalled();
+    expect(mounted.container.textContent).toContain("Missions");
+    expect(mounted.container.textContent).toContain("API Mission");
+    expect(mounted.container.textContent).toContain("mission-0001-ai-novelist-chapter-review");
+
+    await act(async () => mounted.root.unmount());
+    mounted.cleanup();
+  });
+
+  it("shows API-backed Mission Detail selection required state without id", async () => {
+    const client = createMockClient({
+      getMissionSummary: vi.fn().mockResolvedValue(missionSummary),
+    });
+    const mounted = await renderMountedApp(client, "#mission-detail");
+
+    await act(async () => {
+      await flushReactWork();
+    });
+
+    expect(client.getMissionSummary).not.toHaveBeenCalled();
+    expect(mounted.container.textContent).toContain("Select a mission to view details");
+    expect(mounted.container.textContent).toContain("#mission-detail?id=");
+
+    await act(async () => mounted.root.unmount());
+    mounted.cleanup();
+  });
+
+  it("renders API-backed resource page data from Orchestrator list routes", async () => {
+    const client = createMockClient({
+      listBugs: vi.fn().mockResolvedValue([{ ...bugFixture, title: "API Bug" }]),
+      getMissionSummary: vi.fn().mockResolvedValue(missionSummary),
+    });
+    const mounted = await renderMountedApp(client, "#bugs");
+
+    await act(async () => {
+      await flushReactWork();
+    });
+
+    expect(client.listBugs).toHaveBeenCalledOnce();
+    expect(client.getMissionSummary).not.toHaveBeenCalled();
+    expect(mounted.container.textContent).toContain("Bugs");
+    expect(mounted.container.textContent).toContain("API Bug");
+    expect(mounted.container.textContent).toContain("bug-dashboard-p1");
+
+    await act(async () => mounted.root.unmount());
+    mounted.cleanup();
+  });
+
   it("runs QA dry-run with sample bug from the mounted Mission Detail button and refreshes summary", async () => {
     const missionId = "mission-0001-ai-novelist-chapter-review";
     const client = createMockClient({

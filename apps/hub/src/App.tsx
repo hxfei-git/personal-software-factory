@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactElement } from "react";
 import { createOrchestratorClient, type OrchestratorClient } from "./api/client";
+import { renderMissionsView, renderMissionSelectionRequiredView } from "./views/missions";
+import { renderProjectsView } from "./views/projects";
+import { renderApprovalsView, renderArtifactsView, renderBugsView, renderWorkerRunsView } from "./views/resources";
 import type {
+  Approval,
   Artifact,
   BugReport,
   DashboardResponse,
@@ -10,6 +14,7 @@ import type {
   Mission,
   MissionDryRunAction,
   MissionSummaryResponse,
+  Project,
   DryRunActionResponse,
   QueuedDryRunActionResponse,
   QAReport,
@@ -70,6 +75,12 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
   const [dashboardState, setDashboardState] = useState<LoadState<DashboardResponse>>({ status: "idle" });
   const [queueState, setQueueState] = useState<LoadState<QueueStatus>>({ status: "idle" });
   const [missionState, setMissionState] = useState<LoadState<MissionSummaryResponse>>({ status: "idle" });
+  const [projectsState, setProjectsState] = useState<LoadState<Project[]>>({ status: "idle" });
+  const [missionsState, setMissionsState] = useState<LoadState<Mission[]>>({ status: "idle" });
+  const [bugsState, setBugsState] = useState<LoadState<BugReport[]>>({ status: "idle" });
+  const [workerRunsState, setWorkerRunsState] = useState<LoadState<WorkerRun[]>>({ status: "idle" });
+  const [artifactsState, setArtifactsState] = useState<LoadState<Artifact[]>>({ status: "idle" });
+  const [approvalsState, setApprovalsState] = useState<LoadState<Approval[]>>({ status: "idle" });
   const [integrationState, setIntegrationState] = useState<LoadState<IntegrationStatus[]>>({ status: "idle" });
   const [dryRunMessage, setDryRunMessage] = useState<string>("");
   const [actionState, setActionState] = useState<ActionState>({ loading: "", message: "", error: "" });
@@ -173,9 +184,73 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
     if (route.page !== "mission-detail") {
       return;
     }
-    const missionId = route.params.get("id") || defaultMissionId;
+    const missionId = route.params.get("id");
+    if (!missionId) {
+      setMissionState({ status: "idle" });
+      return;
+    }
     void loadMissionSummary(missionId).catch(() => undefined);
   }, [loadMissionSummary, route]);
+
+  useEffect(() => {
+    if (route.page !== "projects") {
+      return;
+    }
+    setProjectsState({ status: "loading" });
+    client.listProjects()
+      .then((data) => setProjectsState({ status: "success", data }))
+      .catch((error: unknown) => setProjectsState({ status: "error", message: errorMessage(error, "GET /projects failed") }));
+  }, [client, route.page]);
+
+  useEffect(() => {
+    if (route.page !== "missions") {
+      return;
+    }
+    setMissionsState({ status: "loading" });
+    client.listMissions()
+      .then((data) => setMissionsState({ status: "success", data }))
+      .catch((error: unknown) => setMissionsState({ status: "error", message: errorMessage(error, "GET /missions failed") }));
+  }, [client, route.page]);
+
+  useEffect(() => {
+    if (route.page !== "bugs") {
+      return;
+    }
+    setBugsState({ status: "loading" });
+    client.listBugs()
+      .then((data) => setBugsState({ status: "success", data }))
+      .catch((error: unknown) => setBugsState({ status: "error", message: errorMessage(error, "GET /bugs failed") }));
+  }, [client, route.page]);
+
+  useEffect(() => {
+    if (route.page !== "worker-runs") {
+      return;
+    }
+    setWorkerRunsState({ status: "loading" });
+    client.listWorkerRuns()
+      .then((data) => setWorkerRunsState({ status: "success", data }))
+      .catch((error: unknown) => setWorkerRunsState({ status: "error", message: errorMessage(error, "GET /worker-runs failed") }));
+  }, [client, route.page]);
+
+  useEffect(() => {
+    if (route.page !== "artifacts") {
+      return;
+    }
+    setArtifactsState({ status: "loading" });
+    client.listArtifacts()
+      .then((data) => setArtifactsState({ status: "success", data }))
+      .catch((error: unknown) => setArtifactsState({ status: "error", message: errorMessage(error, "GET /artifacts failed") }));
+  }, [client, route.page]);
+
+  useEffect(() => {
+    if (route.page !== "approvals") {
+      return;
+    }
+    setApprovalsState({ status: "loading" });
+    client.listApprovals()
+      .then((data) => setApprovalsState({ status: "success", data }))
+      .catch((error: unknown) => setApprovalsState({ status: "error", message: errorMessage(error, "GET /approvals failed") }));
+  }, [client, route.page]);
 
   useEffect(() => {
     if (route.page !== "integrations") {
@@ -199,8 +274,15 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
           actionState,
           queueState,
         });
+      case "projects":
+        return renderProjectsView({ state: projectsState });
+      case "missions":
+        return renderMissionsView({ state: missionsState });
       case "mission-detail": {
-        const missionId = route.params.get("id") || defaultMissionId;
+        const missionId = route.params.get("id");
+        if (!missionId) {
+          return renderMissionSelectionRequiredView();
+        }
         return renderMissionDetailView({
           state: missionState,
           actions: {
@@ -210,6 +292,14 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
           actionState,
         });
       }
+      case "bugs":
+        return renderBugsView({ state: bugsState });
+      case "worker-runs":
+        return renderWorkerRunsView({ state: workerRunsState });
+      case "artifacts":
+        return renderArtifactsView({ state: artifactsState });
+      case "approvals":
+        return renderApprovalsView({ state: approvalsState });
       case "integrations":
         return renderIntegrationsView({ state: integrationState, onDryRun: async (name) => {
           setDryRunMessage("Dry-run queued through Orchestrator API");
@@ -223,7 +313,7 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
       default:
         return renderPlaceholderView(route.page);
     }
-  }, [actionState, client, dashboardState, dryRunMessage, integrationState, missionState, queueState, refreshDashboard, refreshMissionSummary, route, runDashboardDemo, runMissionDryRun]);
+  }, [actionState, approvalsState, artifactsState, bugsState, client, dashboardState, dryRunMessage, integrationState, missionState, missionsState, projectsState, queueState, refreshDashboard, refreshMissionSummary, route, runDashboardDemo, runMissionDryRun, workerRunsState]);
 
   return (
     <div className="app-shell">
@@ -444,6 +534,7 @@ function renderDashboardActions(actions: DashboardActions, actionState: ActionSt
   return (
     <section className="action-toolbar" aria-label="Dashboard dry-run actions">
       <div className="action-buttons">
+        <a className="button-link" href={`#mission-detail?id=${defaultMissionId}`}>Open demo Mission</a>
         <button type="button" disabled={busy} onClick={() => void actions.onRunDemo(false)}>Generate ai-novelist Demo dry-run</button>
         <button type="button" disabled={busy} onClick={() => void actions.onRunDemo(true)}>Generate ai-novelist Demo with Sample Bug dry-run</button>
         <button type="button" disabled={busy} onClick={() => void actions.onRefresh()}>Refresh Dashboard</button>
