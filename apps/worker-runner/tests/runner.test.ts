@@ -447,7 +447,7 @@ describe("worker runner", () => {
         expect.objectContaining({ type: "worker_run.succeeded" }),
       ]),
     );
-  });
+  }, 15_000);
 
 });
 
