@@ -94,6 +94,7 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
   const [missionCreateState, setMissionCreateState] = useState<MissionCreationSubmitState>({ loading: false, message: "", error: "" });
   const [dryRunMessage, setDryRunMessage] = useState<string>("");
   const [actionState, setActionState] = useState<ActionState>({ loading: "", message: "", error: "" });
+  const [approvalDecisionState, setApprovalDecisionState] = useState<ActionState>({ loading: "", message: "", error: "" });
 
   const loadDashboard = useCallback(async (): Promise<DashboardResponse> => {
     setDashboardState({ status: "loading" });
@@ -175,6 +176,34 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
       setActionState({ loading: "", message: "", error: errorMessage(error, "Mission summary refresh failed") });
     }
   }, [loadMissionSummary]);
+
+  const loadApprovals = useCallback(async (): Promise<Approval[]> => {
+    setApprovalsState({ status: "loading" });
+    try {
+      const data = await client.listApprovals();
+      setApprovalsState({ status: "success", data });
+      return data;
+    } catch (error: unknown) {
+      const message = sensitiveSafeErrorMessage(error, "GET /approvals failed");
+      setApprovalsState({ status: "error", message });
+      throw new Error(message);
+    }
+  }, [client]);
+
+  const decideApproval = useCallback(async (approvalId: string, status: "approved" | "rejected"): Promise<void> => {
+    setApprovalDecisionState({ loading: approvalId, message: "", error: "" });
+    try {
+      await client.decideApproval(approvalId, {
+        status,
+        decidedBy: "hub",
+        decision: status === "approved" ? "Hub approved" : "Hub rejected",
+      });
+      await loadApprovals();
+      setApprovalDecisionState({ loading: "", message: `Approval decision recorded: ${status}`, error: "" });
+    } catch (error: unknown) {
+      setApprovalDecisionState({ loading: "", message: "", error: sensitiveSafeErrorMessage(error, "Approval decision failed") });
+    }
+  }, [client, loadApprovals]);
 
   const updateMissionCreateValue = useCallback((field: MissionCreationField, value: string): void => {
     setMissionCreateValues((current) => ({ ...current, [field]: value }));
@@ -297,11 +326,8 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
     if (route.page !== "approvals") {
       return;
     }
-    setApprovalsState({ status: "loading" });
-    client.listApprovals()
-      .then((data) => setApprovalsState({ status: "success", data }))
-      .catch((error: unknown) => setApprovalsState({ status: "error", message: errorMessage(error, "GET /approvals failed") }));
-  }, [client, route.page]);
+    void loadApprovals().catch(() => undefined);
+  }, [loadApprovals, route.page]);
 
   useEffect(() => {
     if (route.page !== "integrations") {
@@ -358,7 +384,11 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
       case "artifacts":
         return renderArtifactsView({ state: artifactsState });
       case "approvals":
-        return renderApprovalsView({ state: approvalsState });
+        return renderApprovalsView({
+          state: approvalsState,
+          actions: { onDecision: decideApproval },
+          actionState: approvalDecisionState,
+        });
       case "integrations":
         return renderIntegrationsView({ state: integrationState, onDryRun: async (name) => {
           setDryRunMessage("Dry-run queued through Orchestrator API");
@@ -372,7 +402,7 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
       default:
         return renderPlaceholderView(route.page);
     }
-  }, [actionState, approvalsState, artifactsState, bugsState, client, createMission, dashboardState, dryRunMessage, integrationState, missionCreateState, missionCreateValues, missionState, missionsState, projectsState, queueState, refreshDashboard, refreshMissionSummary, route, runDashboardDemo, runMissionDryRun, updateMissionCreateValue, workerRunsState]);
+  }, [actionState, approvalDecisionState, approvalsState, artifactsState, bugsState, client, createMission, dashboardState, decideApproval, dryRunMessage, integrationState, missionCreateState, missionCreateValues, missionState, missionsState, projectsState, queueState, refreshDashboard, refreshMissionSummary, route, runDashboardDemo, runMissionDryRun, updateMissionCreateValue, workerRunsState]);
 
   return (
     <div className="app-shell">

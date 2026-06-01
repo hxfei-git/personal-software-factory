@@ -1039,6 +1039,97 @@ describe("App wiring", () => {
     mounted.cleanup();
   });
 
+  it("approval approve button records an approved decision and refreshes the list", async () => {
+    const decidedApproval: Approval = {
+      ...approvalFixture,
+      status: "approved",
+      decided_by: "hub",
+      decision: "Hub approved",
+    };
+    const listApprovals = vi
+      .fn()
+      .mockResolvedValueOnce([approvalFixture])
+      .mockResolvedValueOnce([decidedApproval]);
+    const decideApproval = vi.fn().mockResolvedValue(decidedApproval);
+    const client = createMockClient({ listApprovals, decideApproval });
+    const mounted = await renderMountedApp(client, "#approvals");
+
+    await act(async () => {
+      await flushReactWork();
+    });
+    await act(async () => {
+      findDomButtonByText(mounted.container, "Approve").click();
+      await flushReactWork();
+      await flushReactWork();
+    });
+
+    expect(decideApproval).toHaveBeenCalledWith(approvalFixture.id, {
+      status: "approved",
+      decidedBy: "hub",
+      decision: "Hub approved",
+    });
+    expect(listApprovals).toHaveBeenCalledTimes(2);
+    expect(mounted.container.textContent).toContain("Approval decision recorded: approved");
+
+    await act(async () => mounted.root.unmount());
+    mounted.cleanup();
+  });
+
+  it("approval reject button records a rejected decision", async () => {
+    const decidedApproval: Approval = {
+      ...approvalFixture,
+      status: "rejected",
+      decided_by: "hub",
+      decision: "Hub rejected",
+    };
+    const decideApproval = vi.fn().mockResolvedValue(decidedApproval);
+    const client = createMockClient({ decideApproval });
+    const mounted = await renderMountedApp(client, "#approvals");
+
+    await act(async () => {
+      await flushReactWork();
+    });
+    await act(async () => {
+      findDomButtonByText(mounted.container, "Reject").click();
+      await flushReactWork();
+      await flushReactWork();
+    });
+
+    expect(decideApproval).toHaveBeenCalledWith(approvalFixture.id, {
+      status: "rejected",
+      decidedBy: "hub",
+      decision: "Hub rejected",
+    });
+
+    await act(async () => mounted.root.unmount());
+    mounted.cleanup();
+  });
+
+  it("approval decision errors redact token-like content", async () => {
+    const client = createMockClient({
+      decideApproval: vi.fn().mockRejectedValue(new Error("POST /approvals failed Authorization: Bearer raw-secret-token token=raw-token-value")),
+    });
+    const mounted = await renderMountedApp(client, "#approvals");
+
+    await act(async () => {
+      await flushReactWork();
+    });
+    await act(async () => {
+      findDomButtonByText(mounted.container, "Approve").click();
+      await flushReactWork();
+      await flushReactWork();
+    });
+
+    expect(mounted.container.textContent).toContain("POST /approvals failed");
+    expect(mounted.container.textContent).toContain("Bearer [redacted]");
+    expect(mounted.container.textContent).toContain("token=[redacted]");
+    expect(mounted.container.textContent).not.toContain("raw-secret-token");
+    expect(mounted.container.textContent).not.toContain("raw-token-value");
+
+    await act(async () => mounted.root.unmount());
+    mounted.cleanup();
+  });
+
   it("runs QA dry-run with sample bug from the mounted Mission Detail button and refreshes summary", async () => {
     const missionId = "mission-0001-ai-novelist-chapter-review";
     const client = createMockClient({
