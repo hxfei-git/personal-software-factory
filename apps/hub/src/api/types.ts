@@ -41,6 +41,14 @@ export interface Project {
   updated_at: string;
 }
 
+export interface CreateMissionRequest {
+  projectId: string;
+  title: string;
+  rawRequest: string;
+  priority?: Priority;
+  riskLevel?: RiskLevel;
+}
+
 export interface Mission {
   id: string;
   project_id: string;

@@ -1,11 +1,17 @@
 import type {
+  Approval,
+  Artifact,
+  BugReport,
+  CreateMissionRequest,
   DashboardResponse,
   DryRunActionResponse,
   ExternalIntegrationName,
   IntegrationDryRunResult,
   IntegrationStatus,
+  Mission,
   MissionDryRunAction,
   MissionSummaryResponse,
+  Project,
   QueueStatus,
   WorkerRun,
 } from "./types";
@@ -16,6 +22,16 @@ interface ResponseLike {
   ok: boolean;
   status: number;
   json: () => Promise<unknown>;
+}
+
+type ApprovalDecisionRequest = {
+  status: "approved" | "rejected" | "cancelled";
+  decidedBy?: string;
+  decision?: string;
+};
+
+interface SyncProjectsResponse {
+  projects: Project[];
 }
 
 export interface OrchestratorClientOptions {
@@ -40,6 +56,18 @@ export class OrchestratorApiError extends Error {
 
 export interface OrchestratorClient {
   getDashboard: () => Promise<DashboardResponse>;
+  listProjects: () => Promise<Project[]>;
+  getProject: (projectId: string) => Promise<Project>;
+  syncProjects: () => Promise<Project[]>;
+  listMissions: () => Promise<Mission[]>;
+  createMission: (input: CreateMissionRequest) => Promise<Mission>;
+  listBugs: () => Promise<BugReport[]>;
+  getBug: (bugId: string) => Promise<BugReport>;
+  listArtifacts: () => Promise<Artifact[]>;
+  getArtifact: (artifactId: string) => Promise<Artifact>;
+  listApprovals: () => Promise<Approval[]>;
+  getApproval: (approvalId: string) => Promise<Approval>;
+  decideApproval: (approvalId: string, input: ApprovalDecisionRequest) => Promise<Approval>;
   getMissionSummary: (missionId: string) => Promise<MissionSummaryResponse>;
   getQueueStatus: () => Promise<QueueStatus>;
   listWorkerRuns: () => Promise<WorkerRun[]>;
@@ -91,6 +119,26 @@ export function createOrchestratorClient(options: OrchestratorClientOptions = {}
 
   return {
     getDashboard: () => request<DashboardResponse>("/dashboard"),
+    listProjects: () => request<Project[]>("/projects"),
+    getProject: (projectId: string) => request<Project>(`/projects/${encodeURIComponent(projectId)}`),
+    syncProjects: async () => (await request<SyncProjectsResponse>("/projects/sync", { method: "POST" })).projects,
+    listMissions: () => request<Mission[]>("/missions"),
+    createMission: (input: CreateMissionRequest) => request<Mission>("/missions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(toCreateMissionApiBody(input)),
+    }),
+    listBugs: () => request<BugReport[]>("/bugs"),
+    getBug: (bugId: string) => request<BugReport>(`/bugs/${encodeURIComponent(bugId)}`),
+    listArtifacts: () => request<Artifact[]>("/artifacts"),
+    getArtifact: (artifactId: string) => request<Artifact>(`/artifacts/${encodeURIComponent(artifactId)}`),
+    listApprovals: () => request<Approval[]>("/approvals"),
+    getApproval: (approvalId: string) => request<Approval>(`/approvals/${encodeURIComponent(approvalId)}`),
+    decideApproval: (approvalId: string, input: ApprovalDecisionRequest) => request<Approval>(`/approvals/${encodeURIComponent(approvalId)}/decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }),
     getMissionSummary: (missionId: string) => request<MissionSummaryResponse>(`/missions/${encodeURIComponent(missionId)}/summary`),
     getQueueStatus: () => request<QueueStatus>("/queues/status"),
     listWorkerRuns: () => request<WorkerRun[]>("/worker-runs"),
@@ -126,6 +174,16 @@ export function createOrchestratorClient(options: OrchestratorClientOptions = {}
 
 function normalizeBaseUrl(url: string): string {
   return url.replace(/\/+$/, "");
+}
+
+function toCreateMissionApiBody(input: CreateMissionRequest): Record<string, unknown> {
+  return {
+    project_id: input.projectId,
+    title: input.title,
+    raw_request: input.rawRequest,
+    ...(input.priority === undefined ? {} : { priority: input.priority }),
+    ...(input.riskLevel === undefined ? {} : { risk_level: input.riskLevel }),
+  };
 }
 
 function isWriteMethod(method: string): boolean {

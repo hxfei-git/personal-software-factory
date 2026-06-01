@@ -8,11 +8,17 @@ import {
   type OrchestratorClient,
 } from "../src/api/client";
 import type {
+  Approval,
+  Artifact,
+  BugReport,
+  CreateMissionRequest,
   DashboardResponse,
   DryRunActionResponse,
   IntegrationStatus,
+  Mission,
   MissionDryRunAction,
   MissionSummaryResponse,
+  Project,
   QueueStatus,
 } from "../src/api/types";
 import App, {
@@ -313,6 +319,18 @@ async function renderMountedApp(client: OrchestratorClient | undefined, hash: st
 function createMockClient(overrides: Partial<OrchestratorClient> = {}): OrchestratorClient {
   return {
     getDashboard: vi.fn().mockResolvedValue(dashboard),
+    listProjects: vi.fn().mockResolvedValue([projectFixture]),
+    getProject: vi.fn().mockResolvedValue(projectFixture),
+    syncProjects: vi.fn().mockResolvedValue([projectFixture]),
+    listMissions: vi.fn().mockResolvedValue([missionFixture]),
+    createMission: vi.fn().mockResolvedValue(missionFixture),
+    listBugs: vi.fn().mockResolvedValue([bugFixture]),
+    getBug: vi.fn().mockResolvedValue(bugFixture),
+    listArtifacts: vi.fn().mockResolvedValue([artifactFixture]),
+    getArtifact: vi.fn().mockResolvedValue(artifactFixture),
+    listApprovals: vi.fn().mockResolvedValue([approvalFixture]),
+    getApproval: vi.fn().mockResolvedValue(approvalFixture),
+    decideApproval: vi.fn().mockResolvedValue(approvalFixture),
     getMissionSummary: vi.fn().mockResolvedValue(missionSummary),
     getQueueStatus: vi.fn().mockResolvedValue(queueStatus),
     listWorkerRuns: vi.fn().mockResolvedValue(missionSummary.workerRuns),
@@ -622,7 +640,117 @@ const queuedActionResponse: DryRunActionResponse = {
   recommendedNextAction: "Start Worker Runner, then refresh Mission Summary.",
 };
 
+const projectFixture: Project = {
+  id: "ai-novelist",
+  slug: "ai-novelist",
+  name: "AI Novelist",
+  repo_url: "https://github.example/ai-novelist",
+  default_branch: "main",
+  status: "active",
+  created_at: now,
+  updated_at: now,
+};
+
+const missionFixture: Mission = dashboard.recentMissions[0]!;
+const bugFixture: BugReport = dashboard.recentBugs[0]!;
+const artifactFixture: Artifact = dashboard.recentArtifacts[0]!;
+const approvalFixture: Approval = missionSummary.approvals[0]!;
+
+const createMissionInput: CreateMissionRequest = {
+  projectId: "ai-novelist",
+  title: "Draft chapter review",
+  rawRequest: "Review chapter continuity",
+  priority: "P1",
+  riskLevel: "medium",
+};
+
 describe("orchestrator API client", () => {
+  it("calls control-plane read routes and unwraps project sync results", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => [projectFixture] })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => projectFixture })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ synced: 1, projects: [projectFixture] }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => [missionFixture] })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => [bugFixture] })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => bugFixture })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => [artifactFixture] })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => artifactFixture })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => [approvalFixture] })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => approvalFixture });
+    const client = createOrchestratorClient({
+      baseUrl: "http://api.local/",
+      token: "hub-token",
+      fetchImpl: fetchMock,
+    });
+
+    await expect(client.listProjects()).resolves.toEqual([projectFixture]);
+    await expect(client.getProject("project/with space")).resolves.toEqual(projectFixture);
+    await expect(client.syncProjects()).resolves.toEqual([projectFixture]);
+    await expect(client.listMissions()).resolves.toEqual([missionFixture]);
+    await expect(client.listBugs()).resolves.toEqual([bugFixture]);
+    await expect(client.getBug("bug/with space")).resolves.toEqual(bugFixture);
+    await expect(client.listArtifacts()).resolves.toEqual([artifactFixture]);
+    await expect(client.getArtifact("artifact/with space")).resolves.toEqual(artifactFixture);
+    await expect(client.listApprovals()).resolves.toEqual([approvalFixture]);
+    await expect(client.getApproval("approval/with space")).resolves.toEqual(approvalFixture);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://api.local/projects", { headers: {} });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://api.local/projects/project%2Fwith%20space", { headers: {} });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://api.local/projects/sync", {
+      method: "POST",
+      headers: { authorization: "Bearer hub-token" },
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "http://api.local/missions", { headers: {} });
+    expect(fetchMock).toHaveBeenNthCalledWith(5, "http://api.local/bugs", { headers: {} });
+    expect(fetchMock).toHaveBeenNthCalledWith(6, "http://api.local/bugs/bug%2Fwith%20space", { headers: {} });
+    expect(fetchMock).toHaveBeenNthCalledWith(7, "http://api.local/artifacts", { headers: {} });
+    expect(fetchMock).toHaveBeenNthCalledWith(8, "http://api.local/artifacts/artifact%2Fwith%20space", { headers: {} });
+    expect(fetchMock).toHaveBeenNthCalledWith(9, "http://api.local/approvals", { headers: {} });
+    expect(fetchMock).toHaveBeenNthCalledWith(10, "http://api.local/approvals/approval%2Fwith%20space", { headers: {} });
+  });
+
+  it("calls control-plane protected write routes with bearer token and API body shape", async () => {
+    const decidedApproval = { ...approvalFixture, status: "approved", decided_by: "hub-user", decision: "Ship it" };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 201, json: async () => missionFixture })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => decidedApproval });
+    const client = createOrchestratorClient({
+      baseUrl: "http://api.local",
+      token: "hub-token",
+      fetchImpl: fetchMock,
+    });
+
+    await expect(client.createMission(createMissionInput)).resolves.toEqual(missionFixture);
+    await expect(client.decideApproval("approval/with space", {
+      status: "approved",
+      decidedBy: "hub-user",
+      decision: "Ship it",
+    })).resolves.toEqual(decidedApproval);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://api.local/missions", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer hub-token" },
+      body: JSON.stringify({
+        project_id: "ai-novelist",
+        title: "Draft chapter review",
+        raw_request: "Review chapter continuity",
+        priority: "P1",
+        risk_level: "medium",
+      }),
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://api.local/approvals/approval%2Fwith%20space/decision", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer hub-token" },
+      body: JSON.stringify({
+        status: "approved",
+        decidedBy: "hub-user",
+        decision: "Ship it",
+      }),
+    });
+  });
+
   it("only sends configured token on write requests without leaking token values", async () => {
     const fetchMock = vi
       .fn()
