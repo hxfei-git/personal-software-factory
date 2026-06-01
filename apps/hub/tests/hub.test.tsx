@@ -342,6 +342,7 @@ function createMockClient(overrides: Partial<OrchestratorClient> = {}): Orchestr
     getMissionSummary: vi.fn().mockResolvedValue(missionSummary),
     getQueueStatus: vi.fn().mockResolvedValue(queueStatus),
     listWorkerRuns: vi.fn().mockResolvedValue(missionSummary.workerRuns),
+    getWorkerRun: vi.fn().mockResolvedValue(missionSummary.workerRuns[0]),
     cancelWorkerRun: vi.fn().mockResolvedValue({ status: "cancelled" }),
     retryWorkerRun: vi.fn().mockResolvedValue({ status: "queued" }),
     listIntegrations: vi.fn().mockResolvedValue(dashboard.integrationStatuses),
@@ -706,7 +707,8 @@ describe("orchestrator API client", () => {
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => [artifactFixture] })
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => artifactFixture })
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => [approvalFixture] })
-      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => approvalFixture });
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => approvalFixture })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => missionSummary.workerRuns[0] });
     const client = createOrchestratorClient({
       baseUrl: "http://api.local/",
       token: "hub-token",
@@ -723,6 +725,7 @@ describe("orchestrator API client", () => {
     await expect(client.getArtifact("artifact/with space")).resolves.toEqual(artifactFixture);
     await expect(client.listApprovals()).resolves.toEqual([approvalFixture]);
     await expect(client.getApproval("approval/with space")).resolves.toEqual(approvalFixture);
+    await expect(client.getWorkerRun("worker-run/with space")).resolves.toEqual(missionSummary.workerRuns[0]);
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "http://api.local/projects", { headers: {} });
     expect(fetchMock).toHaveBeenNthCalledWith(2, "http://api.local/projects/project%2Fwith%20space", { headers: {} });
@@ -737,6 +740,7 @@ describe("orchestrator API client", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(8, "http://api.local/artifacts/artifact%2Fwith%20space", { headers: {} });
     expect(fetchMock).toHaveBeenNthCalledWith(9, "http://api.local/approvals", { headers: {} });
     expect(fetchMock).toHaveBeenNthCalledWith(10, "http://api.local/approvals/approval%2Fwith%20space", { headers: {} });
+    expect(fetchMock).toHaveBeenNthCalledWith(11, "http://api.local/worker-runs/worker-run%2Fwith%20space", { headers: {} });
   });
 
   it("calls control-plane protected write routes with bearer token and API body shape", async () => {
@@ -1037,6 +1041,62 @@ describe("App wiring", () => {
 
     await act(async () => mounted.root.unmount());
     mounted.cleanup();
+  });
+
+  it("renders Project detail from an API-backed project route id", async () => {
+    const client = createMockClient({
+      listProjects: vi.fn().mockResolvedValue([{ ...projectFixture, production_url: "https://prod.example", passport_path: "projects/ai-novelist/project.passport.yaml" }]),
+    });
+    const mounted = await renderMountedApp(client, "#projects?id=ai-novelist");
+
+    await act(async () => {
+      await flushReactWork();
+    });
+
+    expect(client.listProjects).toHaveBeenCalledOnce();
+    expect(mounted.container.textContent).toContain("Project detail");
+    expect(mounted.container.textContent).toContain("https://prod.example");
+    expect(mounted.container.textContent).toContain("projects/ai-novelist/project.passport.yaml");
+
+    await act(async () => mounted.root.unmount());
+    mounted.cleanup();
+  });
+
+  it("renders API-backed resource detail panels from route ids", async () => {
+    const client = createMockClient({
+      listBugs: vi.fn().mockResolvedValue([bugFixture]),
+      listWorkerRuns: vi.fn().mockResolvedValue(missionSummary.workerRuns),
+      listArtifacts: vi.fn().mockResolvedValue([artifactFixture]),
+      listApprovals: vi.fn().mockResolvedValue([approvalFixture]),
+    });
+
+    const bugMounted = await renderMountedApp(client, "#bugs?id=bug-dashboard-p1");
+    await act(async () => { await flushReactWork(); });
+    expect(bugMounted.container.textContent).toContain("Bug detail");
+    expect(bugMounted.container.textContent).toContain("Ready status is visible");
+    await act(async () => bugMounted.root.unmount());
+    bugMounted.cleanup();
+
+    const workerMounted = await renderMountedApp(client, "#worker-runs?id=queue-wrapper-run");
+    await act(async () => { await flushReactWork(); });
+    expect(workerMounted.container.textContent).toContain("WorkerRun detail");
+    expect(workerMounted.container.textContent).toContain("job-queued-123");
+    await act(async () => workerMounted.root.unmount());
+    workerMounted.cleanup();
+
+    const artifactMounted = await renderMountedApp(client, "#artifacts?id=artifact-qa");
+    await act(async () => { await flushReactWork(); });
+    expect(artifactMounted.container.textContent).toContain("Artifact detail");
+    expect(artifactMounted.container.textContent).toContain("# QA Report");
+    await act(async () => artifactMounted.root.unmount());
+    artifactMounted.cleanup();
+
+    const approvalMounted = await renderMountedApp(client, "#approvals?id=approval-release");
+    await act(async () => { await flushReactWork(); });
+    expect(approvalMounted.container.textContent).toContain("Approval detail");
+    expect(approvalMounted.container.textContent).toContain("Release review");
+    await act(async () => approvalMounted.root.unmount());
+    approvalMounted.cleanup();
   });
 
   it("approval approve button records an approved decision and refreshes the list", async () => {

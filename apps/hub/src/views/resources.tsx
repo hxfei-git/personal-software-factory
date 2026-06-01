@@ -2,13 +2,15 @@ import type { ReactElement } from "react";
 import type { Approval, Artifact, BugReport, WorkerRun } from "../api/types";
 import type { LoadState } from "../App";
 
-export function renderBugsView({ state }: { state: LoadState<BugReport[]> }): ReactElement {
+export function renderBugsView({ state, selectedId }: { state: LoadState<BugReport[]>; selectedId?: string | undefined }): ReactElement {
   return renderResourceView({
     title: "Bugs",
     description: "QA bug reports from GET /bugs",
     loadingText: "Loading GET /bugs from Orchestrator API",
     emptyText: "No bugs loaded from Orchestrator API",
     state,
+    selectedId,
+    renderDetail: renderBugDetail,
     renderItem: (bug) => (
       <article className="record-row" key={bug.id}>
         <div>
@@ -19,6 +21,7 @@ export function renderBugsView({ state }: { state: LoadState<BugReport[]> }): Re
             <span>{bug.mission_id}</span>
             <span>{bug.severity}</span>
           </div>
+          <a className="inline-link" href={`#bugs?id=${encodeURIComponent(bug.id)}`}>Open detail</a>
         </div>
         <span className="status-pill">{bug.status}</span>
       </article>
@@ -26,13 +29,15 @@ export function renderBugsView({ state }: { state: LoadState<BugReport[]> }): Re
   });
 }
 
-export function renderWorkerRunsView({ state }: { state: LoadState<WorkerRun[]> }): ReactElement {
+export function renderWorkerRunsView({ state, selectedId }: { state: LoadState<WorkerRun[]>; selectedId?: string | undefined }): ReactElement {
   return renderResourceView({
     title: "Worker Runs",
     description: "Worker execution records from GET /worker-runs",
     loadingText: "Loading GET /worker-runs from Orchestrator API",
     emptyText: "No worker runs loaded from Orchestrator API",
     state,
+    selectedId,
+    renderDetail: renderWorkerRunDetail,
     renderItem: (run) => (
       <article className="record-row" key={run.id}>
         <div>
@@ -44,6 +49,7 @@ export function renderWorkerRunsView({ state }: { state: LoadState<WorkerRun[]> 
             <span>{run.mode ?? "unknown mode"}</span>
             {typeof run.exit_code === "number" ? <span>exit {run.exit_code}</span> : null}
           </div>
+          <a className="inline-link" href={`#worker-runs?id=${encodeURIComponent(run.id)}`}>Open detail</a>
         </div>
         <span className="status-pill">{run.status}</span>
       </article>
@@ -51,13 +57,15 @@ export function renderWorkerRunsView({ state }: { state: LoadState<WorkerRun[]> 
   });
 }
 
-export function renderArtifactsView({ state }: { state: LoadState<Artifact[]> }): ReactElement {
+export function renderArtifactsView({ state, selectedId }: { state: LoadState<Artifact[]>; selectedId?: string | undefined }): ReactElement {
   return renderResourceView({
     title: "Artifacts",
     description: "Generated artifacts from GET /artifacts",
     loadingText: "Loading GET /artifacts from Orchestrator API",
     emptyText: "No artifacts loaded from Orchestrator API",
     state,
+    selectedId,
+    renderDetail: renderArtifactDetail,
     renderItem: (artifact) => (
       <article className="record-row" key={artifact.id}>
         <div>
@@ -69,6 +77,7 @@ export function renderArtifactsView({ state }: { state: LoadState<Artifact[]> })
             <span>{artifact.size} bytes</span>
             {artifact.mime_type ? <span>{artifact.mime_type}</span> : null}
           </div>
+          <a className="inline-link" href={`#artifacts?id=${encodeURIComponent(artifact.id)}`}>Open detail</a>
         </div>
         <span className="status-pill">artifact</span>
       </article>
@@ -92,8 +101,10 @@ export function renderApprovalsView({
   state,
   actions,
   actionState = emptyApprovalDecisionState,
+  selectedId,
 }: {
   state: LoadState<Approval[]>;
+  selectedId?: string | undefined;
   actions?: ApprovalDecisionActions;
   actionState?: ApprovalDecisionState;
 }): ReactElement {
@@ -104,6 +115,8 @@ export function renderApprovalsView({
     loadingText: "Loading GET /approvals from Orchestrator API",
     emptyText: "No approvals loaded from Orchestrator API",
     state,
+    selectedId,
+    renderDetail: renderApprovalDetail,
     renderItem: (approval) => (
       <article className="record-row" key={approval.id}>
         <div>
@@ -114,6 +127,7 @@ export function renderApprovalsView({
             <span>{approval.mission_id}</span>
             {approval.requested_by ? <span>requested by {approval.requested_by}</span> : null}
           </div>
+          <a className="inline-link" href={`#approvals?id=${encodeURIComponent(approval.id)}`}>Open detail</a>
           {approval.status === "pending" && actions ? (
             <div className="action-buttons">
               <button type="button" disabled={busy} onClick={() => void actions.onDecision(approval.id, "approved")}>Approve</button>
@@ -148,6 +162,8 @@ function renderResourceView<T>({
   emptyText,
   state,
   renderItem,
+  renderDetail,
+  selectedId,
   footer,
 }: {
   title: string;
@@ -156,6 +172,8 @@ function renderResourceView<T>({
   emptyText: string;
   state: LoadState<T[]>;
   renderItem: (item: T) => ReactElement;
+  renderDetail?: (item: T | undefined, selectedId: string) => ReactElement;
+  selectedId?: string | undefined;
   footer?: ReactElement | null;
 }): ReactElement {
   if (state.status === "loading" || state.status === "idle") {
@@ -177,9 +195,101 @@ function renderResourceView<T>({
       <section className="panel record-list" aria-label={title}>
         {state.data.length === 0 ? <p className="empty-line">{emptyText}</p> : state.data.map(renderItem)}
       </section>
+      {selectedId && renderDetail ? renderDetail(state.data.find((item) => itemId(item) === selectedId), selectedId) : null}
       {footer}
     </main>
   );
+}
+
+
+function renderBugDetail(bug: BugReport | undefined, selectedId: string): ReactElement {
+  if (!bug) return renderMissingDetail("Bug detail", selectedId);
+  return (
+    <section className="panel detail-panel" aria-label="Bug detail">
+      <div className="panel-heading"><h2>Bug detail</h2><span>{bug.status}</span></div>
+      <dl className="definition-grid">
+        <dt>id</dt><dd>{bug.id}</dd>
+        <dt>mission</dt><dd>{bug.mission_id}</dd>
+        <dt>severity</dt><dd>{bug.severity}</dd>
+        <dt>expected</dt><dd>{bug.expected_result}</dd>
+        <dt>actual</dt><dd>{bug.actual_result}</dd>
+        <dt>suggested_fix_direction</dt><dd>{bug.suggested_fix_direction ?? bug.suggested_fix ?? "none"}</dd>
+      </dl>
+      <pre>{bug.reproduction_steps.join("\n")}</pre>
+    </section>
+  );
+}
+
+function renderWorkerRunDetail(run: WorkerRun | undefined, selectedId: string): ReactElement {
+  if (!run) return renderMissingDetail("WorkerRun detail", selectedId);
+  return (
+    <section className="panel detail-panel" aria-label="WorkerRun detail">
+      <div className="panel-heading"><h2>WorkerRun detail</h2><span>{run.status}</span></div>
+      <dl className="definition-grid">
+        <dt>id</dt><dd>{run.id}</dd>
+        <dt>mission</dt><dd>{run.mission_id}</dd>
+        <dt>worker_type</dt><dd>{run.worker_type}</dd>
+        <dt>mode</dt><dd>{run.mode ?? "unknown"}</dd>
+        <dt>jobId</dt><dd>{readString(run.metadata, "jobId") ?? readString(run.output, "jobId") ?? "none"}</dd>
+        <dt>jobType</dt><dd>{readString(run.metadata, "jobType") ?? readString(run.output, "jobType") ?? "none"}</dd>
+        <dt>error</dt><dd>{run.error ?? "none"}</dd>
+      </dl>
+      <pre>{JSON.stringify(run.output, null, 2)}</pre>
+    </section>
+  );
+}
+
+function renderArtifactDetail(artifact: Artifact | undefined, selectedId: string): ReactElement {
+  if (!artifact) return renderMissingDetail("Artifact detail", selectedId);
+  return (
+    <section className="panel detail-panel" aria-label="Artifact detail">
+      <div className="panel-heading"><h2>Artifact detail</h2><span>{artifact.type}</span></div>
+      <dl className="definition-grid">
+        <dt>id</dt><dd>{artifact.id}</dd>
+        <dt>mission</dt><dd>{artifact.mission_id}</dd>
+        <dt>path</dt><dd>{artifact.path}</dd>
+        <dt>mime_type</dt><dd>{artifact.mime_type ?? "none"}</dd>
+        <dt>size</dt><dd>{artifact.size} bytes</dd>
+      </dl>
+      {artifact.content ? <pre>{artifact.content}</pre> : <p className="empty-line">No inline content; inspect artifact path from the shared workspace.</p>}
+    </section>
+  );
+}
+
+function renderApprovalDetail(approval: Approval | undefined, selectedId: string): ReactElement {
+  if (!approval) return renderMissingDetail("Approval detail", selectedId);
+  return (
+    <section className="panel detail-panel" aria-label="Approval detail">
+      <div className="panel-heading"><h2>Approval detail</h2><span>{approval.status}</span></div>
+      <dl className="definition-grid">
+        <dt>id</dt><dd>{approval.id}</dd>
+        <dt>mission</dt><dd>{approval.mission_id}</dd>
+        <dt>type</dt><dd>{approval.type}</dd>
+        <dt>reason</dt><dd>{approval.reason}</dd>
+        <dt>decision</dt><dd>{approval.decision ?? "none"}</dd>
+      </dl>
+    </section>
+  );
+}
+
+function renderMissingDetail(title: string, selectedId: string): ReactElement {
+  return (
+    <section className="panel detail-panel">
+      <h2>{title}</h2>
+      <p className="empty-line">Record not found in list result: {selectedId}</p>
+    </section>
+  );
+}
+
+function itemId(item: unknown): string | undefined {
+  return typeof item === "object" && item !== null && "id" in item && typeof (item as { id?: unknown }).id === "string"
+    ? (item as { id: string }).id
+    : undefined;
+}
+
+function readString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
 }
 
 function renderListStatus(title: string, message: string, tone: "neutral" | "error" = "neutral"): ReactElement {

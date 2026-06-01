@@ -352,7 +352,7 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
           queueState,
         });
       case "projects":
-        return renderProjectsView({ state: projectsState });
+        return renderProjectsView({ state: projectsState, selectedId: route.params.get("id") ?? undefined });
       case "missions":
         return renderMissionsView({ state: missionsState });
       case "missions/new":
@@ -378,14 +378,15 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
         });
       }
       case "bugs":
-        return renderBugsView({ state: bugsState });
+        return renderBugsView({ state: bugsState, selectedId: route.params.get("id") ?? undefined });
       case "worker-runs":
-        return renderWorkerRunsView({ state: workerRunsState });
+        return renderWorkerRunsView({ state: workerRunsState, selectedId: route.params.get("id") ?? undefined });
       case "artifacts":
-        return renderArtifactsView({ state: artifactsState });
+        return renderArtifactsView({ state: artifactsState, selectedId: route.params.get("id") ?? undefined });
       case "approvals":
         return renderApprovalsView({
           state: approvalsState,
+          selectedId: route.params.get("id") ?? undefined,
           actions: { onDecision: decideApproval },
           actionState: approvalDecisionState,
         });

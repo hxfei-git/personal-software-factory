@@ -71,6 +71,7 @@ export interface OrchestratorClient {
   getMissionSummary: (missionId: string) => Promise<MissionSummaryResponse>;
   getQueueStatus: () => Promise<QueueStatus>;
   listWorkerRuns: () => Promise<WorkerRun[]>;
+  getWorkerRun: (id: string) => Promise<WorkerRun>;
   cancelWorkerRun: (id: string) => Promise<unknown>;
   retryWorkerRun: (id: string) => Promise<unknown>;
   listIntegrations: () => Promise<IntegrationStatus[]>;
@@ -142,6 +143,7 @@ export function createOrchestratorClient(options: OrchestratorClientOptions = {}
     getMissionSummary: (missionId: string) => request<MissionSummaryResponse>(`/missions/${encodeURIComponent(missionId)}/summary`),
     getQueueStatus: () => request<QueueStatus>("/queues/status"),
     listWorkerRuns: () => request<WorkerRun[]>("/worker-runs"),
+    getWorkerRun: (id: string) => request<WorkerRun>(`/worker-runs/${encodeURIComponent(id)}`),
     cancelWorkerRun: (id: string) => request<unknown>(`/worker-runs/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
     retryWorkerRun: (id: string) => request<unknown>(`/worker-runs/${encodeURIComponent(id)}/retry`, { method: "POST" }),
     listIntegrations: () => request<IntegrationStatus[]>("/integrations"),

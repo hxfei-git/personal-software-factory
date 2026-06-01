@@ -27,7 +27,7 @@ import {
 } from "@psf/mission-schema";
 import { canTransition, transitionMission as buildTransition } from "@psf/mission-core";
 import { createDeterministicMissionPlan } from "@psf/mission-planner";
-import { ProjectRegistryError, findProjectById, scanProjectRegistry } from "@psf/project-registry";
+import { ProjectRegistryError, findProjectById, scanProjectRegistry, type RegistryProject } from "@psf/project-registry";
 import { z } from "zod";
 import {
   assertMissionActionWhitelisted,
@@ -368,9 +368,173 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     if (!project) {
       throw notFound("Project", mission.project_id);
     }
-    await getRegistryProject(mission.project_id);
+    const registryProject = await getRegistryProject(mission.project_id);
     assertMissionActionWhitelisted(action);
-    return mission;
+    assertMissionActionStatusAllowed(mission, action);
+    assertRequiredPassportCommands(registryProject, action);
+    assertActionTargetUrlAvailable(project, registryProject, action);
+    return { mission, registryProject };
+  }
+
+  async function preflightGatedRealAction(id: string, action: GatedRealActionKind) {
+    const mission = await getRawMission(id);
+    const project = await storage.getProject(mission.project_id);
+    if (!project) {
+      throw notFound("Project", mission.project_id);
+    }
+    const registryProject = await getRegistryProject(mission.project_id);
+    assertGatedRealActionStatusAllowed(mission, action);
+    assertRequiredGatedRealPassportCommands(registryProject, action);
+    assertGatedRealTargetUrlAvailable(project, registryProject, action);
+    return { mission, registryProject };
+  }
+
+  function assertMissionActionStatusAllowed(mission: Mission, action: QueuedActionKind) {
+    if (isTerminalOrManualStatus(mission.status)) {
+      throw actionPreflightBlocked(action, mission, `Mission status ${mission.status} does not allow ${action} dry-run actions.`);
+    }
+  }
+
+  function assertGatedRealActionStatusAllowed(mission: Mission, action: GatedRealActionKind) {
+    if (isTerminalOrManualStatus(mission.status)) {
+      throw actionPreflightBlocked(action, mission, `Mission status ${mission.status} does not allow ${action} actions.`);
+    }
+  }
+
+  function isTerminalOrManualStatus(status: Mission["status"]): boolean {
+    return status === MissionStatus.released
+      || status === MissionStatus.failed
+      || status === MissionStatus.cancelled
+      || status === MissionStatus.blocked
+      || status === MissionStatus.needs_human;
+  }
+
+  function assertRequiredPassportCommands(registryProject: RegistryProject, action: QueuedActionKind) {
+    const requiredCommands = requiredPassportCommandsForAction(action);
+    const missingCommands = requiredCommands.filter((command) => !passportCommandAvailable(registryProject, command));
+    if (missingCommands.length > 0) {
+      throw badRequest("MISSION_ACTION_PREFLIGHT_BLOCKED", `Project Passport is missing required command(s) for ${action}: ${missingCommands.join(", ")}.`, {
+        projectId: registryProject.project.id,
+        passportPath: registryProject.passportPath,
+        action,
+        missingCommands,
+        recommendedNextAction: "Update project.passport.yaml or use an action that does not require those project commands.",
+      });
+    }
+  }
+
+  function assertRequiredGatedRealPassportCommands(registryProject: RegistryProject, action: GatedRealActionKind) {
+    const requiredCommands = requiredPassportCommandsForGatedRealAction(action);
+    const missingCommands = requiredCommands.filter((command) => !passportCommandAvailable(registryProject, command));
+    if (missingCommands.length > 0) {
+      throw badRequest("MISSION_ACTION_PREFLIGHT_BLOCKED", `Project Passport is missing required command(s) for ${action}: ${missingCommands.join(", ")}.`, {
+        projectId: registryProject.project.id,
+        passportPath: registryProject.passportPath,
+        action,
+        missingCommands,
+        recommendedNextAction: "Update project.passport.yaml before enabling gated real execution.",
+      });
+    }
+  }
+
+  function assertActionTargetUrlAvailable(project: MissionProjectLike, registryProject: RegistryProject, action: QueuedActionKind) {
+    if (action !== "qa" && action !== "loop") {
+      return;
+    }
+    if (!hasQaTargetUrl(project, registryProject)) {
+      throw badRequest("MISSION_ACTION_PREFLIGHT_BLOCKED", `QA action ${action} requires a local or staging target URL.`, {
+        projectId: registryProject.project.id,
+        passportPath: registryProject.passportPath,
+        action,
+        missingTargetUrl: true,
+        recommendedNextAction: "Add urls.local or urls.staging to project.passport.yaml, or provide a staging URL before running QA.",
+      });
+    }
+  }
+
+  function assertGatedRealTargetUrlAvailable(project: MissionProjectLike, registryProject: RegistryProject, action: GatedRealActionKind) {
+    const needsQaTarget = action === "qa-playwright" || action === "qa-ai-exploratory" || action === "fix-real" || action === "monitor-sync";
+    if (!needsQaTarget) {
+      return;
+    }
+    if (!hasQaTargetUrl(project, registryProject)) {
+      throw badRequest("MISSION_ACTION_PREFLIGHT_BLOCKED", `${action} requires a local, staging, or production target URL.`, {
+        projectId: registryProject.project.id,
+        passportPath: registryProject.passportPath,
+        action,
+        missingTargetUrl: true,
+        recommendedNextAction: "Add urls.local, urls.staging, or urls.production to project.passport.yaml before enabling this action.",
+      });
+    }
+  }
+
+  type PassportCommandName = keyof RegistryProject["passport"]["commands"];
+  type MissionProjectLike = Awaited<ReturnType<MissionStorage["getProject"]>> extends infer ProjectOrNull ? NonNullable<ProjectOrNull> : never;
+
+  function requiredPassportCommandsForAction(action: QueuedActionKind): PassportCommandName[] {
+    switch (action) {
+      case "codex":
+        return ["test", "build"];
+      case "qa":
+        return ["e2e"];
+      case "fix":
+        return ["test"];
+      case "loop":
+        return ["test", "e2e"];
+      case "plan":
+      case "demo":
+        return [];
+    }
+  }
+
+  function requiredPassportCommandsForGatedRealAction(action: GatedRealActionKind): PassportCommandName[] {
+    switch (action) {
+      case "codex-real":
+        return ["test", "build"];
+      case "qa-playwright":
+      case "qa-ai-exploratory":
+        return ["e2e"];
+      case "fix-real":
+        return ["test", "e2e"];
+      case "deploy-staging":
+        return ["run_staging"];
+      case "github-pr":
+      case "monitor-sync":
+      case "plane-sync":
+        return [];
+    }
+  }
+
+  function passportCommandAvailable(registryProject: RegistryProject, command: PassportCommandName): boolean {
+    const value = registryProject.passport.commands[command];
+    if (Array.isArray(value)) {
+      return value.some((entry) => isNonEmptyString(entry));
+    }
+    return isNonEmptyString(value);
+  }
+
+  function hasQaTargetUrl(project: MissionProjectLike, registryProject: RegistryProject): boolean {
+    return [
+      project.production_url,
+      project.staging_url,
+      registryProject.passport.urls.local,
+      registryProject.passport.urls.staging,
+      registryProject.passport.urls.production,
+    ].some(isNonEmptyString);
+  }
+
+  function isNonEmptyString(value: unknown): value is string {
+    return typeof value === "string" && value.trim() !== "";
+  }
+
+  function actionPreflightBlocked(action: QueuedActionKind | GatedRealActionKind, mission: Mission, message: string) {
+    return badRequest("MISSION_ACTION_PREFLIGHT_BLOCKED", message, {
+      missionId: mission.id,
+      projectId: mission.project_id,
+      action,
+      status: mission.status,
+      recommendedNextAction: "Move the Mission to an allowed active workflow status before running this action.",
+    });
   }
 
   async function runMissionAction(
@@ -379,7 +543,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     action: QueuedActionKind,
     inlineRunner: (missionId: string, body: unknown) => Promise<unknown>,
   ) {
-    const mission = await preflightMissionAction(id, action);
+    const { mission } = await preflightMissionAction(id, action);
     if (actionExecutionMode === "queued") {
       return sanitizeApiResponse(await queueAction(mission, body, action));
     }
@@ -395,7 +559,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
   }
 
   async function runGatedRealAction(id: string, body: unknown, action: GatedRealActionKind) {
-    const mission = await getRawMission(id);
+    const { mission } = await preflightGatedRealAction(id, action);
     const input = parseRequest(RealActionRequestSchema, body ?? {});
     const approvals = await storage.listMissionApprovals(mission.id);
     const approvalCoverage = buildActionApprovalCoverage(action, approvals);

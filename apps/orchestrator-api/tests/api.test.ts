@@ -129,10 +129,12 @@ describe("orchestrator api", () => {
       "  install: pnpm install",
       "  test: pnpm test",
       "  build: pnpm build",
+      "  e2e: pnpm test:e2e",
       "  run_staging: pnpm dev",
       "urls:",
       "  production: \"\"",
-      "  staging: \"\"",
+      "  local: http://127.0.0.1:8000",
+      "  staging: http://127.0.0.1:8000",
       "quality_gates:",
       "  require_build: true",
       "core_flows:",
@@ -161,6 +163,42 @@ describe("orchestrator api", () => {
       "  install: pnpm install",
       "  test: pnpm test",
       "  build: pnpm build",
+      "  e2e: pnpm test:e2e",
+      "  run_staging: pnpm dev",
+      "urls:",
+      "  production: \"\"",
+      "  local: http://127.0.0.1:8000",
+      "  staging: http://127.0.0.1:8000",
+      "quality_gates:",
+      "  require_build: true",
+      "core_flows:",
+      "  - id: review_chapter",
+      "    name: 自动审稿",
+      "    priority: P0",
+      "",
+    ].join("\n"));
+    await writeFile(join(projectDir, "qa-charter.md"), "# QA Charter\n- 打开首页\n- 导出小说\n");
+    return root;
+  }
+
+  async function createAiNovelistRegistryRootWithoutQaTarget() {
+    const root = await mkdtemp(join(tmpdir(), "psf-api-registry-"));
+    const projectDir = join(root, "ai-novelist");
+    await mkdir(projectDir);
+    await writeFile(join(projectDir, "project.passport.yaml"), [
+      "id: ai-novelist",
+      "name: AI 小说助手",
+      "description: Passport with e2e command but no QA target URL.",
+      "repo:",
+      "  url: https://github.com/hxfei-git/ai-novelist.git",
+      "  default_branch: main",
+      "runtime:",
+      "  kind: web",
+      "commands:",
+      "  install: pnpm install",
+      "  test: pnpm test",
+      "  build: pnpm build",
+      "  e2e: pnpm test:e2e",
       "  run_staging: pnpm dev",
       "urls:",
       "  production: \"\"",
@@ -195,10 +233,12 @@ describe("orchestrator api", () => {
       "  install: pnpm install",
       "  test: pnpm test",
       "  build: pnpm build",
+      "  e2e: pnpm test:e2e",
       "  run_staging: pnpm dev",
       "urls:",
       "  production: \"\"",
-      "  staging: \"\"",
+      "  local: http://127.0.0.1:8000",
+      "  staging: http://127.0.0.1:8000",
       "quality_gates:",
       "  require_build: true",
       "core_flows:",
@@ -730,6 +770,88 @@ describe("orchestrator api", () => {
       expect(response.json()).toMatchObject({
         code: "NOT_FOUND",
         message: "ProjectPassport not found: ai-novelist",
+      });
+    } finally {
+      await rm(registryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("returns a readable preflight error when Mission status does not allow dry-run actions", async () => {
+    const registryRoot = await createAiNovelistRegistryRoot();
+    try {
+      const { server, storage } = await createTestServer({ auth: { disabled: true }, registryRoot });
+      const mission = await createMission(server, "Failed action preflight mission");
+      await storage.transitionMission(mission.id, MissionStatus.failed, {
+        id: `event-${mission.id}-failed`,
+        mission_id: mission.id,
+        type: "mission.status.changed",
+        message: "Mark mission failed for preflight regression.",
+        payload: { to: MissionStatus.failed },
+        created_at: mission.created_at,
+      });
+
+      const response = await server.inject({
+        method: "POST",
+        url: `/missions/${mission.id}/actions/qa-dry-run`,
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        code: "MISSION_ACTION_PREFLIGHT_BLOCKED",
+        details: expect.objectContaining({ action: "qa", status: MissionStatus.failed }),
+      });
+      expect(response.json().message).toContain("does not allow qa dry-run actions");
+    } finally {
+      await rm(registryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("returns a readable preflight error when QA action has no target URL", async () => {
+    const registryRoot = await createAiNovelistRegistryRootWithoutQaTarget();
+    try {
+      const { server } = await createTestServer({ auth: { disabled: true }, registryRoot });
+      const mission = await createMission(server, "Missing QA target URL mission");
+
+      const response = await server.inject({
+        method: "POST",
+        url: `/missions/${mission.id}/actions/qa-dry-run`,
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        code: "MISSION_ACTION_PREFLIGHT_BLOCKED",
+        details: expect.objectContaining({ action: "qa", missingTargetUrl: true }),
+      });
+      expect(response.json().message).toContain("requires a local or staging target URL");
+    } finally {
+      await rm(registryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("applies Project Passport preflight before gated real actions are queued", async () => {
+    const registryRoot = await createRegistryRoot();
+    try {
+      await withEnv({ PSF_ACTION_EXECUTION_MODE: "queued", PSF_ENABLE_REAL_CODEX: "true" }, async () => {
+        const { server, storage } = await createTestServer({
+          auth: { disabled: true },
+          workerRuntime: new InProcessWorkerRuntime(),
+          registryRoot,
+        });
+        await seedDemoMission(storage);
+
+        const response = await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/actions/codex-real`,
+          payload: {},
+        });
+
+        expect(response.statusCode).toBe(404);
+        expect(response.json()).toMatchObject({
+          code: "NOT_FOUND",
+          message: "ProjectPassport not found: ai-novelist",
+        });
       });
     } finally {
       await rm(registryRoot, { recursive: true, force: true });

@@ -214,6 +214,45 @@ describe("worker runner", () => {
     ]));
   });
 
+  it("auto transition keeps qa_running in bugs_found path when existing open bugs remain", async () => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-qa-existing-bug", MissionStatus.qa_running)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-qa-existing-bug", "qa.dry_run", "job-qa")],
+      bugs: [{ ...bug("bug-existing-open"), mission_id: "mission-qa-existing-bug", status: "open" }],
+    });
+    const job = buildWorkerJob({
+      id: "job-qa",
+      missionId: "mission-qa-existing-bug",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "qa.dry_run",
+      payload: {},
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    await processWorkerJob({
+      job,
+      storage,
+      handler: async () => ({
+        childWorkerRunIds: [],
+        childQARunIds: ["qa-run-child"],
+        childArtifactIds: [],
+        childBugReportIds: [],
+        summary: "QA passed in this run, but earlier bugs remain open.",
+        recommendedNextAction: "Fix open bugs before review.",
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    await expect(storage.getMission("mission-qa-existing-bug")).resolves.toMatchObject({ status: MissionStatus.bugs_found });
+    expect(await storage.listMissionEvents("mission-qa-existing-bug")).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "mission.status.auto_transition",
+        payload: expect.objectContaining({ from: MissionStatus.qa_running, to: MissionStatus.bugs_found }),
+      }),
+    ]));
+  });
+
   it("records action result MissionEvent without forcing illegal auto transition", async () => {
     const storage = createInMemoryMissionStorage({
       missions: [mission("mission-illegal-transition", MissionStatus.planned)],

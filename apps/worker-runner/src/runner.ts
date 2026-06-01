@@ -102,7 +102,7 @@ async function applyAutomaticMissionTransitions(
   }
 
   let currentStatus = mission.status;
-  const hasBugs = hasBugReports(result);
+  const hasBugs = hasBugReports(result) || await hasOpenMissionBugs(storage, job.missionId);
   const transitionPath = automaticTransitionPath(currentStatus, job.type, hasBugs);
 
   for (const nextStatus of transitionPath) {
@@ -155,6 +155,17 @@ function automaticTransitionPath(
 
 function hasBugReports(result: WorkerJobHandlerResult): boolean {
   return result.childBugReportIds.length > 0 || (result.childBugReports?.length ?? 0) > 0;
+}
+
+async function hasOpenMissionBugs(storage: MissionStorage, missionId: string): Promise<boolean> {
+  const bugs = await storage.listMissionBugs(missionId);
+  return bugs.some((bug) => !isResolvedBugStatus(bug.status));
+}
+
+const resolvedBugStatuses = new Set<string>(["fixed", "verified", "closed", "wont_fix", "duplicate"]);
+
+function isResolvedBugStatus(status: BugReport["status"]): boolean {
+  return resolvedBugStatuses.has(status);
 }
 
 function buildAutoTransitionEvent(
