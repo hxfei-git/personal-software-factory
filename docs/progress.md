@@ -1,139 +1,78 @@
-# Real Execution And Integrations Design Progress
+# Real Execution And Integrations Phase Progress
 
-## Completed In This Batch
+## Latest Update
 
-- Reviewed the Phase 17B codebase, queue runtime, Worker Runner, Orchestrator action API, Codex dry-run worker, QA dry-run worker, integration adapters, Project Passport, and safety docs.
-- Chose a design-only scope for the post-Phase-17B path covering Batch A through Batch M.
-- Added the overall real execution and gated integrations design spec.
-- Added ADRs for current architecture alignment, real execution safety boundary, external integration gated mode, artifact store policy, and Temporal/LangGraph deferral.
+Task 14 documents the gated real execution and integration phase. README, `.env.example`, and this progress rollup now describe which real capabilities exist, which gates keep them disabled by default, and what remains manual before any real external action should run.
 
-## Created Or Modified Files
+Detailed phase rollup: `docs/progress/phase-real-execution-and-integrations.md`.
 
-- `docs/superpowers/specs/2026-05-31-real-execution-and-integrations-design.md`
-- `docs/adr/0001-current-architecture-alignment.md`
-- `docs/adr/0002-real-execution-safety-boundary.md`
-- `docs/adr/0003-external-integrations-gated-mode.md`
-- `docs/adr/0004-artifact-store-and-retention-policy.md`
-- `docs/adr/0005-temporal-langgraph-decision.md`
-- `docs/progress.md`
+## Completed Tasks 1-13
 
-## Implementation Status
+1. Shared safety package: added safety utilities for redaction, command/path policy, and real-mode guardrails used by worker and integration paths.
+2. Artifact store and retention policy: documented local artifact boundaries and path-only handling for large evidence.
+3. Queue and API real-mode job contracts: added explicit real/gated action contracts instead of arbitrary job submission.
+4. Real Codex runner gated mode: added a real-runner abstraction that stays blocked unless `ENABLE_REAL_CODEX=1`, safe Codex CLI policy, workspace guards, runtime limits, and approvals are satisfied.
+5. Deterministic Playwright QA runner: added a gated real browser path requiring target URL plus `ENABLE_REAL_PLAYWRIGHT=1` or an injected runner.
+6. AI exploratory QA gated mode: added the abstraction and validation path while keeping MCP/browser execution disabled by default.
+7. Real auto-fix loop gated mode: connected the fix loop to gated real contracts while preserving dry-run/manual-action defaults.
+8. Real integration adapters with injected transports: added GitHub, Coolify, Uptime Kuma, and Plane real adapters that require credentials, policy gates, and injected transports before network activity.
+9. Worker Runner real job handlers: mapped whitelisted real contract jobs to gated handlers and safe manual-action outputs by default.
+10. Orchestrator API and Hub visibility: exposed protected real-action readiness surfaces and route gates such as `PSF_ENABLE_REAL_CODEX` and `PSF_ENABLE_REAL_GITHUB_PR`.
+11. ai-novelist real loop readiness: documented readiness boundaries for the first managed project without enabling autonomous external actions.
+12. Operations hardening: extended doctor/safety guidance for real gates, queue runtime, workspace roots, and secret redaction.
+13. Temporal and LangGraph decision record: kept both deferred until the BullMQ-based control plane needs durable workflow complexity.
 
-No business code was implemented in this batch. No real Codex execution, provider network call, push, PR creation, deployment, monitor creation, Plane sync, schema migration, or dependency installation was performed.
+## Task 14 Documentation And Verification
 
-## Verification
+- README now distinguishes real-but-disabled abilities from default dry-run/mock behavior.
+- `.env.example` now lists the phase real-mode variables and Orchestrator route gates with empty placeholders/comments for secrets.
+- This progress file and `docs/progress/phase-real-execution-and-integrations.md` summarize changed capabilities, safety boundaries, migrations, test commands, and remaining manual actions.
+- Real external APIs were not called during this documentation task.
 
-This is a documentation-only design batch. Recommended checks are `git diff --check` and `git status --short --branch`.
+## Changed Capability List
 
-## Next Suggestions
+Real but disabled/gated capabilities now include Codex real runner, deterministic Playwright QA, AI exploratory QA abstraction, real fix loop contract, GitHub/Coolify/Uptime Kuma/Plane real adapters via injected transport, and Worker Runner real job handlers.
 
-1. Review the design spec and ADRs.
-2. If accepted, create a separate implementation plan for Batch A only.
-3. Do not proceed to real Codex or real integrations until Batch A safety utilities and tests exist.
+Default-safe capabilities remain local dry-runs, mock integration status/dry-runs, manual-action outputs, demo workflow, and normal test execution. Provider real-mode flags only make real mode eligible; they do not call networks without credentials, route gates, approvals, runtime wiring, and injected transports.
 
-# Phase 17B Progress
+## Default Safety Boundaries
 
-## Completed In This Batch
+- `realNetworkCall` remains `false` on default integration status and dry-run surfaces.
+- Orchestrator real-action routes require `PSF_ACTION_EXECUTION_MODE=queued` plus route-specific `PSF_ENABLE_REAL_*` gates.
+- Worker/provider gates such as `ENABLE_REAL_CODEX`, `ENABLE_REAL_PLAYWRIGHT`, `ENABLE_AI_EXPLORATORY_QA`, and `ENABLE_REAL_GITHUB` remain disabled in `.env.example`.
+- Secrets must not appear in API responses, Hub UI state, logs, artifacts, PR bodies, Issue bodies, or integration outputs.
+- No push, PR creation, deployment, monitor creation, Plane sync, production mutation, or provider API call is part of the default path.
 
-- Added optional queue-backed dry-run execution with `@psf/worker-runtime` supporting in-process and BullMQ runtimes.
-- Added queue wrapper WorkerRun semantics for accepted jobs while preserving existing planner, QA, Codex dry-run, fix, demo, and integration child WorkerRun behavior.
-- Updated Orchestrator action APIs to support `PSF_ACTION_EXECUTION_MODE=inline` and `PSF_ACTION_EXECUTION_MODE=queued`.
-- Added Queue API surfaces for queue status, job lookup, WorkerRun filtering, cancel, and retry.
-- Added Worker Runner for consuming whitelisted dry-run jobs and updating wrapper WorkerRun status.
-- Added CLI queue helpers for status, worker guidance, WorkerRun cancel, and WorkerRun retry.
-- Updated Hub Web to show queue runtime status, accepted queued action metadata, wrapper WorkerRuns, child IDs, and failed WorkerRun errors.
-- Added doctor queue checks, queue environment variables, queue runtime docs, and future real Codex readiness docs.
+## Migrations
 
-## Created Or Modified Files
+Task 14 is documentation-only and introduces no Prisma migration. The phase rollup does not change schema or runtime code.
 
-- `.env.example`
-- `README.md`
-- `apps/orchestrator-api/*`
-- `apps/hub/*`
-- `apps/worker-runner/*`
-- `packages/worker-runtime/*`
-- `packages/demo-workflow/src/doctor.ts`
-- `packages/demo-workflow/tests/demo-workflow.test.ts`
-- `scripts/psf.ts`
-- `scripts/psf.test.ts`
-- `docs/brainstorms/phase-17-queue-worker-runtime.md`
-- `docs/queue-runtime.md`
-- `docs/real-codex-execution-readiness.md`
-- `docs/worker-runtime.md`
-- `docs/api.md`
-- `docs/operations.md`
-- `docs/troubleshooting.md`
-- `docs/health-checks.md`
-- `docs/local-development.md`
-- `docs/safety.md`
-- `docs/progress.md`
+## Tests To Run
 
-## Database Migration
-
-No Prisma migration is required for Phase 17B. Queue wrapper metadata and child ID references use existing WorkerRun `metadata` and `output` JSON fields.
-
-## Environment Variables
-
-```dotenv
-PSF_WORKER_RUNTIME=in-process
-PSF_ACTION_EXECUTION_MODE=inline
-PSF_REDIS_URL=redis://127.0.0.1:6379
-PSF_QUEUE_PREFIX=psf
-PSF_WORKER_CONCURRENCY=2
-PSF_JOB_ATTEMPTS=2
-PSF_JOB_TIMEOUT_MS=300000
-PSF_TEST_REDIS=0
-```
-
-## Commands
+Task 14 intentionally does not run full verification. The coordinator should run final gates for the phase. Recommended checks are:
 
 ```bash
-sudo docker compose up -d redis
-PSF_WORKER_RUNTIME=bullmq PSF_ACTION_EXECUTION_MODE=queued pnpm dev:api
-pnpm worker:dev
-pnpm worker:once
-pnpm psf queues:status
-pnpm psf worker-runs:list
-pnpm psf worker-runs:cancel <workerRunId>
-pnpm psf worker-runs:retry <workerRunId>
-```
-
-## Test Commands
-
-Focused checks:
-
-```bash
-pnpm --filter @psf/demo-workflow test
-pnpm --filter @psf/demo-workflow typecheck
-rg -n "misleading real-execution claims" docs README.md
-```
-
-Full gates:
-
-```bash
-pnpm test
-pnpm typecheck
-pnpm build
 git diff --check
-git status --short --branch
+pnpm check
+pnpm typecheck
+pnpm test
+pnpm build
 ```
 
-## Dry-Run And Mock Boundaries
+Focused checks that match the changed documentation surface:
 
-- Queue jobs are whitelisted dry-run/mock jobs only.
-- Worker Runner does not execute Codex.
-- Worker Runner does not push, create PRs, deploy, create monitors, create Plane issues, or call external provider APIs.
-- Integration adapters must continue to return `realNetworkCall: false`.
-- Active cancel is cooperative and best-effort; it does not promise a hard process kill.
-- Retry is limited to failed or cancelled queue wrapper WorkerRuns.
+```bash
+pnpm --filter @psf/integrations test
+pnpm --filter @psf/codex-worker test
+pnpm --filter @psf/qa-worker test
+pnpm --filter @psf/worker-runner test
+pnpm --filter @psf/orchestrator-api test
+pnpm --filter @psf/hub test
+```
 
-## Plan Alignment
+## Remaining Manual Actions
 
-Phase 17B aligns with `plan.md` by adding a local queue-backed Worker Runtime while keeping Orchestrator as the API boundary and existing business workflows intact. It does not introduce Temporal, LangGraph, real Codex execution, or real external integrations.
-
-## Next Suggestions
-
-1. Manually verify queued mode with Redis, API, Worker Runner, and Hub running together.
-2. Add stronger parent/child WorkerRun relations only after queue semantics are stable.
-3. Prepare workspace isolation, command policy, approval checks, and log/artifact retention before considering real Codex execution.
-4. Keep real GitHub PR, Coolify deploy, Uptime Kuma monitor, and Plane issue adapters behind later explicit approval.
+- Coordinator runs final verification gates after this docs commit.
+- Operator must provide real credentials only in local `.env` or secret storage, never in tracked docs.
+- Operator must explicitly approve and wire queued runtime, route gates, worker gates, injected runners/transports, and provider operation gates before any real external action.
+- Provider API behavior should remain behind fake transports in tests unless a later approved task intentionally performs real network validation.
