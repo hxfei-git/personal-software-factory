@@ -56,12 +56,27 @@ describe("worker runner", () => {
     expect(wrapper?.output).toMatchObject({
       jobId: "job-qa",
       jobType: "qa.dry_run",
+      workerRunId: "worker-run-wrapper",
+      missionId: "mission-0001-ai-novelist-chapter-review",
+      correlationId: "worker-run-wrapper:job-qa",
+      heartbeatAt: "2026-05-31T00:01:00.000Z",
+      workerRunnerHeartbeatAt: "2026-05-31T00:01:00.000Z",
       childWorkerRunIds: ["worker-run-child-qa"],
       childQARunIds: ["qa-run-child"],
       childArtifactIds: ["artifact-qa-report"],
       childBugReportIds: [],
       summary: "QA dry-run completed.",
       recommendedNextAction: "Refresh Mission Summary.",
+    });
+    expect(wrapper?.metadata).toMatchObject({
+      queueWrapper: true,
+      jobId: "job-qa",
+      jobType: "qa.dry_run",
+      workerRunId: "worker-run-wrapper",
+      missionId: "mission-0001-ai-novelist-chapter-review",
+      correlationId: "worker-run-wrapper:job-qa",
+      heartbeatAt: "2026-05-31T00:01:00.000Z",
+      workerRunnerHeartbeatAt: "2026-05-31T00:01:00.000Z",
     });
     expect(await storage.listMissionEvents("mission-0001-ai-novelist-chapter-review")).toEqual(
       expect.arrayContaining([

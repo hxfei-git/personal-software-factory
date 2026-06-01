@@ -86,3 +86,27 @@ Queue runtime status is available separately:
 pnpm psf queues:status
 curl http://127.0.0.1:3000/queues/status
 ```
+
+## Operations Readiness Checks
+
+Doctor also reports:
+
+- artifact root and workspace root status;
+- active redaction configuration;
+- Worker Runner heartbeat/stale-detection guidance;
+- newer `PSF_ENABLE_REAL_*` action gates;
+- integration readiness while preserving `realNetworkCall: false`.
+
+A warning for missing `artifacts/` or `workspaces/` is acceptable before the first real-mode write or clone. A failed root check means the path exists but is not a directory and should be fixed before running workers.
+
+## Stale Worker Detection
+
+Queue wrapper WorkerRuns expose heartbeat metadata when Worker Runner marks a job running. Operators should compare `workerRunnerHeartbeatAt` with current time and the queue status output. This phase reports stale-detection data only; it does not automatically cancel, retry, or recover stale jobs.
+
+## Retention Preview
+
+```bash
+pnpm psf artifacts:cleanup --dry-run
+```
+
+Expected output is JSON with `dryRun: true`, `deletionEnabled: false`, and a candidate list. The command must not delete files or print secret values.

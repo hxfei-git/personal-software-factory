@@ -28,10 +28,19 @@ const REQUIRED_DIRECTORIES = [
 
 const REAL_MODE_ENV_NAMES = [
   "ENABLE_REAL_CODEX",
+  "ENABLE_REAL_PLAYWRIGHT",
   "ENABLE_REAL_GITHUB",
   "ENABLE_REAL_COOLIFY",
   "ENABLE_REAL_UPTIME_KUMA",
   "ENABLE_REAL_PLANE",
+  "PSF_ENABLE_REAL_CODEX",
+  "PSF_ENABLE_REAL_QA_PLAYWRIGHT",
+  "PSF_ENABLE_REAL_QA_AI_EXPLORATORY",
+  "PSF_ENABLE_REAL_FIX",
+  "PSF_ENABLE_REAL_GITHUB_PR",
+  "PSF_ENABLE_REAL_COOLIFY_DEPLOY",
+  "PSF_ENABLE_REAL_UPTIME_KUMA_SYNC",
+  "PSF_ENABLE_REAL_PLANE_SYNC",
 ] as const;
 
 export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorResult> {
@@ -43,11 +52,15 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorResu
   checks.push(checkPnpm(env));
   checks.push(...await checkRequiredDirectories(cwd));
   checks.push(...await checkEnvFiles(cwd));
+  checks.push(await checkArtifactRoot(cwd));
+  checks.push(await checkWorkspaceRoot(cwd));
+  checks.push(checkRedactionConfig());
   checks.push(await checkPassport(cwd));
   checks.push(await checkDatabase(options.checkDatabase ?? false));
   checks.push(await checkHttp("api", options.checkApi ?? false, env.PSF_API_URL ?? DEFAULT_DEMO_API_URL));
   checks.push(await checkHttp("hub", options.checkHub ?? false, env.PSF_HUB_URL ?? DEFAULT_DEMO_HUB_URL));
   checks.push(...checkQueueRuntime(env));
+  checks.push(checkWorkerRunnerHint(env));
   checks.push(checkIntegrations(env));
   checks.push(...checkRealModeWarnings(env));
 
@@ -115,6 +128,41 @@ async function checkEnvFiles(cwd: string): Promise<DoctorCheck[]> {
       ? { key: "env-local", status: "ok", message: ".env is present." }
       : { key: "env-local", status: "warning", message: ".env is not present; local services may need explicit environment variables." },
   ];
+}
+
+async function checkArtifactRoot(cwd: string): Promise<DoctorCheck> {
+  const path = join(cwd, "artifacts");
+  const state = await directoryState(path);
+  if (state === "directory") {
+    return { key: "artifact-root", status: "ok", message: "Artifact root exists.", details: { path: "artifacts" } };
+  }
+  if (state === "not-directory") {
+    return { key: "artifact-root", status: "failed", message: "Artifact root path exists but is not a directory.", details: { path: "artifacts" } };
+  }
+  return { key: "artifact-root", status: "warning", message: "Artifact root is not present yet; real-mode artifact helpers will create artifacts/ on first write.", details: { path: "artifacts" } };
+}
+
+async function checkWorkspaceRoot(cwd: string): Promise<DoctorCheck> {
+  const path = join(cwd, "workspaces");
+  const state = await directoryState(path);
+  if (state === "directory") {
+    return { key: "workspace-root", status: "ok", message: "Workspace root exists.", details: { path: "workspaces" } };
+  }
+  if (state === "not-directory") {
+    return { key: "workspace-root", status: "failed", message: "Workspace root path exists but is not a directory.", details: { path: "workspaces" } };
+  }
+  return { key: "workspace-root", status: "warning", message: "Workspace root is not present yet; worker project clones should stay under workspaces/ when real execution is enabled.", details: { path: "workspaces" } };
+}
+
+function checkRedactionConfig(): DoctorCheck {
+  const sample = redactSecretText("token=sample-secret postgresql://psf:password@example.test/db?jwt=abc");
+  const active = !sample.includes("sample-secret") && !sample.includes("password@example") && !sample.includes("jwt=abc");
+  return {
+    key: "redaction-config",
+    status: active ? "ok" : "failed",
+    message: active ? "Secret redaction patterns are active for doctor output." : "Secret redaction patterns did not redact the built-in sample.",
+    details: { secretLikeKeys: ["token", "password", "secret", "authorization", "credential", "session", "jwt", "bearer"] },
+  };
 }
 
 async function checkPassport(cwd: string): Promise<DoctorCheck> {
@@ -186,6 +234,26 @@ async function checkHttp(key: "api" | "hub", enabled: boolean, url: string): Pro
   }
 }
 
+function checkWorkerRunnerHint(env: NodeJS.ProcessEnv): DoctorCheck {
+  const runtime = env.PSF_WORKER_RUNTIME ?? "in-process";
+  const actionMode = env.PSF_ACTION_EXECUTION_MODE ?? "inline";
+  const queued = runtime === "bullmq" || actionMode === "queued";
+  return {
+    key: "worker-runner",
+    status: queued ? "warning" : "ok",
+    message: queued
+      ? "Worker Runner must be running for queued actions; stale detection is manual via wrapper WorkerRun heartbeat metadata and no automatic recovery runs yet."
+      : "Worker Runner is optional in inline mode; queued mode requires pnpm worker:dev and heartbeat observation.",
+    details: {
+      runtime,
+      actionMode,
+      heartbeatFields: ["heartbeatAt", "workerRunnerHeartbeatAt", "correlationId", "jobId", "jobType"],
+      staleDetection: "manual-observation-only",
+      automaticRecovery: false,
+    },
+  };
+}
+
 function checkIntegrations(env: NodeJS.ProcessEnv): DoctorCheck {
   const statuses = listIntegrationStatuses({ env, mode: "dry-run" });
   const unsafe = statuses.filter((status) => status.realNetworkCall || !status.safeToRun);
@@ -200,6 +268,7 @@ function checkIntegrations(env: NodeJS.ProcessEnv): DoctorCheck {
         : "All integrations are configured for dry-run without real network calls.",
     details: {
       realNetworkCall: false,
+      readyForRealNetworkCalls: false,
       integrations: statuses.map((status) => ({
         name: status.externalName,
         configured: status.configured,
@@ -259,13 +328,17 @@ function checkQueueRuntime(env: NodeJS.ProcessEnv): DoctorCheck[] {
 
 function checkRealModeWarnings(env: NodeJS.ProcessEnv): DoctorCheck[] {
   return REAL_MODE_ENV_NAMES
-    .filter((name) => env[name] === "1")
+    .filter((name) => isTruthyEnv(env[name]))
     .map((name) => ({
       key: name.toLowerCase().replaceAll("_", "-"),
       status: "warning",
-      message: `${name} is enabled; demo workflow still keeps real external calls disabled unless a later approved task changes that boundary.`,
-      details: { envName: name },
+      message: `${name} is enabled; current operations still keep real external calls disabled unless a later approved task changes that boundary.`,
+      details: { envName: name, configured: true, realNetworkCall: false },
     }));
+}
+
+function isTruthyEnv(value: string | undefined): boolean {
+  return value === "1" || value?.toLowerCase() === "true";
 }
 
 async function readable(path: string): Promise<boolean> {

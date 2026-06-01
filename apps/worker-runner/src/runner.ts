@@ -21,8 +21,7 @@ export async function processWorkerJob(input: ProcessWorkerJobInput): Promise<Wo
   const runningAt = now();
   const running = await updateWrapper(input.storage, wrapper, "running", input.job, runningAt, {
     queueWrapper: true,
-    jobId: input.job.id,
-    jobType: input.job.type,
+    ...buildHeartbeatMetadata(input.job, runningAt),
     summary: "Queue job is running.",
     recommendedNextAction: "Wait for Worker Runner completion, then refresh Mission Summary.",
   });
@@ -52,6 +51,22 @@ export async function processWorkerJob(input: ProcessWorkerJobInput): Promise<Wo
   }
 }
 
+function buildHeartbeatMetadata(job: QueueWorkerJob, timestamp: string): Record<string, unknown> {
+  return {
+    jobId: job.id,
+    jobType: job.type,
+    workerRunId: job.workerRunId,
+    missionId: job.missionId,
+    correlationId: correlationIdForJob(job),
+    heartbeatAt: timestamp,
+    workerRunnerHeartbeatAt: timestamp,
+  };
+}
+
+function correlationIdForJob(job: QueueWorkerJob): string {
+  return `${job.workerRunId}:${job.id}`;
+}
+
 function buildSafeOutput(job: QueueWorkerJob, result: WorkerJobHandlerResult): Record<string, unknown> {
   return {
     queueWrapper: true,
@@ -79,7 +94,16 @@ async function updateWrapper(
     ...current,
     status,
     output: { ...current.output, ...output },
-    metadata: { ...current.metadata, queueWrapper: true, jobId: job.id, jobType: job.type },
+    metadata: {
+      ...current.metadata,
+      queueWrapper: true,
+      jobId: job.id,
+      jobType: job.type,
+      workerRunId: job.workerRunId,
+      missionId: job.missionId,
+      correlationId: correlationIdForJob(job),
+      ...(status === "running" ? { heartbeatAt: timestamp, workerRunnerHeartbeatAt: timestamp } : {}),
+    },
     ...(error === undefined ? {} : { error }),
     ...(status === "running" ? { started_at: current.started_at ?? timestamp } : {}),
     ...(status === "succeeded" || status === "failed" || status === "cancelled" ? { finished_at: timestamp } : {}),

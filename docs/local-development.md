@@ -89,3 +89,26 @@ pnpm psf queues:status
 pnpm psf worker-runs:cancel <workerRunId>
 pnpm psf worker-runs:retry <workerRunId>
 ```
+
+## Local Backup And Restore
+
+For local experiments, keep backups under `artifacts/backups/` and avoid storing real provider tokens there. Stop API and Worker Runner before restoring database or filesystem state. After restore, run:
+
+```bash
+pnpm psf doctor --check-db
+pnpm psf queues:status
+```
+
+## Artifact Cleanup Preview
+
+Use the preview command to see expired local artifacts without deleting them:
+
+```bash
+pnpm psf artifacts:cleanup --dry-run
+```
+
+Cleanup is preview-only in this phase. Do not manually delete shared artifact directories while a Worker Runner is active.
+
+## Token Rotation Locally
+
+When changing `PSF_API_TOKEN`, provider tokens, or browser-visible `VITE_PSF_API_TOKEN`, restart every process that reads the value. Use only local throwaway values for Vite-exposed tokens, then rerun doctor and integration status.

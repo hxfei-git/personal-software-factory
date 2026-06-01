@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
 import { join, resolve } from "node:path";
@@ -292,6 +292,58 @@ describe("psf CLI", () => {
     expect(result.stdout).not.toContain("token-value");
     expect(result.stdout).not.toContain("token=abc");
     expect(result.stderr).toBe("");
+  });
+
+  test("doctor reports queue and newer real-mode warnings without leaking secrets", async () => {
+    const cwd = await createDoctorWorkspace("psf-cli-doctor-ops-");
+    const secret = "ghp_doctor_secret";
+
+    const result = await runPsfCli(["doctor", "--json"], {
+      cwd,
+      syncDatabase: false,
+      env: {
+        ...process.env,
+        PSF_WORKER_RUNTIME: "bullmq",
+        PSF_ACTION_EXECUTION_MODE: "queued",
+        PSF_REDIS_URL: undefined,
+        PSF_ENABLE_REAL_GITHUB_PR: "true",
+        GITHUB_TOKEN: secret,
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('"PSF_REDIS_URL"');
+    expect(result.stdout).toContain("PSF_REDIS_URL is required when PSF_WORKER_RUNTIME=bullmq");
+    expect(result.stdout).toContain('"psf-enable-real-github-pr"');
+    expect(result.stdout).toContain("realNetworkCall");
+    expect(result.stdout).toContain("Worker Runner");
+    expect(result.stdout).not.toContain(secret);
+    expect(result.stderr).toBe("");
+  });
+
+  test("artifact cleanup dry-run previews expired artifacts and preserves files", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-cli-artifact-cleanup-"));
+    const expiredFile = join(cwd, "artifacts", "missions", "mission-123", "run-456", "logs", "old.log");
+    await mkdir(join(expiredFile, ".."), { recursive: true });
+    await writeFile(expiredFile, "old safe log\n", "utf8");
+    await utimes(expiredFile, new Date("2026-05-01T00:00:00.000Z"), new Date("2026-05-01T00:00:00.000Z"));
+
+    const result = await runPsfCli(["artifacts:cleanup", "--dry-run"], {
+      cwd,
+      syncDatabase: false,
+      env: {
+        ...process.env,
+        PSF_ARTIFACT_CLEANUP_NOW: "2026-06-01T00:00:00.000Z",
+        PSF_API_TOKEN: "secret-token",
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('"dryRun": true');
+    expect(result.stdout).toContain('"artifacts/missions/mission-123/run-456/logs/old.log"');
+    expect(result.stdout).not.toContain("secret-token");
+    expect(result.stderr).toBe("");
+    await expect(stat(expiredFile)).resolves.toBeTruthy();
   });
 
   test("demo reset previews without DEMO_RESET_CONFIRM=1 and does not delete files", async () => {

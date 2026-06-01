@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, opendir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { cleanupExpiredArtifacts, type RetentionClass, type RetentionCleanupEntry } from "@psf/artifact-store";
 import { createCodexDryRun } from "@psf/codex-worker";
 import { createAutoFixDryRun } from "@psf/auto-fix-loop";
 import { createDeterministicMissionPlan } from "@psf/mission-planner";
@@ -31,7 +32,7 @@ const MISSION_ID_PATTERN = /^mission-[a-z0-9][a-z0-9-]*$/;
 const CLI_INTEGRATION_PROVIDERS = ["github", "coolify", "uptime-kuma", "plane"] as const;
 type CliIntegrationProvider = (typeof CLI_INTEGRATION_PROVIDERS)[number];
 
-type CliCommand = "projects:sync" | "mission:create" | "mission:plan" | "codex:dry-run" | "qa:dry-run" | "qa:playwright" | "fix:dry-run" | "loop:dry-run" | "integrations:status" | "integrations:dry-run" | "queues:status" | "worker:start" | "worker:once" | "worker-runs:list" | "worker-runs:cancel" | "worker-runs:retry" | "doctor" | "demo:seed" | "demo:reset" | "demo:ai-novelist" | "demo:report";
+type CliCommand = "artifacts:cleanup" | "projects:sync" | "mission:create" | "mission:plan" | "codex:dry-run" | "qa:dry-run" | "qa:playwright" | "fix:dry-run" | "loop:dry-run" | "integrations:status" | "integrations:dry-run" | "queues:status" | "worker:start" | "worker:once" | "worker-runs:list" | "worker-runs:cancel" | "worker-runs:retry" | "doctor" | "demo:seed" | "demo:reset" | "demo:ai-novelist" | "demo:report";
 
 type JsonObject = Record<string, unknown>;
 
@@ -117,6 +118,9 @@ export async function runPsfCli(argv: string[], options: PsfCliOptions = {}): Pr
   try {
     const [command, ...args] = argv;
     switch (command as CliCommand | undefined) {
+      case "artifacts:cleanup":
+        await artifactsCleanupCommand(context, args);
+        break;
       case "projects:sync":
         await syncProjectsCommand(context);
         break;
@@ -278,13 +282,109 @@ async function doctorCommand(context: CliContext, args: string[]): Promise<void>
   const flags = parseFlags(args, new Set(["--json", "--check-db", "--check-database", "--check-api", "--check-hub"]), "Usage: pnpm psf doctor [--json] [--check-db] [--check-api] [--check-hub]");
   const result = await runDoctor({
     cwd: context.cwd,
-    env: process.env,
+    env: context.env,
     json: flags.has("--json"),
     checkDatabase: flags.has("--check-db") || flags.has("--check-database"),
     checkApi: flags.has("--check-api"),
     checkHub: flags.has("--check-hub"),
   });
   context.stdout.push(formatDoctorResult(result, flags.has("--json")).trimEnd());
+}
+
+async function artifactsCleanupCommand(context: CliContext, args: string[]): Promise<void> {
+  parseFlags(args, new Set(["--dry-run"]), "Usage: pnpm psf artifacts:cleanup --dry-run");
+
+  const artifactsRoot = resolve(context.cwd, "artifacts");
+  const entries = await collectArtifactCleanupEntries(artifactsRoot);
+  const now = parseArtifactCleanupNow(context.env.PSF_ARTIFACT_CLEANUP_NOW);
+  const result = await cleanupExpiredArtifacts({
+    artifactsRoot,
+    entries,
+    ...(now === undefined ? {} : { now }),
+    dryRun: true,
+  });
+
+  context.stdout.push(JSON.stringify({
+    dryRun: true,
+    deleted: [],
+    candidates: result.candidates.map((candidate) => sanitizeCliMessage(relativeToCwd(context, candidate))).sort(),
+    artifactsRoot: sanitizeCliMessage(relativeToCwd(context, artifactsRoot)),
+    scanned: entries.length,
+    deletionEnabled: false,
+    message: "Artifact cleanup preview only. No files were deleted.",
+  }, null, 2));
+}
+
+async function collectArtifactCleanupEntries(artifactsRoot: string): Promise<RetentionCleanupEntry[]> {
+  if (!await pathExists(artifactsRoot)) {
+    return [];
+  }
+
+  const files = await listFilesUnder(artifactsRoot);
+  const entries: RetentionCleanupEntry[] = [];
+  for (const file of files) {
+    const fileStat = await stat(file);
+    entries.push({
+      path: file,
+      retentionClass: retentionClassForArtifactPath(file),
+      createdAt: fileStat.mtime.toISOString(),
+    });
+  }
+  return entries;
+}
+
+async function listFilesUnder(directory: string): Promise<string[]> {
+  const files: string[] = [];
+  const dir = await opendir(directory);
+  for await (const entry of dir) {
+    const entryPath = join(directory, entry.name);
+    if (entry.isSymbolicLink()) {
+      continue;
+    }
+    if (entry.isDirectory()) {
+      files.push(...await listFilesUnder(entryPath));
+    } else if (entry.isFile()) {
+      files.push(entryPath);
+    }
+  }
+  return files;
+}
+
+function retentionClassForArtifactPath(filePath: string): RetentionClass {
+  const segments = filePath.split(/[\\/]+/);
+  if (segments.includes("audit")) {
+    return "audit";
+  }
+  if (segments.includes("release") || segments.includes("deployments")) {
+    return "release";
+  }
+  if (segments.some((segment) => ["logs", "screenshots", "traces", "tmp", "temp"].includes(segment))) {
+    return "short";
+  }
+  return "mission";
+}
+
+function parseArtifactCleanupNow(value: string | undefined): Date | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new PsfCliError("INVALID_ARTIFACT_CLEANUP_NOW", "PSF_ARTIFACT_CLEANUP_NOW must be an ISO timestamp when set.");
+  }
+  return parsed;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 async function demoSeedCommand(context: CliContext, args: string[]): Promise<void> {
@@ -300,7 +400,7 @@ async function demoResetCommand(context: CliContext, args: string[]): Promise<vo
   const flags = parseFlags(args, new Set(["--skip-db"]), "Usage: pnpm psf demo:reset [--skip-db]");
   const result = await resetDemoData({
     cwd: context.cwd,
-    confirm: process.env.DEMO_RESET_CONFIRM === "1",
+    confirm: context.env.DEMO_RESET_CONFIRM === "1",
     skipDb: flags.has("--skip-db") || !context.syncDatabase,
   });
   if (result.requiresConfirmation) {
@@ -1168,6 +1268,7 @@ function usage(): string {
     `  pnpm psf qa:dry-run ${EXAMPLE_MISSION_ID} --with-sample-bug`,
     `  pnpm psf fix:dry-run ${EXAMPLE_MISSION_ID}`,
     `  pnpm psf loop:dry-run ${EXAMPLE_MISSION_ID} --with-sample-bug`,
+    "  pnpm psf artifacts:cleanup --dry-run",
     "  pnpm psf integrations:status",
     "  pnpm psf integrations:dry-run github|coolify|uptime-kuma|plane",
     "  pnpm psf queues:status",
@@ -1186,6 +1287,7 @@ function usage(): string {
     "",
     "All commands are local dry-runs. codex and fix command artifacts never execute Codex.",
     "demo:reset previews only unless DEMO_RESET_CONFIRM=1 is set.",
+    "artifacts:cleanup is preview-only in this phase and never deletes files.",
   ].join("\n");
 }
 

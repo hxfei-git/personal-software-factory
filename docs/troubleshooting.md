@@ -154,3 +154,39 @@ Remedy: active cancellation is cooperative and best-effort. Refresh Mission Deta
 Symptom: retry is rejected.
 
 Remedy: retry is allowed only for failed or cancelled queue wrapper WorkerRuns, not running or succeeded runs.
+
+## Worker Runner Stale Heartbeat
+
+Symptom: a queue wrapper WorkerRun stays `running` after Worker Runner stopped.
+
+Remedy: run doctor and inspect the wrapper WorkerRun output/metadata for `heartbeatAt`, `workerRunnerHeartbeatAt`, `correlationId`, `jobId`, and `jobType`. Restart Worker Runner, then cancel or retry only that specific wrapper after confirming no process is still handling it. This phase does not perform automatic stale recovery.
+
+## Artifact Cleanup Preview
+
+Symptom: local artifacts are growing.
+
+Remedy: preview expired files first:
+
+```bash
+pnpm psf artifacts:cleanup --dry-run
+```
+
+The command lists candidates and deletes nothing. It scans only `artifacts/`, skips symlinks, uses retention helpers, and refuses cleanup candidates outside the artifact root.
+
+## Token Rotation
+
+Symptom: a local or provider token was exposed or should be refreshed.
+
+Remedy: rotate it at the source, update `.env`, restart API/Hub/Worker Runner, then run `pnpm psf doctor` and `pnpm psf integrations:status`. Do not include the old or new token in bug reports, logs, PRs, Issues, or artifacts.
+
+## Backup Restore Problems
+
+Symptom: restored local data does not match Hub/API state.
+
+Remedy: stop API and Worker Runner, restore PostgreSQL first, restore `missions/`, `artifacts/`, `workspaces/`, and `projects/`, then run `pnpm psf doctor --check-db`. If queue state is inconsistent, prefer scoped WorkerRun cancel/retry over deleting Redis keys.
+
+## Real-Mode Readiness Failure
+
+Symptom: doctor warns about `ENABLE_REAL_*` or `PSF_ENABLE_REAL_*`.
+
+Remedy: treat the warning as readiness visibility only. Current integrations and Hub actions must keep `realNetworkCall: false`; do not add credentials or retry expecting a real provider call in this phase.

@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@psf/artifact-store':
+        specifier: workspace:*
+        version: link:packages/artifact-store
       '@psf/auto-fix-loop':
         specifier: workspace:*
         version: link:packages/auto-fix-loop

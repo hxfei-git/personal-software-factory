@@ -51,3 +51,15 @@ Cancel and retry are scoped to a single queue wrapper WorkerRun. There is no API
 - `evaluateApprovalPolicy` for high-risk actions including deploys, destructive operations, migrations, secret changes, external calls, Git push/PR, and real Codex execution.
 
 This package does not enable real Codex execution, network calls, pushes, pull requests, deployments, monitor creation, or Plane sync. Later batches must wire these utilities into their gates while keeping dry-run responses explicitly marked as non-real until the corresponding real capability is intentionally implemented and approved.
+
+## Real-Mode Readiness Boundary
+
+`ENABLE_REAL_*` and `PSF_ENABLE_REAL_*` values are readiness signals only in this phase. Doctor warns when they are enabled, and integrations must still return `realNetworkCall: false` until a later approved task intentionally wires real provider calls.
+
+Before any real action is allowed in a future phase, the operator must verify approvals, queue mode, Worker Runner health, artifact/workspace roots, redaction, token rotation procedures, backup/restore procedures, and action-specific provider configuration.
+
+## Retention And Recovery Safety
+
+`pnpm psf artifacts:cleanup --dry-run` is preview-only and must not delete files. Destructive retention cleanup, Redis queue clearing, database restores, and workspace deletion require explicit approval in a later task.
+
+Worker heartbeat metadata supports manual stale-job detection. It is not automatic recovery, and it must not be used to bulk-cancel or retry unrelated jobs.
