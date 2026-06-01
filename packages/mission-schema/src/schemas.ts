@@ -83,7 +83,7 @@ export const ProjectPassportSchema = z.object({
   urls: z.object({
     production: z.string(),
     local: z.string().optional(),
-    staging: z.string(),
+    staging: z.string().optional(),
   }),
   quality_gates: z.record(z.boolean()),
   risk_rules: PassportRiskRulesSchema.optional(),

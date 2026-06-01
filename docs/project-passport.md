@@ -23,7 +23,6 @@ The registry parses, validates, and normalizes them through `@psf/project-passpo
 - `commands.build`: build command or command list.
 - `commands.run_staging`: local staging command or command list.
 - `urls.production`: production URL when known, or an empty string.
-- `urls.staging`: staging URL when known, or an empty string.
 - `quality_gates`: boolean release and QA gates.
 - `core_flows`: non-empty list of critical user flows with `id`, `name`, and `priority`.
 
@@ -38,6 +37,7 @@ These fields are optional and must not break older passports when absent:
 - `commands.e2e`: deterministic E2E command or command list. When present, the parser normalizes it into an array.
 - `commands.lint`: lint/static-check command or command list. When present, the parser normalizes it into an array.
 - `urls.local`: local app URL for smoke and E2E entry after the matching command is verified.
+- `urls.staging`: staging URL when known. Older passports may omit it, and consumers must handle it as optional.
 - `risk_rules`: free-form policy metadata for protected branches, manual approvals, forbidden actions, fallback behavior, or command verification status.
 
 Optional commands that have not been executed locally must be marked `manual-verification-required` in YAML comments or policy metadata and repeated in project docs. A passport can describe real-loop readiness without claiming verified command behavior.

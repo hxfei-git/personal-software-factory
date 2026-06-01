@@ -31,6 +31,30 @@ const validInlinePassport = [
   "",
 ].join("\n");
 
+const passportWithoutOptionalUrls = [
+  "id: sample",
+  "name: Sample Project",
+  "repo:",
+  "  url: git@example.com:sample/repo.git",
+  "  default_branch: main",
+  "runtime:",
+  "  kind: web",
+  "commands:",
+  "  install: pnpm install",
+  "  test: pnpm test",
+  "  build: pnpm build",
+  "  run_staging: pnpm dev",
+  "urls:",
+  "  production: https://example.com",
+  "quality_gates:",
+  "  require_build: true",
+  "core_flows:",
+  "  - id: smoke",
+  "    name: Smoke flow",
+  "    priority: P1",
+  "",
+].join("\n");
+
 const invalidMissingTestCommand = [
   "id: sample",
   "name: Sample Project",
@@ -117,6 +141,14 @@ describe("project passport parser", () => {
     expect(passport.paths).toBeUndefined();
     expect(passport.risk_rules).toBeUndefined();
     expect(passport.urls.local).toBeUndefined();
+  });
+
+  it("accepts passports without optional local or staging urls", () => {
+    const passport = parseProjectPassport(passportWithoutOptionalUrls);
+
+    expect(passport.urls.production).toBe("https://example.com");
+    expect(passport.urls.local).toBeUndefined();
+    expect(passport.urls.staging).toBeUndefined();
   });
 
   it("accepts and normalizes optional real-loop readiness fields", () => {

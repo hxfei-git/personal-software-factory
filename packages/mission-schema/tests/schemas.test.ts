@@ -85,6 +85,36 @@ describe("mission schemas", () => {
     expect(passport.risk_rules).toEqual({ command_verification: "manual-verification-required" });
   });
 
+  it("accepts Project Passport urls without optional local or staging entries", () => {
+    const passport = ProjectPassportSchema.parse({
+      ...projectPassportExample,
+      urls: {
+        production: "https://example.com",
+      },
+    });
+
+    expect(passport.urls.production).toBe("https://example.com");
+    expect(passport.urls.local).toBeUndefined();
+    expect(passport.urls.staging).toBeUndefined();
+  });
+
+  it("preserves optional Project Passport local and staging urls when present", () => {
+    const passport = ProjectPassportSchema.parse({
+      ...projectPassportExample,
+      urls: {
+        production: "https://example.com",
+        local: "http://127.0.0.1:5173",
+        staging: "https://staging.example.com",
+      },
+    });
+
+    expect(passport.urls).toEqual({
+      production: "https://example.com",
+      local: "http://127.0.0.1:5173",
+      staging: "https://staging.example.com",
+    });
+  });
+
   it("rejects uppercase MissionEvent types", () => {
     const result = MissionEventSchema.safeParse({
       ...missionEventExample,
