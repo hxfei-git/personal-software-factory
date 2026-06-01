@@ -269,6 +269,39 @@ describe("integration dry-run adapters", () => {
     expect(textOf(result)).not.toContain("kuma-password");
   });
 
+  it("does not leak Uptime Kuma session tokens when a post-login provider failure echoes headers", async () => {
+    const sessionToken = "runtime-session-token-in-provider-body";
+    const { transport } = createTransport(async (request) => {
+      if (request.url.endsWith("/api/login")) {
+        return { status: 200, ok: true, json: { token: sessionToken } };
+      }
+
+      return {
+        status: 500,
+        ok: false,
+        json: { message: `provider saw Authorization: ${request.headers?.authorization}` },
+      };
+    });
+
+    const result = await runUptimeKumaReal({
+      env: {
+        ENABLE_REAL_UPTIME_KUMA: "1",
+        UPTIME_KUMA_BASE_URL: "https://uptime.example.test",
+        UPTIME_KUMA_USERNAME: "ops",
+        UPTIME_KUMA_PASSWORD: "kuma-password",
+      },
+      now: fixedNow,
+      monitor: { project: "psf", productionUrl: "https://prod.example.test" },
+      gates: { allowNetwork: true },
+      transport,
+    });
+
+    expect(result.realNetworkCall).toBe(true);
+    expect(textOf(result)).not.toContain(sessionToken);
+    expect(textOf(result)).not.toContain(`Bearer ${sessionToken}`);
+    expect(textOf(result)).not.toContain("kuma-password");
+  });
+
   it("maps uptime-kuma external names to the uptime_kuma adapter", () => {
     expect(getIntegrationAdapter("uptime-kuma").name).toBe("uptime_kuma");
     expect(getIntegrationAdapter("uptime_kuma").name).toBe("uptime_kuma");

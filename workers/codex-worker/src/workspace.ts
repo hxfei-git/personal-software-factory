@@ -1,4 +1,4 @@
-import { access, mkdir } from "node:fs/promises";
+import { access, mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -128,7 +128,11 @@ export async function leaseCodexWorkspace(rawInput: CodexExecutionRequest): Prom
     assertNotForbiddenPath(repoPath);
     const mirrorRoot = path.join(workspaceRoot, "mirrors");
     try {
-      assertInsideWorkspace(repoPath, mirrorRoot);
+      const realWorkspaceRoot = await realpath(workspaceRoot);
+      const realMirrorRoot = await realpath(mirrorRoot);
+      const realRepoPath = await realpath(repoPath);
+      assertInsideWorkspace(realMirrorRoot, realWorkspaceRoot);
+      assertInsideWorkspace(realRepoPath, realMirrorRoot);
     } catch {
       return manualAction("Local repository mirror must be inside the Codex workspace mirrors directory.");
     }

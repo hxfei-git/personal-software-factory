@@ -25,7 +25,7 @@ Real Codex work can take longer than an API request and can fail in ways that ne
 
 ## Workspace Isolation
 
-The current gated runner leases a dedicated git worktree under `PSF_WORKSPACE_ROOT`, validates the target branch, and refuses `main` or `master`. It also refuses existing target agent branches or workspace paths instead of force-resetting or overwriting Mission work. Operator-prepared local mirrors must live under `PSF_WORKSPACE_ROOT/mirrors`; arbitrary local repositories are rejected so real Codex cannot mutate unrelated checkouts. Remote clone/update is still a manual-action boundary.
+The current gated runner leases a dedicated git worktree under `PSF_WORKSPACE_ROOT`, validates the target branch, and refuses `main` or `master`. It also refuses existing target agent branches or workspace paths instead of force-resetting or overwriting Mission work. Operator-prepared local mirrors must live under `PSF_WORKSPACE_ROOT/mirrors` after realpath resolution; arbitrary local repositories and symlinked mirror escapes are rejected so real Codex cannot mutate unrelated checkouts. Remote clone/update is still a manual-action boundary.
 
 ## Command Policy
 

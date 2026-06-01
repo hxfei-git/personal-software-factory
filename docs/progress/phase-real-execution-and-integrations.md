@@ -119,7 +119,7 @@ No real secrets should be committed. Tokens and passwords must not appear in pro
 
 ## Default Safety Boundaries
 
-- Codex child processes now receive only an allowlisted non-secret environment, and local repository mirrors must live under `PSF_WORKSPACE_ROOT/mirrors`.
+- Codex child processes now receive only an allowlisted non-secret environment, and local repository mirrors must live under `PSF_WORKSPACE_ROOT/mirrors` after realpath resolution.
 - Queued real-action jobs record approved approval records separately from worker policy grant ids.
 - Uptime Kuma runtime session tokens are redacted from post-login transport error results.
 - `realNetworkCall` stays `false` until a gated real adapter actually invokes an injected transport.

@@ -62,6 +62,14 @@ function providerFailure(response: IntegrationTransportResponse): "failed" | "de
   return response.status >= 500 ? "degraded" : failureDecision(response);
 }
 
+function sessionRedactionEnv(env: IntegrationEnv, sessionToken: string | undefined): IntegrationEnv {
+  return sessionToken ? { ...env, UPTIME_KUMA_SESSION_TOKEN: sessionToken } : env;
+}
+
+function redactSessionText(value: string, env: IntegrationEnv, sessionToken: string | undefined): string {
+  return redactText(value, sessionRedactionEnv(env, sessionToken));
+}
+
 export async function runUptimeKumaReal(input: UptimeKumaRealInput = {}): Promise<UptimeKumaRealResult> {
   const env = input.env ?? {};
   const requests: SafeRequestSummary[] = [];
@@ -116,7 +124,7 @@ export async function runUptimeKumaReal(input: UptimeKumaRealInput = {}): Promis
       retryInterval: 30,
     });
     if (!isSuccessResponse(monitorResponse)) {
-      const message = failureMessage("Uptime Kuma", monitorResponse);
+      const message = redactSessionText(failureMessage("Uptime Kuma", monitorResponse), env, sessionToken);
       return buildRealResult(definition, input, {
         decision: providerFailure(monitorResponse),
         message,
@@ -131,7 +139,7 @@ export async function runUptimeKumaReal(input: UptimeKumaRealInput = {}): Promis
     const monitorId = String(idValue ?? "unknown-monitor");
     const statusResponse = await request("GET", `${baseUrl}/api/monitor/${monitorId}/status`);
     if (!isSuccessResponse(statusResponse)) {
-      const message = failureMessage("Uptime Kuma", statusResponse);
+      const message = redactSessionText(failureMessage("Uptime Kuma", statusResponse), env, sessionToken);
       return buildRealResult(definition, input, {
         decision: providerFailure(statusResponse),
         message,
@@ -157,10 +165,7 @@ export async function runUptimeKumaReal(input: UptimeKumaRealInput = {}): Promis
       safeToRun: true,
     });
   } catch (error) {
-    const message = redactText(thrownErrorMessage("Uptime Kuma", error), {
-      ...env,
-      ...(sessionToken ? { UPTIME_KUMA_SESSION_TOKEN: sessionToken } : {}),
-    });
+    const message = redactSessionText(thrownErrorMessage("Uptime Kuma", error), env, sessionToken);
     return buildRealResult(definition, input, {
       decision: "degraded",
       message,

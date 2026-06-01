@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -479,6 +479,26 @@ describe("real Codex runner gated mode", () => {
     }
     expect(lease.reason).toMatch(/mirror/i);
     expect(gitBranchExists(repo, "agent/ai-novelist-outside-mirror")).toBe(false);
+  });
+
+  it("refuses workspace mirror symlinks that resolve outside the workspace root", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const outsideRoot = await mkdtemp(path.join(os.tmpdir(), "psf-outside-mirror-"));
+    const repo = await createTempGitRepo("repo", outsideRoot);
+    await symlink(outsideRoot, path.join(workspaceRoot, "mirrors"));
+
+    const lease = await leaseCodexWorkspace(realRequest({
+      repoUrl: repo,
+      workspaceRoot,
+      branchName: "agent/ai-novelist-symlinked-mirror",
+    }));
+
+    expect(lease.status).toBe("manual_action");
+    if (lease.status !== "manual_action") {
+      throw new Error("Expected manual action for symlinked mirror outside workspace root.");
+    }
+    expect(lease.reason).toMatch(/mirror/i);
+    expect(gitBranchExists(repo, "agent/ai-novelist-symlinked-mirror")).toBe(false);
   });
 
   it.each([
