@@ -60,6 +60,31 @@ describe("mission schemas", () => {
     expect(result.success).toBe(false);
   });
 
+  it("accepts optional Project Passport readiness fields", () => {
+    const passport = ProjectPassportSchema.parse({
+      ...projectPassportExample,
+      paths: { workspace: ".", frontend: "web/frontend" },
+      commands: {
+        ...projectPassportExample.commands,
+        dev: "pnpm dev",
+        e2e: ["pnpm playwright test"],
+        lint: "pnpm lint",
+      },
+      urls: {
+        ...projectPassportExample.urls,
+        local: "http://127.0.0.1:5173",
+      },
+      risk_rules: { command_verification: "manual-verification-required" },
+    });
+
+    expect(passport.paths?.frontend).toBe("web/frontend");
+    expect(passport.commands.dev).toBe("pnpm dev");
+    expect(passport.commands.e2e).toEqual(["pnpm playwright test"]);
+    expect(passport.commands.lint).toBe("pnpm lint");
+    expect(passport.urls.local).toBe("http://127.0.0.1:5173");
+    expect(passport.risk_rules).toEqual({ command_verification: "manual-verification-required" });
+  });
+
   it("rejects uppercase MissionEvent types", () => {
     const result = MissionEventSchema.safeParse({
       ...missionEventExample,

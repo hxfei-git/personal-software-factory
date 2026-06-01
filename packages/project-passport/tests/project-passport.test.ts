@@ -55,6 +55,45 @@ const invalidMissingTestCommand = [
   "",
 ].join("\n");
 
+const extendedInlinePassport = [
+  "id: sample",
+  "name: Sample Project",
+  "repo:",
+  "  url: git@example.com:sample/repo.git",
+  "  default_branch: main",
+  "runtime:",
+  "  kind: web",
+  "paths:",
+  "  workspace: .",
+  "  app: web/frontend",
+  "  artifacts: artifacts/ai-novelist",
+  "commands:",
+  "  install: pnpm install",
+  "  dev: pnpm dev",
+  "  test: pnpm test",
+  "  build: pnpm build",
+  "  e2e:",
+  "    - pnpm playwright test",
+  "  lint: pnpm lint",
+  "  run_staging: pnpm dev -- --host 127.0.0.1 --port 5173",
+  "urls:",
+  "  production: \"\"",
+  "  local: http://127.0.0.1:5173",
+  "  staging: http://127.0.0.1:5173",
+  "quality_gates:",
+  "  require_build: true",
+  "risk_rules:",
+  "  protected_branches:",
+  "    - main",
+  "  manual_approval_required:",
+  "    - destructive-data-change",
+  "core_flows:",
+  "  - id: smoke",
+  "    name: Smoke flow",
+  "    priority: P1",
+  "",
+].join("\n");
+
 describe("project passport parser", () => {
   it("reads and validates a Project Passport YAML file", async () => {
     const passport = await readProjectPassport(examplePath);
@@ -72,6 +111,31 @@ describe("project passport parser", () => {
 
     expect(passport.commands.install).toEqual(["pnpm install"]);
     expect(passport.commands.test).toEqual(["pnpm test"]);
+    expect(passport.commands.dev).toBeUndefined();
+    expect(passport.commands.e2e).toBeUndefined();
+    expect(passport.commands.lint).toBeUndefined();
+    expect(passport.paths).toBeUndefined();
+    expect(passport.risk_rules).toBeUndefined();
+    expect(passport.urls.local).toBeUndefined();
+  });
+
+  it("accepts and normalizes optional real-loop readiness fields", () => {
+    const passport = parseProjectPassport(extendedInlinePassport);
+
+    expect(passport.paths).toEqual({
+      workspace: ".",
+      app: "web/frontend",
+      artifacts: "artifacts/ai-novelist",
+    });
+    expect(passport.commands.dev).toEqual(["pnpm dev"]);
+    expect(passport.commands.e2e).toEqual(["pnpm playwright test"]);
+    expect(passport.commands.lint).toEqual(["pnpm lint"]);
+    expect(passport.urls.local).toBe("http://127.0.0.1:5173");
+    expect(passport.urls.staging).toBe("http://127.0.0.1:5173");
+    expect(passport.risk_rules).toEqual({
+      protected_branches: ["main"],
+      manual_approval_required: ["destructive-data-change"],
+    });
   });
 
   it("rejects a passport missing commands.test", () => {
