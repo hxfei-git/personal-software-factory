@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactElement } from "react";
 import { createOrchestratorClient, type OrchestratorClient } from "./api/client";
-import { renderMissionsView, renderMissionSelectionRequiredView } from "./views/missions";
+import { renderMissionCreationView, renderMissionsView, renderMissionSelectionRequiredView, type MissionCreationField, type MissionCreationSubmitState } from "./views/missions";
 import { renderProjectsView } from "./views/projects";
 import { renderApprovalsView, renderArtifactsView, renderBugsView, renderWorkerRunsView } from "./views/resources";
 import type {
   Approval,
   Artifact,
   BugReport,
+  CreateMissionRequest,
   DashboardResponse,
   ExternalIntegrationName,
   IntegrationStatus,
@@ -52,6 +53,7 @@ const navItems = [
   { id: "dashboard", label: "Dashboard" },
   { id: "projects", label: "Projects" },
   { id: "missions", label: "Missions" },
+  { id: "missions/new", label: "New Mission" },
   { id: "mission-detail", label: "Mission Detail" },
   { id: "bugs", label: "Bugs" },
   { id: "worker-runs", label: "Worker Runs" },
@@ -82,6 +84,14 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
   const [artifactsState, setArtifactsState] = useState<LoadState<Artifact[]>>({ status: "idle" });
   const [approvalsState, setApprovalsState] = useState<LoadState<Approval[]>>({ status: "idle" });
   const [integrationState, setIntegrationState] = useState<LoadState<IntegrationStatus[]>>({ status: "idle" });
+  const [missionCreateValues, setMissionCreateValues] = useState<CreateMissionRequest>({
+    projectId: "",
+    title: "",
+    rawRequest: "",
+    priority: "P2",
+    riskLevel: "medium",
+  });
+  const [missionCreateState, setMissionCreateState] = useState<MissionCreationSubmitState>({ loading: false, message: "", error: "" });
   const [dryRunMessage, setDryRunMessage] = useState<string>("");
   const [actionState, setActionState] = useState<ActionState>({ loading: "", message: "", error: "" });
 
@@ -166,6 +176,40 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
     }
   }, [loadMissionSummary]);
 
+  const updateMissionCreateValue = useCallback((field: MissionCreationField, value: string): void => {
+    setMissionCreateValues((current) => ({ ...current, [field]: value }));
+  }, []);
+
+  const createMission = useCallback(async (values: CreateMissionRequest): Promise<void> => {
+    const input: CreateMissionRequest = {
+      projectId: values.projectId,
+      title: values.title.trim(),
+      rawRequest: values.rawRequest.trim(),
+    };
+    if (values.priority !== undefined) {
+      input.priority = values.priority;
+    }
+    if (values.riskLevel !== undefined) {
+      input.riskLevel = values.riskLevel;
+    }
+    if (input.projectId === "" || input.title === "" || input.rawRequest === "") {
+      setMissionCreateState({ loading: false, message: "", error: "Choose a project, title, and raw request before creating a Mission." });
+      return;
+    }
+
+    setMissionCreateState({ loading: true, message: "", error: "" });
+    try {
+      const createdMission = await client.createMission(input);
+      const message = `Mission created: ${createdMission.title}`;
+      setMissionCreateState({ loading: false, message, error: "" });
+      setActionState({ loading: "", message, error: "" });
+      window.location.hash = `#mission-detail?id=${encodeURIComponent(createdMission.id)}`;
+      setRoute(readRoute());
+    } catch (error: unknown) {
+      setMissionCreateState({ loading: false, message: "", error: sensitiveSafeErrorMessage(error, "Mission creation failed") });
+    }
+  }, [client]);
+
   useEffect(() => {
     const onHashChange = () => setRoute(readRoute());
     window.addEventListener("hashchange", onHashChange);
@@ -193,7 +237,7 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
   }, [loadMissionSummary, route]);
 
   useEffect(() => {
-    if (route.page !== "projects") {
+    if (route.page !== "projects" && route.page !== "missions/new") {
       return;
     }
     setProjectsState({ status: "loading" });
@@ -201,6 +245,13 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
       .then((data) => setProjectsState({ status: "success", data }))
       .catch((error: unknown) => setProjectsState({ status: "error", message: errorMessage(error, "GET /projects failed") }));
   }, [client, route.page]);
+
+  useEffect(() => {
+    if (route.page !== "missions/new" || projectsState.status !== "success" || projectsState.data.length === 0) {
+      return;
+    }
+    setMissionCreateValues((current) => current.projectId === "" ? { ...current, projectId: projectsState.data[0]!.id } : current);
+  }, [projectsState, route.page]);
 
   useEffect(() => {
     if (route.page !== "missions") {
@@ -278,6 +329,14 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
         return renderProjectsView({ state: projectsState });
       case "missions":
         return renderMissionsView({ state: missionsState });
+      case "missions/new":
+        return renderMissionCreationView({
+          projectsState,
+          values: missionCreateValues,
+          submitState: missionCreateState,
+          onChange: updateMissionCreateValue,
+          onSubmit: createMission,
+        });
       case "mission-detail": {
         const missionId = route.params.get("id");
         if (!missionId) {
@@ -313,7 +372,7 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
       default:
         return renderPlaceholderView(route.page);
     }
-  }, [actionState, approvalsState, artifactsState, bugsState, client, dashboardState, dryRunMessage, integrationState, missionState, missionsState, projectsState, queueState, refreshDashboard, refreshMissionSummary, route, runDashboardDemo, runMissionDryRun, workerRunsState]);
+  }, [actionState, approvalsState, artifactsState, bugsState, client, createMission, dashboardState, dryRunMessage, integrationState, missionCreateState, missionCreateValues, missionState, missionsState, projectsState, queueState, refreshDashboard, refreshMissionSummary, route, runDashboardDemo, runMissionDryRun, updateMissionCreateValue, workerRunsState]);
 
   return (
     <div className="app-shell">
@@ -1105,6 +1164,12 @@ function formatProvider(integration: IntegrationStatus): string {
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+function sensitiveSafeErrorMessage(error: unknown, fallback: string): string {
+  return errorMessage(error, fallback)
+    .replace(/Bearer\s+[^\s,;]+/gi, "Bearer [redacted]")
+    .replace(/(token=)[^\s,;]+/gi, "$1[redacted]");
 }
 
 function readRoute(): { page: string; params: URLSearchParams } {

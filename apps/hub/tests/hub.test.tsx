@@ -27,6 +27,7 @@ import App, {
   renderMissionDetailView,
   renderTokenSafetyProbe,
 } from "../src/App";
+import { renderMissionCreationView } from "../src/views/missions";
 
 const now = "2026-05-31T00:00:00.000Z";
 
@@ -174,6 +175,9 @@ class TestElement extends TestNode {
   readonly style: Record<string, string> = {};
   namespaceURI = "http://www.w3.org/1999/xhtml";
   disabled = false;
+  selected = false;
+  value = "";
+  multiple = false;
   className = "";
 
   constructor(readonly tagName: string, ownerDocument: TestDocument | null) {
@@ -193,6 +197,10 @@ class TestElement extends TestNode {
     if (name === "class") {
       this.className = "";
     }
+  }
+
+  get options(): TestElement[] {
+    return this.childNodes.filter((child): child is TestElement => child instanceof TestElement && child.tagName.toLowerCase() === "option");
   }
 
   click(): void {
@@ -377,6 +385,27 @@ function findButtonByText(node: unknown, label: string): ReactElement<{ children
     return element;
   }
   return findButtonByText(element.props?.children, label);
+}
+
+function findElementByType<TProps>(node: unknown, type: string): ReactElement<TProps> {
+  if (node === null || node === undefined || typeof node === "boolean" || typeof node === "string" || typeof node === "number") {
+    throw new Error(`Element not found: ${type}`);
+  }
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      try {
+        return findElementByType<TProps>(child, type);
+      } catch {
+        // Continue searching sibling branches.
+      }
+    }
+    throw new Error(`Element not found: ${type}`);
+  }
+  const element = node as ReactElement<TProps & { children?: unknown }>;
+  if (element.type === type) {
+    return element;
+  }
+  return findElementByType<TProps>(element.props?.children, type);
 }
 
 function sampleIntegration(name: IntegrationStatus["name"]): IntegrationStatus {
@@ -907,6 +936,28 @@ describe("orchestrator API client", () => {
 });
 
 describe("App wiring", () => {
+  it("renders mounted Mission creation route and loads project choices", async () => {
+    const client = createMockClient({
+      listProjects: vi.fn().mockResolvedValue([{ ...projectFixture, name: "API Project", slug: "api-project" }]),
+      createMission: vi.fn().mockResolvedValue(missionFixture),
+    });
+    const mounted = await renderMountedApp(client, "#missions/new");
+
+    await act(async () => {
+      await flushReactWork();
+    });
+
+    expect(client.listProjects).toHaveBeenCalledOnce();
+    expect(client.createMission).not.toHaveBeenCalled();
+    expect(mounted.container.textContent).toContain("Create Mission");
+    expect(mounted.container.textContent).toContain("API Project");
+    expect(mounted.container.textContent).toContain("Raw request");
+    expect(mounted.container.textContent).toContain("Risk level");
+
+    await act(async () => mounted.root.unmount());
+    mounted.cleanup();
+  });
+
   it("renders API-backed Projects route data and calls listProjects", async () => {
     const client = createMockClient({
       listProjects: vi.fn().mockResolvedValue([{ ...projectFixture, name: "API Project", slug: "api-project" }]),
@@ -1071,6 +1122,25 @@ describe("App wiring", () => {
 });
 
 describe("Hub render helpers", () => {
+  it("submits Mission creation values through the render helper", async () => {
+    const onSubmit = vi.fn();
+    const view = renderMissionCreationView({
+      projectsState: { status: "success", data: [projectFixture] },
+      values: createMissionInput,
+      submitState: { loading: false, message: "", error: "" },
+      onChange: vi.fn(),
+      onSubmit,
+    });
+
+    await findElementByType<{ onSubmit?: (event: { preventDefault: () => void }) => void | Promise<void> }>(view, "form")
+      .props
+      .onSubmit?.({ preventDefault: vi.fn() });
+
+    expect(onSubmit).toHaveBeenCalledWith(createMissionInput);
+    expect(textFromElement(view)).toContain("Create Mission");
+    expect(textFromElement(view)).toContain("AI Novelist");
+  });
+
   it("renders dashboard metrics, recent rows, integrations, and next actions", () => {
     const text = textFromElement(renderDashboardView({
       state: { status: "success", data: dashboard },
