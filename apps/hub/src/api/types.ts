@@ -266,6 +266,48 @@ export interface HealthSignal {
   message: string;
 }
 
+export type RealModeReadinessKey = "codex" | "qaPlaywright" | "qaAiExploratory" | "fix" | "github" | "coolify" | "uptimeKuma" | "plane";
+
+export interface RealModeReadinessEntry {
+  key: RealModeReadinessKey;
+  label: string;
+  action: string;
+  enabled: boolean;
+  configured: boolean;
+  ready: boolean;
+  safeToRun: boolean;
+  realNetworkCall: false;
+  missingEnv: string[];
+  requiredApprovalTypes?: string[];
+  message: string;
+}
+
+export type RealModeReadiness = Record<RealModeReadinessKey, RealModeReadinessEntry>;
+
+export interface ExternalLinks {
+  githubPrUrl?: string;
+  planeIssueUrl?: string;
+  deploymentUrl?: string;
+  monitorUrl?: string;
+}
+
+export interface ExternalResourceStatus {
+  status: string;
+  workerRunId?: string;
+  url?: string;
+  mode?: string;
+  realNetworkCall?: false;
+}
+
+export interface ArtifactRetentionSummary {
+  artifactId: string;
+  type: string;
+  path: string;
+  retentionClass?: string;
+  retentionPath?: string;
+  missing?: boolean;
+}
+
 export interface DashboardResponse {
   metrics: DashboardMetrics;
   recentMissions: Mission[];
@@ -275,6 +317,8 @@ export interface DashboardResponse {
   recentQaRuns: QAReport[];
   recentArtifacts: Artifact[];
   integrationStatuses: IntegrationStatus[];
+  realModeReadiness?: RealModeReadiness;
+  policyFailures?: string[];
   recommendedNextActions: string[];
   healthSignals: HealthSignal[];
   queueStatus?: QueueStatus;
@@ -296,5 +340,12 @@ export interface MissionSummaryResponse {
   codexCommandArtifact?: Artifact;
   fixMissionArtifact?: Artifact;
   fixCodexCommandArtifact?: Artifact;
+  realModeReadiness?: RealModeReadiness;
+  policyFailures?: string[];
+  externalLinks?: ExternalLinks;
+  deploymentStatus?: ExternalResourceStatus | null;
+  monitorStatus?: ExternalResourceStatus | null;
+  planeStatus?: ExternalResourceStatus | null;
+  artifactRetention?: ArtifactRetentionSummary[];
   recommendedNextAction: string;
 }

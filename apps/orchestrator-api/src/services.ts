@@ -32,6 +32,7 @@ import { z } from "zod";
 import {
   assertDemoMissionActionSupported,
   buildQueuedActionJob,
+  gatedRealActionContracts,
   buildQueuedRealActionJob,
   isGatedRealActionEnabled,
   runAiNovelistDemoAction as runAiNovelistDemoDryRunAction,
@@ -504,6 +505,13 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         workerRunCount: workerRuns.length,
         artifactCount: artifacts.length,
       };
+      const integrationStatuses = listIntegrationStatuses({ env: process.env });
+      const realModeReadiness = buildRealModeReadiness({
+        integrationStatuses,
+        actionExecutionMode,
+        workerRuntimeConfigured: workerRuntime !== undefined,
+        env: process.env,
+      });
 
       return {
         metrics,
@@ -513,7 +521,9 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         recentFailedWorkerRuns: sanitizeApiList(recentByCreatedAt(workerRuns.filter((workerRun) => workerRun.status === "failed"))),
         recentQaRuns: sanitizeApiList(recentByCreatedAt(qaRuns)),
         recentArtifacts: sanitizeApiList(recentByCreatedAt(artifacts)),
-        integrationStatuses: listIntegrationStatuses({ env: process.env }),
+        integrationStatuses,
+        realModeReadiness,
+        policyFailures: buildPolicyFailures(realModeReadiness),
         recommendedNextActions: buildDashboardRecommendedNextActions(metrics),
         healthSignals: buildDashboardHealthSignals(metrics),
       };
@@ -564,6 +574,14 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       const safeBugs = sanitizeApiList(bugs);
       const safeApprovals = sanitizeApiList(approvals);
 
+      const integrationStatuses = listIntegrationStatuses({ env: process.env });
+      const realModeReadiness = buildRealModeReadiness({
+        integrationStatuses,
+        actionExecutionMode,
+        workerRuntimeConfigured: workerRuntime !== undefined,
+        env: process.env,
+      });
+
       return {
         mission: sanitizeApiResponse(mission),
         project: sanitizeApiResponse(project),
@@ -580,6 +598,13 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         codexCommandArtifact: findArtifactByType(safeArtifacts, "codex_command"),
         fixMissionArtifact: findArtifactByType(safeArtifacts, "fix_mission"),
         fixCodexCommandArtifact: findArtifactByType(safeArtifacts, "fix_codex_command"),
+        realModeReadiness,
+        policyFailures: buildPolicyFailures(realModeReadiness),
+        externalLinks: buildExternalLinks(sanitizeApiResponse(mission), safeWorkerRuns, safeArtifacts, safeApprovals),
+        deploymentStatus: buildExternalStatus("deployment", safeWorkerRuns),
+        monitorStatus: buildExternalStatus("monitor", safeWorkerRuns),
+        planeStatus: buildExternalStatus("plane", safeWorkerRuns),
+        artifactRetention: buildArtifactRetention(safeArtifacts),
         recommendedNextAction: buildMissionRecommendedNextAction(mission, bugs, approvals, qaRuns, workerRuns),
       };
     },
@@ -1499,6 +1524,209 @@ function buildDashboardHealthSignals(metrics: DashboardMetrics) {
 
 function findArtifactByType(artifacts: Artifact[], type: Artifact["type"]): Artifact | null {
   return artifacts.find((artifact) => artifact.type === type) ?? null;
+}
+
+type ReadinessKey = "codex" | "qaPlaywright" | "qaAiExploratory" | "fix" | "github" | "coolify" | "uptimeKuma" | "plane";
+
+type ReadinessEntry = {
+  key: ReadinessKey;
+  label: string;
+  action: GatedRealActionKind;
+  enabled: boolean;
+  configured: boolean;
+  ready: boolean;
+  safeToRun: boolean;
+  realNetworkCall: false;
+  missingEnv: string[];
+  requiredApprovalTypes: string[];
+  message: string;
+};
+
+type RealModeReadiness = Record<ReadinessKey, ReadinessEntry>;
+
+type IntegrationStatusLike = ReturnType<typeof listIntegrationStatuses>[number];
+
+type ReadinessBuildInput = {
+  integrationStatuses: IntegrationStatusLike[];
+  actionExecutionMode: ActionExecutionMode;
+  workerRuntimeConfigured: boolean;
+  env: Record<string, string | undefined>;
+};
+
+const readinessDefinitions: Record<ReadinessKey, {
+  action: GatedRealActionKind;
+  integrationName?: ExternalIntegrationName;
+  requiredApprovalTypes: string[];
+}> = {
+  codex: { action: "codex-real", requiredApprovalTypes: ["SECURITY_RISK"] },
+  qaPlaywright: { action: "qa-playwright", requiredApprovalTypes: [] },
+  qaAiExploratory: { action: "qa-ai-exploratory", requiredApprovalTypes: ["EXTERNAL_COST_RISK"] },
+  fix: { action: "fix-real", requiredApprovalTypes: ["SECURITY_RISK"] },
+  github: { action: "github-pr", integrationName: "github", requiredApprovalTypes: [] },
+  coolify: { action: "deploy-staging", integrationName: "coolify", requiredApprovalTypes: ["PRODUCTION_DEPLOY"] },
+  uptimeKuma: { action: "monitor-sync", integrationName: "uptime_kuma", requiredApprovalTypes: [] },
+  plane: { action: "plane-sync", integrationName: "plane", requiredApprovalTypes: [] },
+};
+
+function buildRealModeReadiness(input: ReadinessBuildInput): RealModeReadiness {
+  return Object.fromEntries(Object.entries(readinessDefinitions).map(([rawKey, definition]) => {
+    const key = rawKey as ReadinessKey;
+    const contract = gatedRealActionContracts[definition.action];
+    const integration = definition.integrationName
+      ? input.integrationStatuses.find((status) => status.name === definition.integrationName || status.externalName === definition.integrationName)
+      : undefined;
+    const missingEnv = integration?.missingEnv ?? [];
+    const configured = integration ? integration.configured : true;
+    const enabled = input.env[contract.gateEnv] === "true";
+    const queueReady = input.actionExecutionMode === "queued";
+    const ready = enabled && configured && queueReady && input.workerRuntimeConfigured;
+    const blockers = [];
+    if (!queueReady) blockers.push("PSF_ACTION_EXECUTION_MODE=queued");
+    if (!input.workerRuntimeConfigured) blockers.push("worker runtime configured");
+    if (!enabled) blockers.push(contract.gateEnv + "=true");
+    if (missingEnv.length > 0) blockers.push("missing " + missingEnv.join(", "));
+    const message = ready
+      ? contract.label + " is ready to queue; API summary still reports realNetworkCall=false."
+      : contract.label + " blocked/manual-action: " + blockers.join("; ") + ".";
+    return [key, {
+      key,
+      label: contract.label,
+      action: definition.action,
+      enabled,
+      configured,
+      ready,
+      safeToRun: ready,
+      realNetworkCall: false as const,
+      missingEnv,
+      requiredApprovalTypes: definition.requiredApprovalTypes,
+      message,
+    } satisfies ReadinessEntry];
+  })) as RealModeReadiness;
+}
+
+function buildPolicyFailures(readiness: RealModeReadiness): string[] {
+  return Object.values(readiness)
+    .filter((entry) => !entry.ready)
+    .flatMap((entry) => {
+      const contract = gatedRealActionContracts[entry.action];
+      const failures: string[] = [];
+      if (!entry.message.includes("PSF_ACTION_EXECUTION_MODE=queued") && entry.safeToRun) {
+        return failures;
+      }
+      if (entry.message.includes("PSF_ACTION_EXECUTION_MODE=queued")) {
+        failures.push(entry.label + " requires PSF_ACTION_EXECUTION_MODE=queued.");
+      }
+      if (!entry.enabled) {
+        failures.push(entry.label + " requires " + contract.gateEnv + "=true.");
+      }
+      if (entry.missingEnv.length > 0) {
+        failures.push(entry.label + " missing env: " + entry.missingEnv.join(", ") + ".");
+      }
+      if (entry.message.includes("worker runtime configured")) {
+        failures.push(entry.label + " requires a configured Worker Runtime.");
+      }
+      return failures;
+    });
+}
+
+function buildExternalLinks(
+  mission: Mission,
+  workerRuns: WorkerRun[],
+  artifacts: Artifact[],
+  approvals: Approval[],
+): Partial<Record<string, string>> {
+  return compactUndefined({
+    githubPrUrl: firstString([mission.pr_url, ...readResourceStrings(workerRuns, artifacts, approvals, ["githubPrUrl", "prUrl", "pullRequestUrl"])]),
+    deploymentUrl: firstString(readResourceStrings(workerRuns, artifacts, approvals, ["deploymentUrl", "deployUrl", "stagingUrl"])),
+    monitorUrl: firstString(readResourceStrings(workerRuns, artifacts, approvals, ["monitorUrl", "uptimeKumaUrl"])),
+    planeIssueUrl: firstString(readResourceStrings(workerRuns, artifacts, approvals, ["planeIssueUrl", "planeUrl", "issueUrl"])),
+  });
+}
+
+function buildExternalStatus(kind: "deployment" | "monitor" | "plane", workerRuns: WorkerRun[]) {
+  const run = [...workerRuns].reverse().find((candidate) => workerRunMatchesExternalKind(candidate, kind));
+  if (!run) {
+    return null;
+  }
+  const source = mergeJsonObject(run.metadata, run.output);
+  const urlKeys = kind === "deployment"
+    ? ["deploymentUrl", "deployUrl", "stagingUrl"]
+    : kind === "monitor"
+      ? ["monitorUrl", "uptimeKumaUrl"]
+      : ["planeIssueUrl", "planeUrl", "issueUrl"];
+  const statusKeys = kind === "deployment"
+    ? ["deploymentStatus", "deployStatus", "status"]
+    : kind === "monitor"
+      ? ["monitorStatus", "uptimeKumaStatus", "status"]
+      : ["planeStatus", "issueStatus", "status"];
+  return compactUndefined({
+    status: firstString(statusKeys.map((key) => source[key])) ?? run.status,
+    workerRunId: run.id,
+    url: firstString(urlKeys.map((key) => source[key])),
+    mode: run.mode,
+    realNetworkCall: false,
+  });
+}
+
+function workerRunMatchesExternalKind(workerRun: WorkerRun, kind: "deployment" | "monitor" | "plane"): boolean {
+  const source = mergeJsonObject(workerRun.metadata, workerRun.output);
+  const jobType = firstString([source.jobType, source.type]);
+  if (kind === "deployment") {
+    return workerRun.worker_type === "deploy" || jobType === "deploy.coolify" || hasAnyKey(source, ["deploymentUrl", "deployUrl", "deploymentStatus"]);
+  }
+  if (kind === "monitor") {
+    return workerRun.worker_type === "monitor" || jobType === "monitor.uptime_kuma" || hasAnyKey(source, ["monitorUrl", "uptimeKumaUrl", "monitorStatus"]);
+  }
+  return jobType === "plane.sync" || hasAnyKey(source, ["planeIssueUrl", "planeUrl", "planeStatus"]);
+}
+
+function buildArtifactRetention(artifacts: Artifact[]) {
+  return artifacts.flatMap((artifact) => {
+    const metadata = isRecord(artifact.metadata) ? artifact.metadata : {};
+    if (metadata.retentionClass === undefined && metadata.path === undefined && metadata.missing === undefined) {
+      return [];
+    }
+    return [compactUndefined({
+      artifactId: artifact.id,
+      type: artifact.type,
+      path: artifact.path,
+      retentionClass: typeof metadata.retentionClass === "string" ? metadata.retentionClass : undefined,
+      retentionPath: typeof metadata.path === "string" ? metadata.path : undefined,
+      missing: typeof metadata.missing === "boolean" ? metadata.missing : undefined,
+    })];
+  });
+}
+
+function readResourceStrings(
+  workerRuns: WorkerRun[],
+  artifacts: Artifact[],
+  approvals: Approval[],
+  keys: string[],
+): unknown[] {
+  return [
+    ...workerRuns.flatMap((run) => readStringsFromRecords([run.output, run.metadata, run.input], keys)),
+    ...artifacts.flatMap((artifact) => readStringsFromRecords([artifact.metadata], keys)),
+    ...approvals.flatMap((approval) => readStringsFromRecords([approval.payload], keys)),
+  ];
+}
+
+function readStringsFromRecords(records: unknown[], keys: string[]): unknown[] {
+  return records.flatMap((record) => {
+    if (!isRecord(record)) return [];
+    return keys.map((key) => record[key]);
+  });
+}
+
+function firstString(values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === "string" && value.trim() !== "");
+}
+
+function hasAnyKey(record: Record<string, unknown>, keys: string[]): boolean {
+  return keys.some((key) => typeof record[key] === "string");
+}
+
+function compactUndefined<T extends Record<string, unknown>>(value: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)) as Partial<T>;
 }
 
 function buildMissionRecommendedNextAction(

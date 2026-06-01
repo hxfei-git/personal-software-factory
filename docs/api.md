@@ -44,11 +44,21 @@ Public endpoint.
 
 ### GET /dashboard
 
-Public read endpoint for the local MVP API. Returns dashboard metrics, recent Missions, bugs, WorkerRuns, QA runs, Artifacts, Integration statuses, recommended next actions, and health signals. This route has no side effects and is intended for Hub Web.
+Public read endpoint for the local MVP API. Returns dashboard metrics, recent Missions, bugs, WorkerRuns, QA runs, Artifacts, Integration statuses, real-mode readiness, policy failures, recommended next actions, and health signals. This route has no side effects and is intended for Hub Web.
 
 ### GET /missions/:id/summary
 
-Public read endpoint for Mission detail screens. Returns the Mission, Project, current status, events, artifacts, WorkerRuns, QA runs, bugs, approvals, selected key artifacts such as QA report and Codex prompt, and one recommended next action.
+Public read endpoint for Mission detail screens. Returns the Mission, Project, current status, events, artifacts, WorkerRuns, QA runs, bugs, approvals, selected key artifacts such as QA report and Codex prompt, real-mode readiness, policy failures, external links, external status summaries, artifact retention summaries, and one recommended next action.
+
+Additional summary fields are derived only from Orchestrator-owned records and sanitized API values:
+
+- `realModeReadiness`: entries for `codex`, `qaPlaywright`, `qaAiExploratory`, `fix`, `github`, `coolify`, `uptimeKuma`, and `plane`. Each entry includes `enabled`, `configured`, `ready`, `safeToRun`, `missingEnv`, `requiredApprovalTypes`, `message`, and `realNetworkCall: false`.
+- `policyFailures`: human-readable blockers such as missing `PSF_ACTION_EXECUTION_MODE=queued`, disabled `PSF_ENABLE_REAL_*` gates, missing provider environment variables, or missing Worker Runtime configuration.
+- `externalLinks`: `githubPrUrl`, `deploymentUrl`, `monitorUrl`, and `planeIssueUrl` when those safe URLs are present on the Mission, WorkerRuns, Artifacts, or Approvals.
+- `deploymentStatus`, `monitorStatus`, and `planeStatus`: latest relevant WorkerRun-derived status summaries.
+- `artifactRetention`: Artifact retention metadata from `metadata.retentionClass`, `metadata.path`, and `metadata.missing`.
+
+These fields are visibility only. They do not trigger real external calls, and `realNetworkCall` remains `false`. Token, password, and secret-like values are redacted before the response is sent.
 
 The route returns `404 NOT_FOUND` when the Mission or linked Project is missing.
 

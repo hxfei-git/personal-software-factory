@@ -2000,6 +2000,140 @@ describe("orchestrator api", () => {
     expect(response.json().recommendedNextAction).toEqual(expect.any(String));
   });
 
+  it("returns real-mode visibility, external statuses, and retention metadata in mission summaries without secrets", async () => {
+    await withEnv({
+      PSF_ENABLE_REAL_GITHUB_PR: undefined,
+      GITHUB_TOKEN: "github-summary-secret",
+      GITHUB_OWNER: "psf",
+      GITHUB_REPO: "factory",
+      COOLIFY_TOKEN: "coolify-summary-secret",
+      PLANE_API_TOKEN: "plane-summary-secret",
+      UPTIME_KUMA_PASSWORD: "monitor-summary-secret",
+    }, async () => {
+      const { server } = await createTestServer({ auth: { disabled: true }, actionExecutionMode: "inline" });
+      const mission = await createMission(server, "Real visibility summary mission");
+      const githubRun = (await server.inject({
+        method: "POST",
+        url: "/missions/" + mission.id + "/worker-runs",
+        payload: {
+          workerType: "integration",
+          status: "succeeded",
+          mode: "real",
+          output: {
+            jobType: "github.pr",
+            githubPrUrl: "https://github.example/psf/factory/pull/17",
+            status: "pr-ready",
+            token: "worker-output-secret",
+          },
+          metadata: { realNetworkCall: false },
+          logs: ["created PR without token github-summary-secret"],
+        },
+      })).json();
+      await server.inject({
+        method: "POST",
+        url: "/missions/" + mission.id + "/worker-runs",
+        payload: {
+          workerType: "deploy",
+          status: "failed",
+          mode: "real",
+          output: {
+            jobType: "deploy.coolify",
+            deploymentUrl: "https://deploy.example/apps/factory",
+            deploymentStatus: "blocked",
+            password: "deploy-output-secret",
+          },
+          metadata: { realNetworkCall: false },
+        },
+      });
+      await server.inject({
+        method: "POST",
+        url: "/missions/" + mission.id + "/worker-runs",
+        payload: {
+          workerType: "monitor",
+          status: "succeeded",
+          mode: "real",
+          output: {
+            jobType: "monitor.uptime_kuma",
+            monitorUrl: "https://monitor.example/status/factory",
+            monitorStatus: "synced",
+          },
+          metadata: { realNetworkCall: false },
+        },
+      });
+      await server.inject({
+        method: "POST",
+        url: "/missions/" + mission.id + "/worker-runs",
+        payload: {
+          workerType: "integration",
+          status: "succeeded",
+          mode: "real",
+          output: {
+            jobType: "plane.sync",
+            planeIssueUrl: "https://plane.example/issues/PSF-17",
+            planeStatus: "linked",
+          },
+          metadata: { realNetworkCall: false },
+        },
+      });
+      await server.inject({
+        method: "POST",
+        url: "/missions/" + mission.id + "/artifacts",
+        payload: {
+          type: "worker_log",
+          path: "artifacts/" + mission.id + "/worker.log",
+          workerRunId: githubRun.id,
+          metadata: {
+            retentionClass: "ephemeral",
+            path: "artifacts/" + mission.id + "/worker.log",
+            missing: false,
+            secret: "artifact-metadata-secret",
+          },
+        },
+      });
+
+      const response = await server.inject({ method: "GET", url: "/missions/" + mission.id + "/summary" });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        realModeReadiness: {
+          codex: { enabled: false, configured: true, ready: false, safeToRun: false, realNetworkCall: false },
+          github: { enabled: false, configured: true, ready: false, safeToRun: false, realNetworkCall: false },
+          coolify: { enabled: false, configured: false, ready: false, safeToRun: false, realNetworkCall: false },
+          uptimeKuma: { enabled: false, configured: false, ready: false, safeToRun: false, realNetworkCall: false },
+          plane: { enabled: false, configured: false, ready: false, safeToRun: false, realNetworkCall: false },
+        },
+        externalLinks: {
+          githubPrUrl: "https://github.example/psf/factory/pull/17",
+          deploymentUrl: "https://deploy.example/apps/factory",
+          monitorUrl: "https://monitor.example/status/factory",
+          planeIssueUrl: "https://plane.example/issues/PSF-17",
+        },
+        deploymentStatus: { status: "blocked", workerRunId: expect.any(String), url: "https://deploy.example/apps/factory" },
+        monitorStatus: { status: "synced", workerRunId: expect.any(String), url: "https://monitor.example/status/factory" },
+        planeStatus: { status: "linked", workerRunId: expect.any(String), url: "https://plane.example/issues/PSF-17" },
+        artifactRetention: [
+          {
+            artifactId: expect.any(String),
+            type: "worker_log",
+            path: "artifacts/" + mission.id + "/worker.log",
+            retentionClass: "ephemeral",
+            retentionPath: "artifacts/" + mission.id + "/worker.log",
+            missing: false,
+          },
+        ],
+      });
+      expect(response.json().policyFailures).toEqual(expect.arrayContaining([
+        expect.stringContaining("PSF_ACTION_EXECUTION_MODE=queued"),
+        expect.stringContaining("PSF_ENABLE_REAL_GITHUB_PR=true"),
+      ]));
+      const body = JSON.stringify(response.json());
+      expect(body).not.toContain("github-summary-secret");
+      expect(body).not.toContain("worker-output-secret");
+      expect(body).not.toContain("deploy-output-secret");
+      expect(body).not.toContain("artifact-metadata-secret");
+    });
+  });
+
   it("redacts token and password values from dashboard, summary, and resource GET responses", async () => {
     const { server } = await createTestServer({ auth: { disabled: true } });
     const missionResponse = await server.inject({

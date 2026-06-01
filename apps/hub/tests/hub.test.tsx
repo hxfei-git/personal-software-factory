@@ -947,6 +947,179 @@ describe("Hub render helpers", () => {
     expect(text).toContain("Unit test failed");
   });
 
+  it("renders real-mode readiness, blockers, links, statuses, and guarded real actions without secrets", () => {
+    const visibilitySummary: MissionSummaryResponse = {
+      ...missionSummary,
+      realModeReadiness: {
+        codex: {
+          key: "codex",
+          label: "Codex real execution",
+          enabled: false,
+          configured: true,
+          ready: false,
+          safeToRun: false,
+          realNetworkCall: false,
+          missingEnv: [],
+          requiredApprovalTypes: ["SECURITY_RISK"],
+          action: "codex-real",
+          message: "Blocked until PSF_ENABLE_REAL_CODEX=true and queued mode are configured.",
+        },
+        qaPlaywright: {
+          key: "qaPlaywright",
+          label: "Playwright QA",
+          enabled: false,
+          configured: true,
+          ready: false,
+          safeToRun: false,
+          realNetworkCall: false,
+          missingEnv: [],
+          requiredApprovalTypes: [],
+          action: "qa-playwright",
+          message: "Manual action required before Playwright QA can run.",
+        },
+        qaAiExploratory: {
+          key: "qaAiExploratory",
+          label: "AI exploratory QA",
+          enabled: false,
+          configured: true,
+          ready: false,
+          safeToRun: false,
+          realNetworkCall: false,
+          missingEnv: [],
+          requiredApprovalTypes: ["EXTERNAL_COST_RISK"],
+          action: "qa-ai-exploratory",
+          message: "Manual action required before AI QA can run.",
+        },
+        fix: {
+          key: "fix",
+          label: "Real fix loop",
+          enabled: false,
+          configured: true,
+          ready: false,
+          safeToRun: false,
+          realNetworkCall: false,
+          missingEnv: [],
+          requiredApprovalTypes: ["SECURITY_RISK"],
+          action: "fix-real",
+          message: "Manual action required before real fix can run.",
+        },
+        github: {
+          key: "github",
+          label: "GitHub PR",
+          enabled: false,
+          configured: false,
+          ready: false,
+          safeToRun: false,
+          realNetworkCall: false,
+          missingEnv: ["GITHUB_TOKEN"],
+          requiredApprovalTypes: [],
+          action: "github-pr",
+          message: "Missing GITHUB_TOKEN and PSF_ENABLE_REAL_GITHUB_PR=true.",
+        },
+        coolify: {
+          key: "coolify",
+          label: "Coolify staging deploy",
+          enabled: false,
+          configured: false,
+          ready: false,
+          safeToRun: false,
+          realNetworkCall: false,
+          missingEnv: ["COOLIFY_TOKEN"],
+          requiredApprovalTypes: ["PRODUCTION_DEPLOY"],
+          action: "deploy-staging",
+          message: "Deployment is blocked until approval and configuration are ready.",
+        },
+        uptimeKuma: {
+          key: "uptimeKuma",
+          label: "Uptime Kuma monitor sync",
+          enabled: false,
+          configured: false,
+          ready: false,
+          safeToRun: false,
+          realNetworkCall: false,
+          missingEnv: ["UPTIME_KUMA_PASSWORD"],
+          requiredApprovalTypes: [],
+          action: "monitor-sync",
+          message: "Monitor sync is blocked until configuration is ready.",
+        },
+        plane: {
+          key: "plane",
+          label: "Plane sync",
+          enabled: false,
+          configured: false,
+          ready: false,
+          safeToRun: false,
+          realNetworkCall: false,
+          missingEnv: ["PLANE_API_TOKEN"],
+          requiredApprovalTypes: [],
+          action: "plane-sync",
+          message: "Plane sync is blocked until configuration is ready.",
+        },
+      },
+      policyFailures: [
+        "Real actions require PSF_ACTION_EXECUTION_MODE=queued.",
+        "GitHub PR requires PSF_ENABLE_REAL_GITHUB_PR=true.",
+      ],
+      externalLinks: {
+        githubPrUrl: "https://github.example/pr/17",
+        deploymentUrl: "https://deploy.example/app",
+        monitorUrl: "https://monitor.example/status/app",
+        planeIssueUrl: "https://plane.example/issues/PSF-17",
+      },
+      deploymentStatus: { status: "blocked", workerRunId: "worker-run-deploy", url: "https://deploy.example/app" },
+      monitorStatus: { status: "synced", workerRunId: "worker-run-monitor", url: "https://monitor.example/status/app" },
+      planeStatus: { status: "linked", workerRunId: "worker-run-plane", url: "https://plane.example/issues/PSF-17" },
+      artifactRetention: [
+        {
+          artifactId: "artifact-qa",
+          type: "qa_report",
+          path: "missions/mission-0001-ai-novelist-chapter-review/qa-report.md",
+          retentionClass: "audit",
+          retentionPath: "artifacts/qa-report.md",
+          missing: false,
+        },
+      ],
+      workerRuns: [
+        {
+          ...missionSummary.workerRuns[1]!,
+          output: { summary: "Real mode output [redacted]", githubPrUrl: "https://github.example/pr/17" },
+          logs: ["Prepared PR with [redacted]"],
+        },
+      ],
+    };
+
+    const view = renderMissionDetailView({
+      state: { status: "success", data: visibilitySummary },
+      actions: { onRunAction: vi.fn(), onRefresh: vi.fn() },
+      actionState: { loading: "", message: "", error: "" },
+    });
+    const text = textFromElement(view);
+
+    expect(text).toContain("Real-mode readiness");
+    expect(text).toContain("GitHub PR");
+    expect(text).toContain("blocked/manual-action");
+    expect(text).toContain("Missing GITHUB_TOKEN");
+    expect(text).toContain("Policy blockers");
+    expect(text).toContain("PSF_ACTION_EXECUTION_MODE=queued");
+    expect(text).toContain("External links");
+    expect(text).toContain("https://github.example/pr/17");
+    expect(text).toContain("Deployment status");
+    expect(text).toContain("Monitor status");
+    expect(text).toContain("Plane status");
+    expect(text).toContain("Artifact retention");
+    expect(text).toContain("audit");
+    expect(text).toContain("WorkerRun detail");
+    expect(text).toContain("Prepared PR with [redacted]");
+    expect(text).toContain("QARun detail");
+    expect(text).toContain("Artifact detail");
+    expect(text).toContain("Approval actions");
+    expect(findButtonByText(view, "Create GitHub PR real").props.disabled).toBe(true);
+    expect(findButtonByText(view, "Deploy staging real").props.disabled).toBe(true);
+    expect(text).not.toContain("super-secret-token");
+    expect(text).not.toContain("github-summary-secret");
+    expect(text).not.toContain("PLANE_API_TOKEN_VALUE");
+  });
+
   it("renders mission detail when WorkerRun metadata and output are missing", () => {
     const fragileSummary: MissionSummaryResponse = {
       ...missionSummary,
