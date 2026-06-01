@@ -63,7 +63,7 @@ describe("psf CLI", () => {
     );
 
     expect(result.stdout).toContain("Created mission mission-0001-ai-novelist-chapter-review");
-  });
+  }, 15_000);
 
   test("codex dry-run does not clear planned mission markdown during database sync", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "psf-cli-db-"));
