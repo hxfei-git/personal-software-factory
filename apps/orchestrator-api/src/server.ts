@@ -130,6 +130,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   server.get<{ Params: { missionId: string } }>("/missions/:missionId/approvals", async (request) => {
     return services.listMissionApprovals(request.params.missionId);
   });
+  server.get("/approvals", async () => services.listApprovals());
   server.get<{ Params: { approvalId: string } }>("/approvals/:approvalId", async (request) => {
     return services.getApproval(request.params.approvalId);
   });
@@ -168,6 +169,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   server.get<{ Params: { missionId: string } }>("/missions/:missionId/artifacts", async (request) => {
     return services.listMissionArtifacts(request.params.missionId);
   });
+  server.get("/artifacts", async () => services.listArtifacts());
   server.get<{ Params: { artifactId: string } }>("/artifacts/:artifactId", async (request) => {
     return services.getArtifact(request.params.artifactId);
   });
@@ -179,6 +181,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   server.get<{ Params: { missionId: string } }>("/missions/:missionId/bugs", async (request) => {
     return services.listMissionBugs(request.params.missionId);
   });
+  server.get("/bugs", async () => services.listBugs());
   server.get<{ Params: { bugId: string } }>("/bugs/:bugId", async (request) => {
     return services.getBug(request.params.bugId);
   });

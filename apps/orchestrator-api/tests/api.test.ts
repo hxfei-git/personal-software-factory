@@ -1743,6 +1743,32 @@ describe("orchestrator api", () => {
 
 
 
+  it("lists all approvals and includes a created approval", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "Global approval list mission");
+    const otherMission = await createMission(server, "Other global approval list mission");
+    const approval = (await server.inject({
+      method: "POST",
+      url: `/missions/${mission.id}/approvals`,
+      payload: { type: "PRODUCTION_DEPLOY", requestedBy: "planner", reason: "Release requires approval." },
+    })).json();
+    await server.inject({
+      method: "POST",
+      url: `/missions/${otherMission.id}/approvals`,
+      payload: { type: "SECURITY_RISK", requestedBy: "planner", reason: "Security review requires approval." },
+    });
+
+    const response = await server.inject({ method: "GET", url: "/approvals" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toHaveLength(2);
+    expect(response.json()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: approval.id, mission_id: mission.id, type: "PRODUCTION_DEPLOY" }),
+    ]));
+  });
+
+
+
   it("rejects repeated approval decisions without changing the approval", async () => {
     const { server } = await createTestServer({ auth: { disabled: true } });
     const mission = await createMission(server, "Repeated approval mission");
@@ -1829,6 +1855,32 @@ describe("orchestrator api", () => {
 
 
 
+  it("lists all artifacts and includes a created artifact", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "Global artifact list mission");
+    const otherMission = await createMission(server, "Other global artifact list mission");
+    const artifact = (await server.inject({
+      method: "POST",
+      url: `/missions/${mission.id}/artifacts`,
+      payload: { type: "mission", name: "mission.md", path: `missions/${mission.id}/mission.md`, content: "# Mission" },
+    })).json();
+    await server.inject({
+      method: "POST",
+      url: `/missions/${otherMission.id}/artifacts`,
+      payload: { type: "qa_report", path: `missions/${otherMission.id}/qa-report.md`, content: "# QA" },
+    });
+
+    const response = await server.inject({ method: "GET", url: "/artifacts" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toHaveLength(2);
+    expect(response.json()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: artifact.id, mission_id: mission.id, type: "mission" }),
+    ]));
+  });
+
+
+
   it("validates artifact workerRunId references", async () => {
     const { server } = await createTestServer({ auth: { disabled: true } });
     const mission = await createMission(server, "Artifact reference mission");
@@ -1881,6 +1933,44 @@ describe("orchestrator api", () => {
     const updated = await server.inject({ method: "PATCH", url: `/bugs/${bug.id}`, payload: { status: "in_progress" } });
     expect(updated.statusCode).toBe(200);
     expect(updated.json().status).toBe("in_progress");
+  });
+
+
+
+  it("lists all bugs and includes a created bug", async () => {
+    const { server } = await createTestServer({ auth: { disabled: true } });
+    const mission = await createMission(server, "Global bug list mission");
+    const otherMission = await createMission(server, "Other global bug list mission");
+    const bug = (await server.inject({
+      method: "POST",
+      url: `/missions/${mission.id}/bugs`,
+      payload: {
+        title: "Repeated generate clicks",
+        severity: "P1",
+        reproductionSteps: ["Open editor", "Click generate twice"],
+        expectedResult: "One request is submitted.",
+        actualResult: "Two requests are submitted.",
+      },
+    })).json();
+    await server.inject({
+      method: "POST",
+      url: `/missions/${otherMission.id}/bugs`,
+      payload: {
+        title: "Missing export confirmation",
+        severity: "P2",
+        reproductionSteps: ["Open export dialog", "Click export"],
+        expectedResult: "Confirmation is shown.",
+        actualResult: "No confirmation is shown.",
+      },
+    });
+
+    const response = await server.inject({ method: "GET", url: "/bugs" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toHaveLength(2);
+    expect(response.json()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: bug.id, mission_id: mission.id, title: "Repeated generate clicks" }),
+    ]));
   });
 
 

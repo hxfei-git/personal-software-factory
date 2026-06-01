@@ -45,7 +45,7 @@ export interface MissionStorage {
 
   createApproval(input: ResourceWriteInput<Approval>): Promise<Approval>;
   listMissionApprovals(missionId: string): Promise<Approval[]>;
-  listAllApprovals(): Promise<Approval[]>;
+  listApprovals(): Promise<Approval[]>;
   getApproval(id: string): Promise<Approval | null>;
   decideApproval(input: ResourceWriteInput<Approval>): Promise<Approval>;
 
@@ -57,12 +57,12 @@ export interface MissionStorage {
 
   createArtifact(input: ResourceWriteInput<Artifact>): Promise<Artifact>;
   listMissionArtifacts(missionId: string): Promise<Artifact[]>;
-  listAllArtifacts(): Promise<Artifact[]>;
+  listArtifacts(): Promise<Artifact[]>;
   getArtifact(id: string): Promise<Artifact | null>;
 
   createBug(input: ResourceWriteInput<BugReport>): Promise<BugReport>;
   listMissionBugs(missionId: string): Promise<BugReport[]>;
-  listAllBugs(): Promise<BugReport[]>;
+  listBugs(): Promise<BugReport[]>;
   getBug(id: string): Promise<BugReport | null>;
   updateBug(input: ResourceWriteInput<BugReport>): Promise<BugReport>;
 
@@ -165,7 +165,7 @@ export function createInMemoryMissionStorage(seed: InMemoryMissionStorageSeed = 
     async listMissionApprovals(missionId) {
       return [...approvals.values()].filter((approval) => approval.mission_id === missionId);
     },
-    async listAllApprovals() {
+    async listApprovals() {
       return sortByCreatedAtThenId([...approvals.values()]);
     },
     async getApproval(id) {
@@ -209,7 +209,7 @@ export function createInMemoryMissionStorage(seed: InMemoryMissionStorageSeed = 
     async listMissionArtifacts(missionId) {
       return [...artifacts.values()].filter((artifact) => artifact.mission_id === missionId);
     },
-    async listAllArtifacts() {
+    async listArtifacts() {
       return sortByCreatedAtThenId([...artifacts.values()]);
     },
     async getArtifact(id) {
@@ -224,7 +224,7 @@ export function createInMemoryMissionStorage(seed: InMemoryMissionStorageSeed = 
     async listMissionBugs(missionId) {
       return [...bugs.values()].filter((bug) => bug.mission_id === missionId);
     },
-    async listAllBugs() {
+    async listBugs() {
       return sortByCreatedAtThenId([...bugs.values()]);
     },
     async getBug(id) {
@@ -357,7 +357,7 @@ export function createPrismaMissionStorage(prisma: PrismaClient): MissionStorage
       const approvals = await prisma.approval.findMany({ where: { missionId }, orderBy: { createdAt: "asc" } });
       return approvals.map(mapApproval);
     },
-    async listAllApprovals() {
+    async listApprovals() {
       const approvals = await prisma.approval.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
       return approvals.map(mapApproval);
     },
@@ -425,7 +425,7 @@ export function createPrismaMissionStorage(prisma: PrismaClient): MissionStorage
       const artifacts = await prisma.artifact.findMany({ where: { missionId }, orderBy: { createdAt: "asc" } });
       return artifacts.map(mapArtifact);
     },
-    async listAllArtifacts() {
+    async listArtifacts() {
       const artifacts = await prisma.artifact.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
       return artifacts.map(mapArtifact);
     },
@@ -446,7 +446,7 @@ export function createPrismaMissionStorage(prisma: PrismaClient): MissionStorage
       const bugs = await prisma.bug.findMany({ where: { missionId }, orderBy: { createdAt: "asc" } });
       return bugs.map(mapBug);
     },
-    async listAllBugs() {
+    async listBugs() {
       const bugs = await prisma.bug.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
       return bugs.map(mapBug);
     },

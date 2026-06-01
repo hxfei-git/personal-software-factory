@@ -509,10 +509,10 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       const [projects, missions, approvals, workerRuns, artifacts, bugs, qaRuns] = await Promise.all([
         storage.listProjects(),
         storage.listMissions(),
-        storage.listAllApprovals(),
+        storage.listApprovals(),
         storage.listAllWorkerRuns(),
-        storage.listAllArtifacts(),
-        storage.listAllBugs(),
+        storage.listArtifacts(),
+        storage.listBugs(),
         storage.listAllQARuns(),
       ]);
       const metrics = {
@@ -847,6 +847,9 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       await getRawMission(missionId);
       return sanitizeApiList(await storage.listMissionApprovals(missionId));
     },
+    async listApprovals() {
+      return sanitizeApiList(await storage.listApprovals());
+    },
     async getApproval(id: string) {
       return sanitizeApiResponse(await getRawApproval(id));
     },
@@ -1134,6 +1137,9 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       await getRawMission(missionId);
       return sanitizeApiList(await storage.listMissionArtifacts(missionId));
     },
+    async listArtifacts() {
+      return sanitizeApiList(await storage.listArtifacts());
+    },
     async getArtifact(id: string) {
       const artifact = await storage.getArtifact(id);
       if (!artifact) {
@@ -1173,6 +1179,9 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     async listMissionBugs(missionId: string) {
       await getRawMission(missionId);
       return sanitizeApiList(await storage.listMissionBugs(missionId));
+    },
+    async listBugs() {
+      return sanitizeApiList(await storage.listBugs());
     },
     async getBug(id: string) {
       return sanitizeApiResponse(await getRawBug(id));
