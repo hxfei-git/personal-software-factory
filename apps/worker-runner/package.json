@@ -16,6 +16,7 @@
     "@psf/db": "workspace:*",
     "@psf/demo-workflow": "workspace:*",
     "@psf/integrations": "workspace:*",
+    "@psf/mission-core": "workspace:*",
     "@psf/mission-schema": "workspace:*",
     "@psf/orchestrator-api": "workspace:*",
     "@psf/worker-runtime": "workspace:*",

@@ -139,6 +139,9 @@ importers:
       '@psf/integrations':
         specifier: workspace:*
         version: link:../../packages/integrations
+      '@psf/mission-core':
+        specifier: workspace:*
+        version: link:../../packages/mission-core
       '@psf/mission-schema':
         specifier: workspace:*
         version: link:../../packages/mission-schema

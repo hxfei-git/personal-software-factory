@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildWorkerJob } from "@psf/worker-runtime";
-import type { Artifact, BugReport, MissionEvent, WorkerRun } from "@psf/mission-schema";
+import { MissionStatus, type Artifact, type BugReport, type Mission, type MissionEvent, type WorkerRun } from "@psf/mission-schema";
 import { createInMemoryMissionStorage } from "@psf/orchestrator-api/storage";
 import { createDefaultJobHandler } from "../src/handlers.js";
 import { processWorkerJob } from "../src/runner.js";
@@ -86,6 +86,168 @@ describe("worker runner", () => {
     );
   });
 
+
+
+  it("writes MissionEvent action result for a successful job", async () => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-action-result", MissionStatus.qa_running)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-action-result", "qa.dry_run", "job-qa")],
+    });
+    const job = buildWorkerJob({
+      id: "job-qa",
+      missionId: "mission-action-result",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "qa.dry_run",
+      payload: {},
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    await processWorkerJob({
+      job,
+      storage,
+      handler: async () => ({
+        childWorkerRunIds: ["worker-run-child-qa"],
+        childQARunIds: ["qa-run-child"],
+        childArtifactIds: ["artifact-qa-report"],
+        childBugReportIds: [],
+        summary: "QA dry-run completed.",
+        recommendedNextAction: "Refresh Mission Summary.",
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    const events = await storage.listMissionEvents("mission-action-result");
+    expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ type: "mission.action_result" })]));
+    const actionResult = events.find((event) => event.type === "mission.action_result");
+    expect(actionResult?.payload).toMatchObject({
+      jobId: "job-qa",
+      jobType: "qa.dry_run",
+      workerRunId: "worker-run-wrapper",
+      wrapperWorkerRunId: "worker-run-wrapper",
+      childWorkerRunIds: ["worker-run-child-qa"],
+      childQARunIds: ["qa-run-child"],
+      childArtifactIds: ["artifact-qa-report"],
+      childBugReportIds: [],
+      recommendedNextAction: "Refresh Mission Summary.",
+    });
+  });
+
+  it("auto transition moves qa_running to bugs_found when QA action result has bugs", async () => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-qa-bug", MissionStatus.qa_running)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-qa-bug", "qa.dry_run", "job-qa")],
+    });
+    const job = buildWorkerJob({
+      id: "job-qa",
+      missionId: "mission-qa-bug",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "qa.dry_run",
+      payload: {},
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    await processWorkerJob({
+      job,
+      storage,
+      handler: async () => ({
+        childWorkerRunIds: [],
+        childQARunIds: ["qa-run-child"],
+        childArtifactIds: [],
+        childBugReportIds: ["bug-child"],
+        summary: "QA found bugs.",
+        recommendedNextAction: "Fix the reported bug.",
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    await expect(storage.getMission("mission-qa-bug")).resolves.toMatchObject({ status: MissionStatus.bugs_found });
+    expect(await storage.listMissionEvents("mission-qa-bug")).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "mission.action_result",
+        payload: expect.objectContaining({ childBugReportIds: ["bug-child"] }),
+      }),
+      expect.objectContaining({
+        type: "mission.status.auto_transition",
+        payload: expect.objectContaining({ from: MissionStatus.qa_running, to: MissionStatus.bugs_found }),
+      }),
+    ]));
+  });
+
+  it("auto transition moves qa_running to ready_for_review when QA action result has no bugs", async () => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-qa-clean", MissionStatus.qa_running)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-qa-clean", "qa.dry_run", "job-qa")],
+    });
+    const job = buildWorkerJob({
+      id: "job-qa",
+      missionId: "mission-qa-clean",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "qa.dry_run",
+      payload: {},
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    await processWorkerJob({
+      job,
+      storage,
+      handler: async () => ({
+        childWorkerRunIds: [],
+        childQARunIds: ["qa-run-child"],
+        childArtifactIds: [],
+        childBugReportIds: [],
+        summary: "QA passed.",
+        recommendedNextAction: "Review the mission.",
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    await expect(storage.getMission("mission-qa-clean")).resolves.toMatchObject({ status: MissionStatus.ready_for_review });
+    expect(await storage.listMissionEvents("mission-qa-clean")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "mission.action_result" }),
+      expect.objectContaining({
+        type: "mission.status.auto_transition",
+        payload: expect.objectContaining({ from: MissionStatus.qa_running, to: MissionStatus.ready_for_review }),
+      }),
+    ]));
+  });
+
+  it("records action result MissionEvent without forcing illegal auto transition", async () => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-illegal-transition", MissionStatus.planned)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-illegal-transition", "qa.dry_run", "job-qa")],
+    });
+    const job = buildWorkerJob({
+      id: "job-qa",
+      missionId: "mission-illegal-transition",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "qa.dry_run",
+      payload: {},
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    await processWorkerJob({
+      job,
+      storage,
+      handler: async () => ({
+        childWorkerRunIds: [],
+        childQARunIds: [],
+        childArtifactIds: [],
+        childBugReportIds: [],
+        summary: "QA passed but mission is not in QA.",
+        recommendedNextAction: "Review current mission status.",
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    await expect(storage.getMission("mission-illegal-transition")).resolves.toMatchObject({ status: MissionStatus.planned });
+    const events = await storage.listMissionEvents("mission-illegal-transition");
+    expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ type: "mission.action_result" })]));
+    expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "mission.status.auto_transition" })]));
+  });
 
   it("preserves wrapper output changes written while handler is running", async () => {
     const storage = createInMemoryMissionStorage({
@@ -462,6 +624,24 @@ function sequenceNow(values: string[]): () => string {
   return () => values[Math.min(index++, values.length - 1)] ?? values.at(-1) ?? new Date().toISOString();
 }
 
+
+
+function mission(id: string, status: Mission["status"]): Mission {
+  return {
+    id,
+    project_id: "ai-novelist",
+    title: "Review chapter flow",
+    slug: id,
+    raw_request: "Review the chapter flow.",
+    status,
+    priority: "P1",
+    risk_level: "medium",
+    current_attempt: 0,
+    max_attempts: 3,
+    created_at: "2026-05-31T00:00:00.000Z",
+    updated_at: "2026-05-31T00:00:00.000Z",
+  };
+}
 
 function wrapperRun(id: string, missionId: string, jobType: string, jobId: string): WorkerRun {
   return {

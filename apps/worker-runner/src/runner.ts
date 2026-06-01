@@ -1,5 +1,14 @@
 import { randomUUID } from "node:crypto";
-import type { Artifact, BugReport, MissionEvent, QAReport, WorkerRun } from "@psf/mission-schema";
+import { canTransition } from "@psf/mission-core";
+import {
+  MissionStatus,
+  type Artifact,
+  type BugReport,
+  type MissionEvent,
+  type MissionStatusValue,
+  type QAReport,
+  type WorkerRun,
+} from "@psf/mission-schema";
 import type { MissionStorage } from "@psf/orchestrator-api/storage";
 import type { QueueWorkerJob } from "@psf/worker-runtime";
 import type { WorkerJobHandler, WorkerJobHandlerResult } from "./handlers.js";
@@ -31,7 +40,10 @@ export async function processWorkerJob(input: ProcessWorkerJobInput): Promise<Wo
     const succeededAt = now();
     await persistChildResources(input.storage, input.job, result, succeededAt);
     const latest = await input.storage.getWorkerRun(input.job.workerRunId) ?? running;
-    return updateWrapper(input.storage, latest, "succeeded", input.job, succeededAt, buildSafeOutput(input.job, result));
+    const succeeded = await updateWrapper(input.storage, latest, "succeeded", input.job, succeededAt, buildSafeOutput(input.job, result));
+    await recordMissionActionResult(input.storage, input.job, result, succeededAt);
+    await applyAutomaticMissionTransitions(input.storage, input.job, result, succeededAt);
+    return succeeded;
   } catch (error) {
     const message = safeErrorSummary(error);
     const failedAt = now();
@@ -49,6 +61,127 @@ export async function processWorkerJob(input: ProcessWorkerJobInput): Promise<Wo
     }, message);
     throw new Error(message);
   }
+}
+
+
+async function recordMissionActionResult(
+  storage: MissionStorage,
+  job: QueueWorkerJob,
+  result: WorkerJobHandlerResult,
+  timestamp: string,
+): Promise<void> {
+  await storage.appendMissionEvent({
+    id: `event-${job.workerRunId}-mission-action-result-${job.id}-${randomUUID()}`,
+    mission_id: job.missionId,
+    type: "mission.action_result",
+    message: `Queue job ${job.type} completed successfully.`,
+    payload: {
+      jobId: job.id,
+      jobType: job.type,
+      workerRunId: job.workerRunId,
+      wrapperWorkerRunId: job.workerRunId,
+      childWorkerRunIds: result.childWorkerRunIds,
+      childQARunIds: result.childQARunIds,
+      childArtifactIds: result.childArtifactIds,
+      childBugReportIds: result.childBugReportIds,
+      recommendedNextAction: result.recommendedNextAction,
+    },
+    created_at: timestamp,
+  });
+}
+
+async function applyAutomaticMissionTransitions(
+  storage: MissionStorage,
+  job: QueueWorkerJob,
+  result: WorkerJobHandlerResult,
+  timestamp: string,
+): Promise<void> {
+  const mission = await storage.getMission(job.missionId);
+  if (!mission) {
+    return;
+  }
+
+  let currentStatus = mission.status;
+  const hasBugs = hasBugReports(result);
+  const transitionPath = automaticTransitionPath(currentStatus, job.type, hasBugs);
+
+  for (const nextStatus of transitionPath) {
+    if (!canTransition(currentStatus, nextStatus)) {
+      return;
+    }
+    const transitioned = await storage.transitionMission(
+      job.missionId,
+      nextStatus,
+      buildAutoTransitionEvent(job, currentStatus, nextStatus, hasBugs, result.recommendedNextAction, timestamp),
+    );
+    currentStatus = transitioned.status;
+  }
+}
+
+function automaticTransitionPath(
+  currentStatus: MissionStatusValue,
+  jobType: string,
+  hasBugs: boolean,
+): MissionStatusValue[] {
+  if (jobType === "mission.plan") {
+    if (
+      currentStatus === MissionStatus.received
+      && canTransition(MissionStatus.received, MissionStatus.planning)
+      && canTransition(MissionStatus.planning, MissionStatus.planned)
+    ) {
+      return [MissionStatus.planning, MissionStatus.planned];
+    }
+    if (currentStatus === MissionStatus.planning && canTransition(currentStatus, MissionStatus.planned)) {
+      return [MissionStatus.planned];
+    }
+    return [];
+  }
+
+  if (jobType.startsWith("qa.") && currentStatus === MissionStatus.qa_running) {
+    const nextStatus = hasBugs ? MissionStatus.bugs_found : MissionStatus.ready_for_review;
+    return canTransition(currentStatus, nextStatus) ? [nextStatus] : [];
+  }
+
+  if (jobType === "fix.dry_run" && currentStatus === MissionStatus.fixing) {
+    return canTransition(currentStatus, MissionStatus.regression_running) ? [MissionStatus.regression_running] : [];
+  }
+
+  if (!hasBugs && jobType === "loop.dry_run" && currentStatus !== MissionStatus.ready_for_review) {
+    return canTransition(currentStatus, MissionStatus.ready_for_review) ? [MissionStatus.ready_for_review] : [];
+  }
+
+  return [];
+}
+
+function hasBugReports(result: WorkerJobHandlerResult): boolean {
+  return result.childBugReportIds.length > 0 || (result.childBugReports?.length ?? 0) > 0;
+}
+
+function buildAutoTransitionEvent(
+  job: QueueWorkerJob,
+  from: MissionStatusValue,
+  to: MissionStatusValue,
+  hasBugs: boolean,
+  recommendedNextAction: string,
+  timestamp: string,
+): MissionEvent {
+  return {
+    id: `event-${job.workerRunId}-mission-status-auto-transition-${from}-${to}-${randomUUID()}`,
+    mission_id: job.missionId,
+    type: "mission.status.auto_transition",
+    message: `Mission automatically transitioned from ${from} to ${to} after ${job.type} succeeded.`,
+    payload: {
+      from,
+      to,
+      jobId: job.id,
+      jobType: job.type,
+      workerRunId: job.workerRunId,
+      wrapperWorkerRunId: job.workerRunId,
+      hasBugs,
+      recommendedNextAction,
+    },
+    created_at: timestamp,
+  };
 }
 
 function buildHeartbeatMetadata(job: QueueWorkerJob, timestamp: string): Record<string, unknown> {
