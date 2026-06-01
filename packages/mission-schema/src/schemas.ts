@@ -6,6 +6,8 @@ const DateTimeString = z.string().datetime({ offset: true });
 const JsonObject = z.record(z.unknown());
 const EventTypeSchema = z.string().regex(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/, "Event type must be lower-case dotted format");
 const CommandValueSchema = z.union([NonEmptyString, z.array(NonEmptyString).min(1)]);
+const PassportPathsSchema = z.record(NonEmptyString);
+const PassportRiskRulesSchema = z.record(z.unknown());
 const WorkerTypeSchema = z.enum(["codex", "qa", "deploy", "monitor", "planner", "integration", "orchestrator", "auto_fix"]);
 const WorkerRunStatusSchema = z.enum(["queued", "running", "succeeded", "failed", "cancelled", "skipped"]);
 const WorkerRunModeSchema = z.enum(["dry-run", "mock", "real"]);
@@ -68,17 +70,23 @@ export const ProjectPassportSchema = z.object({
     backend: z.record(z.unknown()).optional(),
     frontend: z.record(z.unknown()).optional(),
   }).passthrough(),
+  paths: PassportPathsSchema.optional(),
   commands: z.object({
     install: CommandValueSchema,
+    dev: CommandValueSchema.optional(),
     test: CommandValueSchema,
     build: CommandValueSchema,
+    e2e: CommandValueSchema.optional(),
+    lint: CommandValueSchema.optional(),
     run_staging: CommandValueSchema,
   }),
   urls: z.object({
     production: z.string(),
-    staging: z.string(),
+    local: z.string().optional(),
+    staging: z.string().optional(),
   }),
   quality_gates: z.record(z.boolean()),
+  risk_rules: PassportRiskRulesSchema.optional(),
   core_flows: z.array(z.object({
     id: NonEmptyString,
     name: NonEmptyString,

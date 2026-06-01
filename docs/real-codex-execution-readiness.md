@@ -1,6 +1,6 @@
 # Real Codex Execution Readiness
 
-Phase 17B does not implement real Codex execution. Codex remains dry-run artifact generation only.
+The system now has a gated Codex runner abstraction, but real Codex execution remains disabled by default. Dry-run remains the normal path, and real mode must be explicitly enabled, approved, pointed at an executable, and limited to local workspace leases.
 
 ## Required Preconditions
 
@@ -25,11 +25,11 @@ Real Codex work can take longer than an API request and can fail in ways that ne
 
 ## Workspace Isolation
 
-A future worker should lease a dedicated workspace, validate the target branch, and refuse `main` or `master`. Workspace cleanup must be explicit and must not delete user data or unrelated repositories.
+The current gated runner leases a dedicated git worktree under `PSF_WORKSPACE_ROOT`, validates the target branch, and refuses `main` or `master`. It also refuses existing target agent branches or workspace paths instead of force-resetting or overwriting Mission work. Operator-prepared local mirrors must live under `PSF_WORKSPACE_ROOT/mirrors` after realpath resolution; arbitrary local repositories and symlinked mirror escapes are rejected so real Codex cannot mutate unrelated checkouts. Remote clone/update is still a manual-action boundary.
 
 ## Command Policy
 
-The future worker must generate or receive an `ExecutionRequest`, validate it against a command policy, and reject dangerous commands before execution. It must not accept arbitrary shell commands from Hub or API users.
+The runner receives a `CodexExecutionRequest`, validates it with Zod, checks each requested command through `@psf/security`, and rejects dangerous commands before spawning the configured executable. It must not accept arbitrary shell commands from Hub or API users.
 
 ## Approval Gates
 
@@ -37,4 +37,20 @@ Approval should be required before real Codex execution when a Mission is high-r
 
 ## Future Integration Shape
 
-A later Codex worker can consume a queued job, lease a workspace, validate the command policy, run Codex with a timeout, persist logs and summaries as artifacts, update WorkerRun state, and stop before any push or production action unless a later approved phase adds those capabilities.
+A later queued integration can consume the same request shape, call the gated runner, persist WorkerRun/MissionEvent records, and stop before any push or production action unless a later approved phase adds those capabilities.
+
+## Current Gates
+
+Real mode returns `blocked` or `manual_action` unless all of these are true:
+
+1. `ENABLE_REAL_CODEX=1`.
+2. `approvalIds` satisfy `real_codex_execution` approval policy.
+3. `CODEX_EXECUTABLE` is an explicit local executable path.
+4. `PSF_WORKSPACE_ROOT` or request `workspaceRoot` is available and passes path guards.
+5. The repository is an operator-prepared local git mirror under `PSF_WORKSPACE_ROOT/mirrors` with an `origin` remote.
+6. The execution branch is under `agent/` and is not `main` or `master`.
+7. `CODEX_SANDBOX` is `workspace-write` or `read-only`, and `CODEX_APPROVAL_MODE` is `on-request`.
+8. Requested commands pass the shared command policy before workspace leasing.
+9. `timeoutMs` does not exceed `PSF_REAL_CODEX_MAX_RUNTIME_MS`.
+
+The runner persists redacted prompt, command, stdout, stderr, dev summary, diff summary, and local commit summary artifacts through `@psf/artifact-store`. Secret-like environment variable values are included as extra redaction inputs, but the Codex child process itself receives only a strict allowlist of non-secret environment variables plus Mission/Project identifiers. Timed-out executable processes are escalated from `SIGTERM` to `SIGKILL` with a hard fallback. It does not push, deploy, create PRs, or call external APIs.

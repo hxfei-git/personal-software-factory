@@ -91,3 +91,61 @@ pnpm psf worker-runs:retry <workerRunId>
 ```
 
 Queue mode is still dry-run/mock only. Worker Runner reuses existing dry-run workflows and does not execute Codex, push, create PRs, deploy, or call external providers.
+
+## Artifact Retention Operations
+
+Real-mode artifact helpers write new artifacts under:
+
+```text
+artifacts/missions/<mission-id>/<worker-run-id>/<category>/<filename>
+```
+
+The legacy demo path `missions/<mission-id>/<filename>` remains readable for existing dry-run/demo files, but operators should not use it for new real-mode writes.
+
+Retention cleanup must be previewed before deletion. The helper defaults to dry-run mode and returns candidate paths without deleting files. A non-dry-run cleanup must be explicitly requested and still refuses to delete paths outside the configured `artifacts/` root.
+
+Use retention classes consistently: `short` for temporary logs/screenshots/traces, `mission` for Mission review artifacts, `release` for deployment/release evidence, and `audit` for evidence that must not expire automatically.
+
+## Backup And Restore
+
+Back up local operator state before destructive maintenance:
+
+```bash
+mkdir -p artifacts/backups
+pg_dump "$DATABASE_URL" > artifacts/backups/psf-local-$(date +%Y%m%d%H%M%S).sql
+tar -czf artifacts/backups/psf-files-$(date +%Y%m%d%H%M%S).tgz missions artifacts workspaces projects
+```
+
+Restore into a fresh local environment only after stopping API and Worker Runner processes:
+
+```bash
+sudo docker compose up -d postgres redis
+pnpm db:generate
+pnpm db:migrate
+psql "$DATABASE_URL" < artifacts/backups/<backup>.sql
+tar -xzf artifacts/backups/<files>.tgz
+pnpm psf doctor --check-db
+```
+
+Do not store provider tokens in backups. If a backup might contain secrets, rotate the affected tokens before sharing or archiving it.
+
+## Token Rotation
+
+Rotate local and provider tokens by replacing `.env` values, restarting API/Hub/Worker Runner, and running:
+
+```bash
+pnpm psf doctor
+pnpm psf integrations:status
+```
+
+Do not paste old or new token values into logs, PRs, Issues, dry-run artifacts, Hub fields, or troubleshooting notes. `VITE_PSF_API_TOKEN` is browser-visible and must be a local throwaway value only.
+
+## Crash And Queue Recovery
+
+If the API crashes, restart it and check health before triggering more actions. If Worker Runner crashes, queued jobs remain in Redis/BullMQ and wrapper WorkerRuns may remain `running` until manually inspected. Doctor reports the heartbeat fields that operators should inspect: `heartbeatAt`, `workerRunnerHeartbeatAt`, `correlationId`, `jobId`, and `jobType`.
+
+There is no automatic stale-job recovery in this phase. For a stale wrapper WorkerRun, inspect Mission Detail or the API, confirm no Worker Runner is still processing the job, then use the scoped cancel/retry controls for that specific WorkerRun. Do not clear Redis or bulk-delete queue data unless an explicit later recovery task approves that operation.
+
+## Real-Mode Readiness
+
+Before any later real-mode task can be considered ready, `pnpm psf doctor --json` must show dry-run-safe integrations with `realNetworkCall: false`, valid artifact/workspace roots, queue configuration that matches the intended runtime, active redaction, and no missing approvals for the specific action. Setting `ENABLE_REAL_*` or `PSF_ENABLE_REAL_*` only produces readiness warnings today; it must not enable provider API calls by itself.

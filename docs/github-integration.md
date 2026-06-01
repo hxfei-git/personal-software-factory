@@ -1,6 +1,6 @@
 # GitHub Integration
 
-GitHub integration is currently a mock/dry-run adapter. It prepares reviewable payloads for later branch, PR, and Issue automation without calling GitHub.
+GitHub integration keeps the existing mock/dry-run adapter and now also exposes a code-level real adapter for later orchestrator wiring. The Hub/API dry-run surface still does not call GitHub.
 
 ## Commands
 
@@ -27,7 +27,23 @@ GITHUB_REPO=
 ENABLE_REAL_GITHUB=0
 ```
 
-`ENABLE_REAL_GITHUB=1` only reports `realEnabled: true`; `realNetworkCall` remains `false`.
+Default is disabled. When `ENABLE_REAL_GITHUB` is unset or `0`, the real adapter returns `realEnabled: false`, `realNetworkCall: false`, and manual-action guidance. Missing token/owner/repo also returns manual action instead of throwing.
+
+## Gated Real Mode
+
+`runGitHubReal` requires all of the following before it can call the injected transport:
+
+- `ENABLE_REAL_GITHUB=1`;
+- configured `GITHUB_TOKEN`, `GITHUB_OWNER`, and `GITHUB_REPO`;
+- an injected `IntegrationTransport` function;
+- `gates.allowNetwork=true`;
+- explicit operation gates such as `allowPushBranch`, `allowCreatePullRequest`, `allowUpdatePullRequestBody`, and `allowPostQaComment`.
+
+The adapter refuses `main` and `master` as push/PR source branches before calling transport. Request summaries returned by the adapter include method and URL only; authorization headers are never returned. PR bodies, QA comments, errors, logs, and result objects are redacted before return.
+
+## Injected Transport Testing
+
+Tests pass fake transports that capture requests and return success, 401 auth failure, 403 permission failure, and thrown timeout/network errors. No test performs a real network call.
 
 ## Dry-Run Output
 

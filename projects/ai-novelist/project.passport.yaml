@@ -1,6 +1,6 @@
 id: ai-novelist
 name: AI 小说助手
-description: Web AI writing assistant for creating, reviewing, repairing and exporting novels. Commands are conservative local defaults and require manual verification before real worker execution.
+description: Web AI writing assistant for creating, reviewing, repairing and exporting novels. Real-loop readiness metadata is documented, but commands require manual verification before real worker execution.
 repo:
   url: https://github.com/hxfei-git/ai-novelist.git
   default_branch: main
@@ -12,20 +12,40 @@ runtime:
   frontend:
     language: typescript
     framework: manual-verification-required
+# manual-verification-required: expected project layout only; confirm against a real checkout before enabling real workers.
+paths:
+  workspace: .
+  backend: .
+  frontend: web/frontend
+  artifacts: artifacts/ai-novelist
 commands:
+  # manual-verification-required: not executed by PSF in this repository.
   install:
     - python -m venv .venv
     - . .venv/bin/activate && pip install -e .
     - npm --prefix web/frontend install
+  # manual-verification-required: local development entry expectation, not locally verified here.
+  dev:
+    - . .venv/bin/activate && ai-novelist web --host 127.0.0.1 --port 8000
+  # manual-verification-required: unit/integration test entry expectation, not locally verified here.
   test:
     - . .venv/bin/activate && pytest -q
+  # manual-verification-required: frontend build entry expectation, not locally verified here.
   build:
     - npm --prefix web/frontend run build
+  # manual-verification-required: deterministic E2E command expectation, not locally verified here.
+  e2e:
+    - npm --prefix web/frontend run e2e
+  # manual-verification-required: lint command expectation, not locally verified here.
+  lint:
+    - npm --prefix web/frontend run lint
+  # manual-verification-required: staging smoke entry expectation, not locally verified here.
   run_staging:
     - . .venv/bin/activate && ai-novelist web --host 127.0.0.1 --port 8000
 urls:
   production: ""
-  staging: ""
+  local: http://127.0.0.1:8000
+  staging: http://127.0.0.1:8000
 quality_gates:
   require_build: true
   require_unit_tests: true
@@ -33,12 +53,35 @@ quality_gates:
   require_ai_qa: true
   require_pr_review: true
   require_human_production_approval: true
+risk_rules:
+  readiness: real-loop-readiness
+  command_verification: manual-verification-required
+  protected_branches:
+    - main
+    - master
+  require_human_confirmation_before_real_execution:
+    - install
+    - dev
+    - test
+    - build
+    - e2e
+    - lint
+    - run_staging
+  forbidden_actions:
+    - delete-user-writing-data
+    - bypass-chapter-review
+    - print-or-persist-secrets
+    - push-without-explicit-approval
+  fallback_when_repo_or_commands_unavailable: create-manual-action-report
 core_flows:
   - id: open_home
     name: 打开首页
     priority: P0
   - id: create_novel_project
     name: 新建小说项目
+    priority: P0
+  - id: enter_story_prompt
+    name: 输入小说题材和基础设定
     priority: P0
   - id: generate_worldview
     name: 生成世界观
@@ -50,10 +93,10 @@ core_flows:
     name: 生成章节
     priority: P0
   - id: review_chapter
-    name: 自动审稿
+    name: 自动审稿并查看审稿报告
     priority: P0
   - id: repair_chapter
-    name: 修复章节
+    name: 按审稿报告修复章节
     priority: P0
   - id: export_novel
     name: 导出小说

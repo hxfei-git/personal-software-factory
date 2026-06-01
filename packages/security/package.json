@@ -1,0 +1,22 @@
+{
+  "name": "@psf/security",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared safety policies for Personal Software Factory real execution gates.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "pnpm typecheck && pnpm test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}

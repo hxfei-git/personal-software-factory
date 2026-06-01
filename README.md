@@ -2,7 +2,7 @@
 
 Personal Software Factory / 个人 AI 软件工厂 is a single-user control plane for turning natural-language software requests into structured Missions, Codex-driven development, Playwright QA, structured bug reports, approval gates, and reviewable release work.
 
-The repository currently contains the foundation through Phase 17B queue-backed worker runtime: shared schemas, Prisma persistence, Mission state machine, Fastify Orchestrator API, API token auth, Project Registry, Project Passport intake for `ai-novelist`, deterministic Mission Planner, local CLI helpers, Codex Worker dry-run artifact generation, QA/fix dry-runs, Hub Web, dashboard APIs, mock integration adapters, local demo workflow, doctor, scoped demo reset, report generation, optional BullMQ queue runtime, and Worker Runner.
+The repository currently contains the foundation through the gated real execution and integrations phase: shared schemas, Prisma persistence, Mission state machine, Fastify Orchestrator API, API token auth, Project Registry, Project Passport intake for `ai-novelist`, deterministic Mission Planner, local CLI helpers, Codex Worker dry-run and gated real-runner abstractions, deterministic Playwright QA, AI exploratory QA abstraction, dry-run and gated fix loop paths, Hub Web, dashboard APIs, dry-run plus gated real integration adapters, local demo workflow, doctor, scoped demo reset, report generation, optional BullMQ queue runtime, and Worker Runner handlers for whitelisted dry-run and gated real-mode job contracts.
 
 ## Current Scope
 
@@ -14,20 +14,27 @@ Implemented:
 - `packages/project-passport`: YAML parser, normalization, and validation for `project.passport.yaml`.
 - `packages/project-registry`: scanner for `projects/*/project.passport.yaml` and Project metadata sync inputs.
 - `packages/mission-planner`: deterministic template planner that does not call an LLM.
-- `packages/integrations`: mock/dry-run GitHub, Coolify, Uptime Kuma, and Plane adapters. They never call real external APIs.
+- `packages/integrations`: mock/dry-run GitHub, Coolify, Uptime Kuma, and Plane adapters plus gated real adapter implementations that can use injected transports only when all provider, approval, and runtime gates are satisfied. The default path does not inject a real transport and does not call external APIs.
 - `packages/demo-workflow`: shared local ai-novelist demo workflow, doctor, reset, and report helpers.
 - `packages/worker-runtime`: in-process and optional BullMQ queue facade for dry-run action jobs.
-- `apps/orchestrator-api`: Fastify API with health, dashboard, project sync/passport, Mission planning/summary, Approval, WorkerRun, Artifact, BugReport, QARun, and Integration routes.
-- `apps/hub`: React/Vite Hub Web console for dashboard, Mission detail, queue status, Integration status, and simple placeholder navigation for QA, bugs, WorkerRun, artifact, approval, and project list pages.
-- `apps/worker-runner`: BullMQ Worker Runner that consumes whitelisted dry-run jobs and updates queue wrapper WorkerRuns.
-- `workers/codex-worker`: dry-run prompt, command review artifact, and dev summary generator. It never executes Codex.
+- `apps/orchestrator-api`: Fastify API with health, dashboard, project sync/passport, Mission planning/summary, Approval, WorkerRun, Artifact, BugReport, QARun, Integration routes, and protected real-action contract routes that require queued mode plus route-specific `PSF_ENABLE_REAL_*` gates.
+- `apps/hub`: React/Vite Hub Web console for dashboard, Mission detail, queue status, Integration status, gated real-action visibility, and simple placeholder navigation for QA, bugs, WorkerRun, artifact, approval, and project list pages.
+- `apps/worker-runner`: BullMQ Worker Runner that consumes whitelisted dry-run jobs and gated real-mode contract jobs, then updates queue wrapper WorkerRuns and child run references.
+- `workers/codex-worker`: dry-run prompt, command review artifact, dev summary generator, and gated real Codex runner. Real execution is disabled by default and requires `ENABLE_REAL_CODEX=1`, an explicit absolute `CODEX_EXECUTABLE`, workspace guards, safe Codex CLI policy, runtime limits, approvals, and queue/runtime wiring.
+- `workers/qa-worker`: deterministic Playwright QA runner and AI exploratory QA abstraction. Real browser execution requires a target URL plus `ENABLE_REAL_PLAYWRIGHT=1` or an injected runner; AI exploratory QA stays manual-action/dry-run unless `ENABLE_AI_EXPLORATORY_QA=1` and an approved executor path are wired.
 - `scripts/psf.ts`: local dry-run CLI for registry sync, example Mission creation, planning, Codex/QA/fix dry-run artifacts, Integration dry-runs, doctor, demo reset, and demo report.
 
-Not implemented yet:
+Real but disabled/gated:
 
-- Real Codex execution, repository clone/update, worktree creation, project test execution, local commits, remote push, or PR creation.
-- Real Playwright QA execution and browser report collection beyond the optional local smoke gate.
-- Real external integrations with GitHub, Coolify, Uptime Kuma, Plane, or n8n. Current adapters remain dry-run/mock only.
+- Codex real runner, deterministic Playwright QA, AI exploratory QA abstraction, real fix-loop contract, GitHub/Coolify/Uptime Kuma/Plane real adapters via injected transport, and Worker Runner real job handlers are present as code paths or contracts.
+- They require explicit environment gates, credentials or target URLs where relevant, queue-backed runtime wiring, approval/policy gates, safe workspace configuration, and injected runners/transports before they can do real work.
+- Orchestrator real-action routes require `PSF_ACTION_EXECUTION_MODE=queued` and the route-specific gate, such as `PSF_ENABLE_REAL_CODEX=true` or `PSF_ENABLE_REAL_GITHUB_PR=true`, before a gated contract job is accepted.
+
+Default safe behavior:
+
+- Local CLI examples, demo workflow, integration status/dry-runs, Hub buttons, and normal tests remain dry-run/mock/manual-action oriented.
+- External integrations do not call GitHub, Coolify, Uptime Kuma, or Plane by default. Setting `ENABLE_REAL_GITHUB=1`, `ENABLE_REAL_COOLIFY=1`, `ENABLE_REAL_UPTIME_KUMA=1`, or `ENABLE_REAL_PLANE=1` only makes real mode eligible; it still needs runtime wiring, operation gates, credentials, and an injected transport.
+- Real push, PR creation, deployment, monitor creation, Plane issue sync, production changes, and arbitrary command execution remain off unless a later approved run deliberately enables the full gate chain.
 
 ## Run The Local MVP Demo
 
@@ -46,9 +53,9 @@ PSF_AUTH_DISABLED=true pnpm dev:api
 VITE_ORCHESTRATOR_API_URL=http://127.0.0.1:3000 pnpm dev:hub
 ```
 
-Run `pnpm dev:api` and `pnpm dev:hub` in separate terminals. Open `http://127.0.0.1:5173` to inspect the dashboard, the fixed Mission detail for `mission-0001-ai-novelist-chapter-review`, and protected dry-run buttons.
+Run `pnpm dev:api` and `pnpm dev:hub` in separate terminals. Open `http://127.0.0.1:5173` to inspect the dashboard, the fixed Mission detail for `mission-0001-ai-novelist-chapter-review`, protected dry-run buttons, and gated real-action readiness states.
 
-The MVP does not execute Codex, push, create PRs, deploy, create monitors, create Plane issues, or call external services.
+The default MVP flow does not execute Codex, push, create PRs, deploy, create monitors, create Plane issues, or call external services.
 
 Useful follow-up commands:
 
@@ -107,9 +114,12 @@ Important auth variables:
 - `PSF_AUTH_DISABLED`: set to `true` only for local development or automated tests.
 - `VITE_ORCHESTRATOR_API_URL`: Hub Web API base URL. Local default is `http://127.0.0.1:3000`.
 - `VITE_PSF_API_TOKEN`: Hub Web bearer token for protected POST dry-run actions.
-- `ENABLE_REAL_CODEX`: keep `0`; real Codex execution is not implemented in this batch.
+- `ENABLE_REAL_CODEX`: keep `0` unless an approved gated Codex run is intentional and `CODEX_EXECUTABLE`, `PSF_WORKSPACE_ROOT`, `CODEX_SANDBOX`, `CODEX_APPROVAL_MODE`, and runtime limits are configured.
+- `ENABLE_REAL_PLAYWRIGHT`: keep `0` unless deterministic browser QA is intentionally enabled for a configured `QA_TEST_URL` or `STAGING_URL`.
+- `ENABLE_AI_EXPLORATORY_QA`: keep `0` unless an approved AI exploratory executor path is wired.
+- `PSF_ENABLE_REAL_*`: Orchestrator real-action route gates. These require `PSF_ACTION_EXECUTION_MODE=queued` and Worker Runner support; setting them alone does not run real work.
 
-Integration variables are documented in `docs/integrations.md` and provider-specific docs. Current adapters are still mock/dry-run only: setting `ENABLE_REAL_GITHUB=1`, `ENABLE_REAL_COOLIFY=1`, `ENABLE_REAL_UPTIME_KUMA=1`, or `ENABLE_REAL_PLANE=1` only returns `realEnabled: true`; `realNetworkCall` remains `false`.
+Integration variables are documented in `docs/integrations.md` and provider-specific docs. Gated real adapters exist, but the default Hub/API/CLI path still avoids real network calls. Provider credentials and base URLs only make a real adapter eligible; a real external call also needs operation gates and an injected transport.
 
 ## Setup And Database
 
@@ -275,7 +285,7 @@ pnpm test:e2e:smoke
 QA_TEST_URL=http://127.0.0.1:8000 ENABLE_REAL_PLAYWRIGHT=1 pnpm test:e2e:smoke
 ```
 
-Playwright MCP is documented for later AI exploratory QA. It is not installed or run by default. Real Codex execution, remote push, PR creation, external APIs, and production deploy remain disabled.
+Playwright MCP is documented for later AI exploratory QA. It is not installed or run by default. Real Codex execution, remote push, PR creation, external APIs, and production deploy remain disabled unless the explicit real-mode gates, credentials, approvals, queue/runtime wiring, and injected runner/transport paths are deliberately configured.
 
 ## Phase 17B Queue Runtime
 
@@ -320,4 +330,4 @@ pnpm psf worker-runs:retry <workerRunId>
 
 The queue wrapper WorkerRun records the queue job state. Child planner, QA, Codex dry-run, fix, and demo WorkerRuns keep their existing semantics and are referenced from wrapper output.
 
-Queued mode is still dry-run/mock only. It does not execute Codex, push, create PRs, deploy, create provider records, or call external services.
+Queued mode remains safe by default. It can route whitelisted dry-run jobs and gated real-mode contract jobs, but the normal configuration does not execute Codex, push, create PRs, deploy, create provider records, or call external services.

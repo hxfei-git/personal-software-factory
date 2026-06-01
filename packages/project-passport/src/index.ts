@@ -18,14 +18,19 @@ export function parseProjectPassport(raw: string): ProjectPassport {
 }
 
 export function normalizeProjectPassport(passport: ProjectPassport): ProjectPassport {
+  const commands: ProjectPassport["commands"] = {
+    install: normalizeCommands(passport.commands.install),
+    test: normalizeCommands(passport.commands.test),
+    build: normalizeCommands(passport.commands.build),
+    run_staging: normalizeCommands(passport.commands.run_staging),
+    ...(passport.commands.dev === undefined ? {} : { dev: normalizeCommands(passport.commands.dev) }),
+    ...(passport.commands.e2e === undefined ? {} : { e2e: normalizeCommands(passport.commands.e2e) }),
+    ...(passport.commands.lint === undefined ? {} : { lint: normalizeCommands(passport.commands.lint) }),
+  };
+
   return {
     ...passport,
-    commands: {
-      install: normalizeCommands(passport.commands.install),
-      test: normalizeCommands(passport.commands.test),
-      build: normalizeCommands(passport.commands.build),
-      run_staging: normalizeCommands(passport.commands.run_staging),
-    },
+    commands,
   };
 }
 

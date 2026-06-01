@@ -90,6 +90,28 @@ describe("orchestrator api", () => {
     }
   }
 
+  const realActionRoutes = [
+    { path: "codex-real", jobType: "codex.real", gate: "PSF_ENABLE_REAL_CODEX" },
+    { path: "qa-playwright", jobType: "qa.playwright", gate: "PSF_ENABLE_REAL_QA_PLAYWRIGHT" },
+    { path: "qa-ai-exploratory", jobType: "qa.ai_exploratory", gate: "PSF_ENABLE_REAL_QA_AI_EXPLORATORY" },
+    { path: "fix-real", jobType: "fix.real", gate: "PSF_ENABLE_REAL_FIX" },
+    { path: "github-pr", jobType: "github.pr", gate: "PSF_ENABLE_REAL_GITHUB_PR" },
+    { path: "deploy-staging", jobType: "deploy.coolify", gate: "PSF_ENABLE_REAL_COOLIFY_DEPLOY" },
+    { path: "monitor-sync", jobType: "monitor.uptime_kuma", gate: "PSF_ENABLE_REAL_UPTIME_KUMA_SYNC" },
+    { path: "plane-sync", jobType: "plane.sync", gate: "PSF_ENABLE_REAL_PLANE_SYNC" },
+  ] as const;
+
+  const requiredApprovalTypesByRealAction: Record<typeof realActionRoutes[number]["path"], string[]> = {
+    "codex-real": ["SECURITY_RISK"],
+    "qa-playwright": [],
+    "qa-ai-exploratory": ["EXTERNAL_COST_RISK"],
+    "fix-real": ["SECURITY_RISK"],
+    "github-pr": [],
+    "deploy-staging": ["PRODUCTION_DEPLOY"],
+    "monitor-sync": [],
+    "plane-sync": [],
+  };
+
   async function createRegistryRoot() {
     const root = await mkdtemp(join(tmpdir(), "psf-api-registry-"));
     const projectDir = join(root, "sample");
@@ -200,6 +222,29 @@ describe("orchestrator api", () => {
     }
   }
 
+  async function withEnv<T>(patch: Record<string, string | undefined>, callback: () => Promise<T>): Promise<T> {
+    const previous: Record<string, string | undefined> = {};
+    for (const key of Object.keys(patch)) {
+      previous[key] = process.env[key];
+      if (patch[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = patch[key];
+      }
+    }
+    try {
+      return await callback();
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+  }
+
   async function seedDemoMission(storage: ReturnType<typeof createInMemoryMissionStorage>) {
     const now = "2026-05-31T00:00:00.000Z";
     return storage.createMission({
@@ -277,6 +322,21 @@ describe("orchestrator api", () => {
     });
     expect(response.statusCode).toBe(201);
     return response.json();
+  }
+
+  async function createApprovedApproval(server: ReturnType<typeof buildServer>, missionId: string, type: string) {
+    const approval = (await server.inject({
+      method: "POST",
+      url: "/missions/" + missionId + "/approvals",
+      payload: { type, reason: type + " approval for real action." },
+    })).json();
+    const decision = await server.inject({
+      method: "POST",
+      url: "/approvals/" + approval.id + "/decision",
+      payload: { status: "approved", decidedBy: "local-user", decision: "Approved for queued real action." },
+    });
+    expect(decision.statusCode).toBe(200);
+    return approval;
   }
 
   it("returns health", async () => {
@@ -644,6 +704,217 @@ describe("orchestrator api", () => {
         payload: { withSampleBug: true },
       },
     });
+  });
+
+  it("blocks gated real action routes when their explicit real gates are disabled", async () => {
+    await withEnv({
+      PSF_ACTION_EXECUTION_MODE: "queued",
+      ...Object.fromEntries(realActionRoutes.map((route) => [route.gate, undefined])),
+    }, async () => {
+      const workerRuntime = new InProcessWorkerRuntime();
+      const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime });
+      await seedDemoMission(storage);
+
+      for (const route of realActionRoutes) {
+        const response = await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/actions/${route.path}`,
+          payload: { approvalId: "approval-real-mode" },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+          accepted: false,
+          executionMode: "queued",
+          missionId: EXAMPLE_MISSION_ID,
+          projectId: "ai-novelist",
+          status: "blocked",
+          jobType: route.jobType,
+          realEnabled: false,
+          realNetworkCall: false,
+          realExternalCall: false,
+        });
+        expect(response.json().recommendedNextAction).toContain(route.gate);
+      }
+
+      expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(0);
+      expect(await workerRuntime.listJobs()).toHaveLength(0);
+    });
+  });
+
+  it("blocks gated real actions when required mission approvals are missing", async () => {
+    await withEnv({ PSF_ACTION_EXECUTION_MODE: "queued", PSF_ENABLE_REAL_CODEX: "true" }, async () => {
+      const workerRuntime = new InProcessWorkerRuntime();
+      const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime });
+      await seedDemoMission(storage);
+
+      const response = await server.inject({
+        method: "POST",
+        url: `/missions/${EXAMPLE_MISSION_ID}/actions/codex-real`,
+        payload: { approvalId: "approval-arbitrary" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        accepted: false,
+        executionMode: "queued",
+        missionId: EXAMPLE_MISSION_ID,
+        projectId: "ai-novelist",
+        status: "blocked",
+        jobType: "codex.real",
+        realEnabled: true,
+        realNetworkCall: false,
+        realExternalCall: false,
+        missingApprovalTypes: ["SECURITY_RISK"],
+      });
+      expect(response.json().recommendedNextAction).toContain("SECURITY_RISK");
+      expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(0);
+      expect(await workerRuntime.listJobs()).toHaveLength(0);
+    });
+  });
+
+  it("reports missing approval types in real-mode readiness", async () => {
+    await withEnv({ PSF_ACTION_EXECUTION_MODE: "queued", PSF_ENABLE_REAL_CODEX: "true" }, async () => {
+      const { server, storage } = await createTestServer({
+        auth: { disabled: true },
+        workerRuntime: new InProcessWorkerRuntime(),
+      });
+      await seedDemoMission(storage);
+
+      const response = await server.inject({ method: "GET", url: `/missions/${EXAMPLE_MISSION_ID}/summary` });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().realModeReadiness.codex).toMatchObject({
+        enabled: true,
+        ready: true,
+        safeToRun: false,
+        requiredApprovalTypes: ["SECURITY_RISK"],
+        approvedApprovalTypes: [],
+        missingApprovalTypes: ["SECURITY_RISK"],
+      });
+      expect(response.json().policyFailures).toContain("Codex real execution missing approvals: SECURITY_RISK.");
+    });
+  });
+
+  it("queues gated real actions when matching mission approvals are approved", async () => {
+    await withEnv({ PSF_ACTION_EXECUTION_MODE: "queued", PSF_ENABLE_REAL_CODEX: "true" }, async () => {
+      const workerRuntime = new InProcessWorkerRuntime();
+      const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime });
+      await seedDemoMission(storage);
+      const approval = await createApprovedApproval(server, EXAMPLE_MISSION_ID, "SECURITY_RISK");
+
+      const response = await server.inject({
+        method: "POST",
+        url: `/missions/${EXAMPLE_MISSION_ID}/actions/codex-real`,
+        payload: { approvalId: approval.id },
+      });
+
+      expect(response.statusCode).toBe(202);
+      expect(response.json()).toMatchObject({
+        accepted: true,
+        executionMode: "queued",
+        missionId: EXAMPLE_MISSION_ID,
+        projectId: "ai-novelist",
+        status: "queued",
+        jobType: "codex.real",
+        realEnabled: true,
+        realNetworkCall: false,
+      });
+      expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(1);
+      const jobs = await workerRuntime.listJobs();
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]?.job.payload).toMatchObject({
+        enableRealMode: true,
+        approvalRecordIds: [approval.id],
+        approvalIds: ["real_codex_execution"],
+        requestedApprovalId: approval.id,
+      });
+    });
+  });
+
+  it("queues only whitelisted gated real action jobs when queued mode and route gates are enabled", async () => {
+    for (const route of realActionRoutes) {
+      await withEnv({ PSF_ACTION_EXECUTION_MODE: "queued", [route.gate]: "true" }, async () => {
+        const workerRuntime = new InProcessWorkerRuntime();
+        const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime });
+        await seedDemoMission(storage);
+        const approvals = [];
+        for (const type of requiredApprovalTypesByRealAction[route.path]) {
+          approvals.push(await createApprovedApproval(server, EXAMPLE_MISSION_ID, type));
+        }
+
+        const response = await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/actions/${route.path}`,
+          payload: { approvalId: approvals[0]?.id ?? "approval-real-mode" },
+        });
+
+        expect(response.statusCode).toBe(202);
+        const body = response.json();
+        expect(body).toMatchObject({
+          accepted: true,
+          executionMode: "queued",
+          missionId: EXAMPLE_MISSION_ID,
+          projectId: "ai-novelist",
+          status: "queued",
+          jobType: route.jobType,
+          dryRun: false,
+          realEnabled: true,
+          realNetworkCall: false,
+          realExternalCall: false,
+          realPush: false,
+          realDeploy: false,
+        });
+
+        const workerRuns = await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID);
+        expect(workerRuns).toHaveLength(1);
+        expect(workerRuns[0]).toMatchObject({
+          id: body.workerRunId,
+          mission_id: EXAMPLE_MISSION_ID,
+          worker_type: "orchestrator",
+          status: "queued",
+          mode: "real",
+          metadata: {
+            queueWrapper: true,
+            jobId: body.jobId,
+            jobType: route.jobType,
+            realNetworkCall: false,
+          },
+        });
+
+        expect(await workerRuntime.getJob(body.jobId)).toMatchObject({
+          status: "queued",
+          job: {
+            id: body.jobId,
+            missionId: EXAMPLE_MISSION_ID,
+            projectId: "ai-novelist",
+            workerRunId: body.workerRunId,
+            type: route.jobType,
+            mode: "real",
+            payload: {
+              enableRealMode: true,
+              approvalRecordIds: approvals.map((approval) => approval.id),
+              approvalIds: route.path === "codex-real" || route.path === "fix-real"
+                ? ["real_codex_execution"]
+                : route.path === "qa-ai-exploratory"
+                  ? ["external_cost_risk"]
+                  : route.path === "deploy-staging"
+                    ? ["production_deploy"]
+                    : [],
+              requestedApprovalId: approvals[0]?.id ?? "approval-real-mode",
+            },
+          },
+        });
+      });
+    }
+  });
+
+  it("protects gated real action routes when auth is enabled", async () => {
+    const { server } = await createTestServer({ auth: { token: "secret", disabled: false } });
+    const response = await server.inject({ method: "POST", url: `/missions/${EXAMPLE_MISSION_ID}/actions/codex-real` });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json().code).toBe("UNAUTHORIZED");
   });
 
   it("rejects queued mission dry-run actions for non-demo missions without creating queue work", async () => {
@@ -1858,6 +2129,140 @@ describe("orchestrator api", () => {
     expect(response.json().bugs[0].id).toBe(bug.id);
     expect(response.json().approvals[0].id).toBe(approval.id);
     expect(response.json().recommendedNextAction).toEqual(expect.any(String));
+  });
+
+  it("returns real-mode visibility, external statuses, and retention metadata in mission summaries without secrets", async () => {
+    await withEnv({
+      PSF_ENABLE_REAL_GITHUB_PR: undefined,
+      GITHUB_TOKEN: "github-summary-secret",
+      GITHUB_OWNER: "psf",
+      GITHUB_REPO: "factory",
+      COOLIFY_TOKEN: "coolify-summary-secret",
+      PLANE_API_TOKEN: "plane-summary-secret",
+      UPTIME_KUMA_PASSWORD: "monitor-summary-secret",
+    }, async () => {
+      const { server } = await createTestServer({ auth: { disabled: true }, actionExecutionMode: "inline" });
+      const mission = await createMission(server, "Real visibility summary mission");
+      const githubRun = (await server.inject({
+        method: "POST",
+        url: "/missions/" + mission.id + "/worker-runs",
+        payload: {
+          workerType: "integration",
+          status: "succeeded",
+          mode: "real",
+          output: {
+            jobType: "github.pr",
+            githubPrUrl: "https://github.example/psf/factory/pull/17",
+            status: "pr-ready",
+            token: "worker-output-secret",
+          },
+          metadata: { realNetworkCall: false },
+          logs: ["created PR without token github-summary-secret"],
+        },
+      })).json();
+      await server.inject({
+        method: "POST",
+        url: "/missions/" + mission.id + "/worker-runs",
+        payload: {
+          workerType: "deploy",
+          status: "failed",
+          mode: "real",
+          output: {
+            jobType: "deploy.coolify",
+            deploymentUrl: "https://deploy.example/apps/factory",
+            deploymentStatus: "blocked",
+            password: "deploy-output-secret",
+          },
+          metadata: { realNetworkCall: false },
+        },
+      });
+      await server.inject({
+        method: "POST",
+        url: "/missions/" + mission.id + "/worker-runs",
+        payload: {
+          workerType: "monitor",
+          status: "succeeded",
+          mode: "real",
+          output: {
+            jobType: "monitor.uptime_kuma",
+            monitorUrl: "https://monitor.example/status/factory",
+            monitorStatus: "synced",
+          },
+          metadata: { realNetworkCall: false },
+        },
+      });
+      await server.inject({
+        method: "POST",
+        url: "/missions/" + mission.id + "/worker-runs",
+        payload: {
+          workerType: "integration",
+          status: "succeeded",
+          mode: "real",
+          output: {
+            jobType: "plane.sync",
+            planeIssueUrl: "https://plane.example/issues/PSF-17",
+            planeStatus: "linked",
+          },
+          metadata: { realNetworkCall: false },
+        },
+      });
+      await server.inject({
+        method: "POST",
+        url: "/missions/" + mission.id + "/artifacts",
+        payload: {
+          type: "worker_log",
+          path: "artifacts/" + mission.id + "/worker.log",
+          workerRunId: githubRun.id,
+          metadata: {
+            retentionClass: "ephemeral",
+            path: "artifacts/" + mission.id + "/worker.log",
+            missing: false,
+            secret: "artifact-metadata-secret",
+          },
+        },
+      });
+
+      const response = await server.inject({ method: "GET", url: "/missions/" + mission.id + "/summary" });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        realModeReadiness: {
+          codex: { enabled: false, configured: true, ready: false, safeToRun: false, realNetworkCall: false },
+          github: { enabled: false, configured: true, ready: false, safeToRun: false, realNetworkCall: false },
+          coolify: { enabled: false, configured: false, ready: false, safeToRun: false, realNetworkCall: false },
+          uptimeKuma: { enabled: false, configured: false, ready: false, safeToRun: false, realNetworkCall: false },
+          plane: { enabled: false, configured: false, ready: false, safeToRun: false, realNetworkCall: false },
+        },
+        externalLinks: {
+          githubPrUrl: "https://github.example/psf/factory/pull/17",
+          deploymentUrl: "https://deploy.example/apps/factory",
+          monitorUrl: "https://monitor.example/status/factory",
+          planeIssueUrl: "https://plane.example/issues/PSF-17",
+        },
+        deploymentStatus: { status: "blocked", workerRunId: expect.any(String), url: "https://deploy.example/apps/factory" },
+        monitorStatus: { status: "synced", workerRunId: expect.any(String), url: "https://monitor.example/status/factory" },
+        planeStatus: { status: "linked", workerRunId: expect.any(String), url: "https://plane.example/issues/PSF-17" },
+        artifactRetention: [
+          {
+            artifactId: expect.any(String),
+            type: "worker_log",
+            path: "artifacts/" + mission.id + "/worker.log",
+            retentionClass: "ephemeral",
+            retentionPath: "artifacts/" + mission.id + "/worker.log",
+            missing: false,
+          },
+        ],
+      });
+      expect(response.json().policyFailures).toEqual(expect.arrayContaining([
+        expect.stringContaining("PSF_ACTION_EXECUTION_MODE=queued"),
+        expect.stringContaining("PSF_ENABLE_REAL_GITHUB_PR=true"),
+      ]));
+      const body = JSON.stringify(response.json());
+      expect(body).not.toContain("github-summary-secret");
+      expect(body).not.toContain("worker-output-secret");
+      expect(body).not.toContain("deploy-output-secret");
+      expect(body).not.toContain("artifact-metadata-secret");
+    });
   });
 
   it("redacts token and password values from dashboard, summary, and resource GET responses", async () => {

@@ -54,6 +54,37 @@ describe("InProcessWorkerRuntime", () => {
     expect(() => QueueWorkerJobSchema.parse({ ...queueJob, type: "shell.exec" })).toThrow();
   });
 
+  it("accepts only whitelisted real and gated queue job types", async () => {
+    const runtime = new InProcessWorkerRuntime();
+    const whitelistedJobTypes = [
+      "codex.real",
+      "qa.playwright",
+      "qa.ai_exploratory",
+      "fix.real",
+      "github.pr",
+      "deploy.coolify",
+      "monitor.uptime_kuma",
+      "plane.sync",
+    ] as const;
+
+    for (const type of whitelistedJobTypes) {
+      const parsed = QueueWorkerJobSchema.parse({
+        ...queueJob,
+        id: `job-${type.replace(/[^a-z0-9]/g, "-")}`,
+        workerRunId: `worker-run-${type.replace(/[^a-z0-9]/g, "-")}`,
+        type,
+        mode: "real",
+        payload: { approvalId: `approval-${type.replace(/[^a-z0-9]/g, "-")}` },
+      });
+
+      expect(parsed).toMatchObject({ type, mode: "real" });
+      await expect(runtime.enqueue(parsed)).resolves.toMatchObject({
+        status: "queued",
+        job: { type, mode: "real" },
+      });
+    }
+  });
+
   it("rejects sensitive payload keys before queue jobs can be built or enqueued", async () => {
     expect(() => buildWorkerJob({
       missionId: "mission-001",

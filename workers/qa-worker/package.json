@@ -14,7 +14,9 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@psf/mission-schema": "workspace:*"
+    "@psf/artifact-store": "workspace:*",
+    "@psf/mission-schema": "workspace:*",
+    "@psf/security": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.8.0",

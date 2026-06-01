@@ -334,7 +334,7 @@ export function renderMissionDetailView({
         <span className="status-pill">{data.currentStatus}</span>
       </header>
 
-      {actions ? renderMissionActions(actions, actionState) : null}
+      {actions ? renderMissionActions(actions, actionState, data.realModeReadiness) : null}
 
       <section className="detail-summary">
         <div>
@@ -345,6 +345,11 @@ export function renderMissionDetailView({
           <span>recommendedNextAction</span>
           <strong>{data.recommendedNextAction}</strong>
         </div>
+      </section>
+
+      <section className="panel-grid two-columns">
+        {renderRealModeReadiness(data)}
+        {renderExternalVisibility(data)}
       </section>
 
       <section className="panel-grid two-columns">
@@ -359,8 +364,18 @@ export function renderMissionDetailView({
       </section>
 
       <section className="panel-grid two-columns">
+        {renderWorkerRunDetail(data.workerRuns)}
+        {renderQaRunDetail(data.qaRuns)}
+      </section>
+
+      <section className="panel-grid two-columns">
         {renderArtifactList("Artifact", data.artifacts)}
         {renderApprovalList(data.approvals)}
+      </section>
+
+      <section className="panel-grid two-columns">
+        {renderArtifactDetail(data)}
+        {renderApprovalActions(data)}
       </section>
     </main>
   );
@@ -438,8 +453,13 @@ function renderDashboardActions(actions: DashboardActions, actionState: ActionSt
   );
 }
 
-function renderMissionActions(actions: MissionActions, actionState: ActionState): ReactElement {
+function renderMissionActions(
+  actions: MissionActions,
+  actionState: ActionState,
+  readiness?: MissionSummaryResponse["realModeReadiness"],
+): ReactElement {
   const busy = actionState.loading !== "";
+  const guardedRealActions = readiness ? Object.values(readiness) : [];
   return (
     <section className="action-toolbar" aria-label="Mission dry-run actions">
       <div className="action-buttons">
@@ -450,10 +470,52 @@ function renderMissionActions(actions: MissionActions, actionState: ActionState)
         <button type="button" disabled={busy} onClick={() => void actions.onRunAction("fix-dry-run", {})}>Run Fix dry-run</button>
         <button type="button" disabled={busy} onClick={() => void actions.onRunAction("loop-dry-run", {})}>Run Full Loop dry-run</button>
         <button type="button" disabled={busy} onClick={() => void actions.onRefresh()}>Refresh Summary</button>
+        {guardedRealActions.map((entry) => {
+          const missingApprovalText = formatMissingApprovalTypes(entry.missingApprovalTypes);
+          return (
+            <button
+              type="button"
+              key={entry.action}
+              disabled={busy || !entry.safeToRun}
+              title={[entry.message, missingApprovalText].filter(Boolean).join(" ")}
+            >
+              {realActionButtonLabel(entry.action)}
+            </button>
+          );
+        })}
       </div>
       {renderActionStatus(actionState)}
     </section>
   );
+}
+
+function formatMissingApprovalTypes(missingApprovalTypes?: string[]): string {
+  return missingApprovalTypes && missingApprovalTypes.length > 0
+    ? "Missing approvals " + missingApprovalTypes.join(", ")
+    : "";
+}
+
+function realActionButtonLabel(action: string): string {
+  switch (action) {
+    case "codex-real":
+      return "Run Codex real";
+    case "qa-playwright":
+      return "Run Playwright QA real";
+    case "qa-ai-exploratory":
+      return "Run AI QA real";
+    case "fix-real":
+      return "Run Fix real";
+    case "github-pr":
+      return "Create GitHub PR real";
+    case "deploy-staging":
+      return "Deploy staging real";
+    case "monitor-sync":
+      return "Sync monitor real";
+    case "plane-sync":
+      return "Sync Plane real";
+    default:
+      return action + " real";
+  }
 }
 
 function renderActionStatus(actionState: ActionState): ReactElement | null {
@@ -735,6 +797,157 @@ function renderApprovalList(approvals: MissionSummaryResponse["approvals"]): Rea
             <span>{approval.reason}</span>
           </div>
           <span>{approval.status}</span>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function renderRealModeReadiness(data: MissionSummaryResponse): ReactElement {
+  const entries = data.realModeReadiness ? Object.values(data.realModeReadiness) : [];
+  return (
+    <section className="panel">
+      <div className="panel-heading"><h2>Real-mode readiness</h2><span>guarded</span></div>
+      {entries.length === 0 ? <p className="empty-line">No real-mode readiness reported</p> : entries.map((entry) => (
+        <div className="list-row" key={entry.key}>
+          <div>
+            <strong>{entry.label}</strong>
+            <span>{entry.ready ? "ready" : "blocked/manual-action"} / safeToRun {String(entry.safeToRun)} / realNetworkCall {String(entry.realNetworkCall)}</span>
+            <span>{entry.message}</span>
+            {entry.missingEnv.length > 0 ? <span>Missing {entry.missingEnv.join(", ")}</span> : null}
+            {entry.requiredApprovalTypes && entry.requiredApprovalTypes.length > 0 ? <span>Approvals {entry.requiredApprovalTypes.join(", ")}</span> : null}
+            {entry.missingApprovalTypes && entry.missingApprovalTypes.length > 0 ? <span>{`Missing approvals ${entry.missingApprovalTypes.join(", ")}`}</span> : null}
+          </div>
+          <span>{entry.enabled ? "enabled" : "disabled"}</span>
+        </div>
+      ))}
+      {data.policyFailures && data.policyFailures.length > 0 ? (
+        <div className="subsection-block">
+          <strong>Policy blockers</strong>
+          {data.policyFailures.map((failure) => <span key={failure}>{failure}</span>)}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function renderExternalVisibility(data: MissionSummaryResponse): ReactElement {
+  const links = data.externalLinks ?? {};
+  const linkRows = [
+    ["GitHub PR", links.githubPrUrl],
+    ["Deployment", links.deploymentUrl],
+    ["Monitor", links.monitorUrl],
+    ["Plane", links.planeIssueUrl],
+  ] as const;
+  return (
+    <section className="panel">
+      <div className="panel-heading"><h2>External links</h2><span>No real network calls</span></div>
+      {linkRows.map(([label, value]) => (
+        <div className="list-row" key={label}>
+          <div>
+            <strong>{label}</strong>
+            <span>{value ?? "missing"}</span>
+          </div>
+        </div>
+      ))}
+      {renderExternalStatusRow("Deployment status", data.deploymentStatus)}
+      {renderExternalStatusRow("Monitor status", data.monitorStatus)}
+      {renderExternalStatusRow("Plane status", data.planeStatus)}
+      {data.artifactRetention && data.artifactRetention.length > 0 ? (
+        <div className="subsection-block">
+          <strong>Artifact retention</strong>
+          {data.artifactRetention.map((entry) => (
+            <span key={entry.artifactId}>{entry.type} / {entry.retentionClass ?? "unclassified"} / {entry.retentionPath ?? entry.path} / missing {String(entry.missing ?? false)}</span>
+          ))}
+        </div>
+      ) : <p className="empty-line">No artifact retention metadata</p>}
+    </section>
+  );
+}
+
+function renderExternalStatusRow(title: string, status: MissionSummaryResponse["deploymentStatus"]): ReactElement {
+  return (
+    <div className="list-row">
+      <div>
+        <strong>{title}</strong>
+        <span>{status?.status ?? "missing"}</span>
+        {status?.url ? <span>{status.url}</span> : null}
+      </div>
+      <span>{status?.workerRunId ?? "none"}</span>
+    </div>
+  );
+}
+
+function renderWorkerRunDetail(workerRuns: WorkerRun[]): ReactElement {
+  return (
+    <section className="panel">
+      <div className="panel-heading"><h2>WorkerRun detail</h2></div>
+      {workerRuns.length === 0 ? <p className="empty-line">No WorkerRun detail yet</p> : workerRuns.map((run) => {
+        const output = jsonRecordOrEmpty(run.output);
+        return (
+          <div className="artifact-block" key={run.id}>
+            <strong>{run.id}</strong>
+            <span>{run.worker_type} / {run.status} / {run.mode ?? "unknown"}</span>
+            {readString(output, "summary") ? <span>{readString(output, "summary")}</span> : null}
+            {readString(output, "githubPrUrl") ? <span>{readString(output, "githubPrUrl")}</span> : null}
+            {run.logs.length > 0 ? <pre>{run.logs.slice(0, 4).join("\n")}</pre> : null}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function renderQaRunDetail(qaRuns: QAReport[]): ReactElement {
+  return (
+    <section className="panel">
+      <div className="panel-heading"><h2>QARun detail</h2></div>
+      {qaRuns.length === 0 ? <p className="empty-line">No QARun detail yet</p> : qaRuns.map((run) => (
+        <div className="list-row" key={run.id}>
+          <div>
+            <strong>{run.id}</strong>
+            <span>{run.mode} / {run.status} / passed {run.passed ?? 0} / failed {run.failed ?? 0}</span>
+            <span>{run.summary}</span>
+            {run.report_path ? <span>{run.report_path}</span> : null}
+            {run.trace_path ? <span>{run.trace_path}</span> : null}
+          </div>
+          <span>{run.target_url || run.staging_url || "no target"}</span>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function renderArtifactDetail(data: MissionSummaryResponse): ReactElement {
+  return (
+    <section className="panel">
+      <div className="panel-heading"><h2>Artifact detail</h2></div>
+      {data.artifacts.length === 0 ? <p className="empty-line">No Artifact detail yet</p> : data.artifacts.map((artifact) => {
+        const metadata = jsonRecordOrEmpty(artifact.metadata);
+        return (
+          <div className="artifact-block" key={artifact.id}>
+            <strong>{artifact.id}</strong>
+            <span>{artifact.type} / {artifact.size} bytes</span>
+            <code>{artifact.path}</code>
+            {readString(metadata, "retentionClass") ? <span>retention {readString(metadata, "retentionClass")}</span> : null}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function renderApprovalActions(data: MissionSummaryResponse): ReactElement {
+  return (
+    <section className="panel">
+      <div className="panel-heading"><h2>Approval actions</h2><span>manual</span></div>
+      {data.approvals.length === 0 ? <p className="empty-line">No approval actions pending</p> : data.approvals.map((approval) => (
+        <div className="list-row" key={approval.id}>
+          <div>
+            <strong>{approval.type}</strong>
+            <span>{approval.status} / {approval.reason}</span>
+          </div>
+          <span>{approval.status === "pending" ? "manual decision required" : "decision recorded"}</span>
         </div>
       ))}
     </section>

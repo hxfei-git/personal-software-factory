@@ -14,6 +14,14 @@ export const QueueWorkerJobTypeSchema = z.enum([
   "loop.dry_run",
   "demo.ai_novelist",
   "integration.dry_run",
+  "codex.real",
+  "qa.playwright",
+  "qa.ai_exploratory",
+  "fix.real",
+  "github.pr",
+  "deploy.coolify",
+  "monitor.uptime_kuma",
+  "plane.sync",
 ]);
 
 export const QueueWorkerJobStatusSchema = z.enum([

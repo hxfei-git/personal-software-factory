@@ -72,9 +72,33 @@ export type {
 
 export { isSecretLikeName, redactText, redactValue } from "./redaction.js";
 export { buildGitHubPullRequestBody, runGitHubDryRun } from "./github.js";
+export {
+  runGitHubReal,
+  type GitHubRealGates,
+  type GitHubRealInput,
+  type GitHubRealOutputs,
+  type GitHubRealResult,
+  type IntegrationRealResult,
+  type IntegrationRealStatus,
+  type IntegrationTransport,
+  type IntegrationTransportMethod,
+  type IntegrationTransportRequest,
+  type IntegrationTransportResponse,
+  type RealIntegrationDecision,
+  type SafeRequestSummary,
+} from "./github-real.js";
 export { runCoolifyDryRun } from "./coolify.js";
+export { runCoolifyReal, type CoolifyRealGates, type CoolifyRealInput, type CoolifyRealOutputs, type CoolifyRealResult } from "./coolify-real.js";
 export { runUptimeKumaDryRun } from "./uptime-kuma.js";
+export {
+  runUptimeKumaReal,
+  type UptimeKumaRealGates,
+  type UptimeKumaRealInput,
+  type UptimeKumaRealOutputs,
+  type UptimeKumaRealResult,
+} from "./uptime-kuma-real.js";
 export { runPlaneDryRun } from "./plane.js";
+export { runPlaneReal, type PlaneRealGates, type PlaneRealInput, type PlaneRealOutputs, type PlaneRealResult } from "./plane-real.js";
 
 export function createGithubAdapter(): GitHubAdapter {
   return {

@@ -44,11 +44,21 @@ Public endpoint.
 
 ### GET /dashboard
 
-Public read endpoint for the local MVP API. Returns dashboard metrics, recent Missions, bugs, WorkerRuns, QA runs, Artifacts, Integration statuses, recommended next actions, and health signals. This route has no side effects and is intended for Hub Web.
+Public read endpoint for the local MVP API. Returns dashboard metrics, recent Missions, bugs, WorkerRuns, QA runs, Artifacts, Integration statuses, real-mode readiness, policy failures, recommended next actions, and health signals. This route has no side effects and is intended for Hub Web.
 
 ### GET /missions/:id/summary
 
-Public read endpoint for Mission detail screens. Returns the Mission, Project, current status, events, artifacts, WorkerRuns, QA runs, bugs, approvals, selected key artifacts such as QA report and Codex prompt, and one recommended next action.
+Public read endpoint for Mission detail screens. Returns the Mission, Project, current status, events, artifacts, WorkerRuns, QA runs, bugs, approvals, selected key artifacts such as QA report and Codex prompt, real-mode readiness, policy failures, external links, external status summaries, artifact retention summaries, and one recommended next action.
+
+Additional summary fields are derived only from Orchestrator-owned records and sanitized API values:
+
+- `realModeReadiness`: entries for `codex`, `qaPlaywright`, `qaAiExploratory`, `fix`, `github`, `coolify`, `uptimeKuma`, and `plane`. Each entry includes `enabled`, `configured`, `ready`, `safeToRun`, `missingEnv`, `requiredApprovalTypes`, `approvedApprovalTypes`, `missingApprovalTypes`, `message`, and `realNetworkCall: false`. `safeToRun` is false when a real action requires an approval type that is not present as an approved Approval on that Mission.
+- `policyFailures`: human-readable blockers such as missing `PSF_ACTION_EXECUTION_MODE=queued`, disabled `PSF_ENABLE_REAL_*` gates, missing provider environment variables, missing approved Mission approvals, or missing Worker Runtime configuration.
+- `externalLinks`: `githubPrUrl`, `deploymentUrl`, `monitorUrl`, and `planeIssueUrl` when those safe URLs are present on the Mission, WorkerRuns, Artifacts, or Approvals.
+- `deploymentStatus`, `monitorStatus`, and `planeStatus`: latest relevant WorkerRun-derived status summaries.
+- `artifactRetention`: Artifact retention metadata from `metadata.retentionClass`, `metadata.path`, and `metadata.missing`.
+
+These fields are visibility only. They do not trigger real external calls, and `realNetworkCall` remains `false`. Token, password, and secret-like values are redacted before the response is sent.
 
 The route returns `404 NOT_FOUND` when the Mission or linked Project is missing.
 
@@ -188,6 +198,52 @@ Response shape:
   "eventIds": ["event-mission-0001-ai-novelist-chapter-review-qa-started-worker-run-mission-0001-ai-novelist-chapter-review-qa-dry-run"],
   "missionDetailUrl": "http://127.0.0.1:5173/#mission-detail?id=mission-0001-ai-novelist-chapter-review",
   "recommendedNextAction": "AI Novelist demo dry-run completed. Codex, external providers, pushes, and deployments were not executed."
+}
+```
+
+### Gated Real-Mode Action Contracts
+
+Protected routes:
+
+- `POST /missions/:id/actions/codex-real` -> `codex.real`, gate `PSF_ENABLE_REAL_CODEX=true`
+- `POST /missions/:id/actions/qa-playwright` -> `qa.playwright`, gate `PSF_ENABLE_REAL_QA_PLAYWRIGHT=true`
+- `POST /missions/:id/actions/qa-ai-exploratory` -> `qa.ai_exploratory`, gate `PSF_ENABLE_REAL_QA_AI_EXPLORATORY=true`
+- `POST /missions/:id/actions/fix-real` -> `fix.real`, gate `PSF_ENABLE_REAL_FIX=true`
+- `POST /missions/:id/actions/github-pr` -> `github.pr`, gate `PSF_ENABLE_REAL_GITHUB_PR=true`
+- `POST /missions/:id/actions/deploy-staging` -> `deploy.coolify`, gate `PSF_ENABLE_REAL_COOLIFY_DEPLOY=true`
+- `POST /missions/:id/actions/monitor-sync` -> `monitor.uptime_kuma`, gate `PSF_ENABLE_REAL_UPTIME_KUMA_SYNC=true`
+- `POST /missions/:id/actions/plane-sync` -> `plane.sync`, gate `PSF_ENABLE_REAL_PLANE_SYNC=true`
+
+These routes are contracts only in this phase. They never run Codex, Playwright, GitHub, Coolify, Uptime Kuma, Plane, pushes, PR creation, deployments, or arbitrary commands inside the API process. If `PSF_ACTION_EXECUTION_MODE` is not `queued`, or the route-specific gate is not set to exactly `true`, the API returns a blocked/manual payload and creates no WorkerRun or queue job.
+
+Blocked response shape:
+
+```json
+{
+  "accepted": false,
+  "executionMode": "queued",
+  "missionId": "mission-0001-ai-novelist-chapter-review",
+  "projectId": "ai-novelist",
+  "action": "github-pr",
+  "jobType": "github.pr",
+  "status": "blocked",
+  "dryRun": false,
+  "realEnabled": false,
+  "realNetworkCall": false,
+  "realExternalCall": false,
+  "realPush": false,
+  "realDeploy": false,
+  "recommendedNextAction": "Set PSF_ENABLE_REAL_GITHUB_PR=true and PSF_ACTION_EXECUTION_MODE=queued after approvals and worker support are ready."
+}
+```
+
+When queued mode and the route-specific gate are both enabled, the API creates the existing queue wrapper WorkerRun and enqueues only the mapped whitelisted job type. Required approval types must already exist as approved Approvals on the same Mission; otherwise the route returns `accepted: false`, includes `missingApprovalTypes`, and does not create a WorkerRun or queue job. The queued response has `accepted: true`, `status: queued`, `mode: real` on the wrapper WorkerRun, and `realNetworkCall: false`. Worker Runner handlers for these real/gated job types are intentionally not implemented until Task 9.
+
+Request body is strict and currently accepts only an optional approval reference. This reference is not sufficient by itself; the gate is enforced from stored approved Mission approvals:
+
+```json
+{
+  "approvalId": "approval-123"
 }
 ```
 

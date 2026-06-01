@@ -15,10 +15,14 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@psf/mission-schema": "workspace:*"
+    "@psf/mission-schema": "workspace:*",
+    "@psf/artifact-store": "workspace:*",
+    "@psf/security": "workspace:*",
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "typescript": "^5.8.0",
-    "vitest": "^3.2.0"
+    "vitest": "^3.2.0",
+    "@types/node": "^25.9.1"
   }
 }

@@ -1,6 +1,7 @@
 import { createCodexDryRun, type CodexDryRunResult } from "@psf/codex-worker";
 import { canTransition } from "@psf/mission-core";
 import { MissionStatus, type Artifact, type BugReport, type MissionEvent, type MissionStatusValue, type ProjectPassport, type WorkerRun } from "@psf/mission-schema";
+import { redactJson } from "@psf/security";
 
 type MissionFileName = "mission.md" | "acceptance.md" | "technical-notes.md" | "risk-notes.md";
 
@@ -77,26 +78,27 @@ export function createAutoFixDryRun(input: AutoFixDryRunInput): AutoFixDryRunRes
     };
   }
 
-  const fixMission = renderFixMission(input);
-  const fixAcceptance = renderFixAcceptance(input);
-  const codexDryRun = createCodexDryRun({
-    missionId: input.missionId,
-    projectId: input.projectId,
-    branchName: input.branchName,
-    currentBranch: input.currentBranch,
-    passport: input.passport,
-    projectAgents: input.projectAgents,
+  const safeInput = redactJson(input);
+  const fixMission = renderFixMission(safeInput);
+  const fixAcceptance = renderFixAcceptance(safeInput);
+  const codexDryRun = redactJson(createCodexDryRun({
+    missionId: safeInput.missionId,
+    projectId: safeInput.projectId,
+    branchName: safeInput.branchName,
+    currentBranch: safeInput.currentBranch,
+    passport: safeInput.passport,
+    projectAgents: safeInput.projectAgents,
     missionFiles: {
       "mission.md": fixMission,
       "acceptance.md": fixAcceptance,
-      "technical-notes.md": input.missionFiles["technical-notes.md"],
-      "risk-notes.md": input.missionFiles["risk-notes.md"],
+      "technical-notes.md": safeInput.missionFiles["technical-notes.md"],
+      "risk-notes.md": safeInput.missionFiles["risk-notes.md"],
     },
     mode: "dry-run",
     enableRealCodex: false,
     hasApproval: false,
     now,
-  });
+  }));
   const fixCodexWorkerRunId = `worker-run-${input.missionId}-codex-fix-dry-run`;
   const fixCodexWorkerRun: WorkerRun = {
     ...codexDryRun.workerRun,
@@ -277,3 +279,20 @@ function stableSuffix(payload: Record<string, unknown>): string {
   const source = String(payload.workerRunId ?? payload.artifactId ?? payload.bugCount ?? payload.nextStatus ?? "root");
   return slugify(source).slice(0, 80) || "root";
 }
+
+export { runGatedRealAutoFixLoop } from "./real-loop.js";
+export type {
+  GatedRealAutoFixDecision,
+  GatedRealAutoFixLoopInput,
+  GatedRealAutoFixLoopResult,
+  GatedRealCodexRunner,
+  GatedRealCodexRunnerInput,
+  GatedRealCodexRunnerResult,
+  GatedRealTestRunner,
+  GatedRealTestRunnerInput,
+  GatedRealTestRunnerResult,
+  GatedRealVerificationCommands,
+  RegressionCoverageInput,
+  RegressionCoverageResult,
+  RegressionGeneratedSpecValidation,
+} from "./real-loop.js";

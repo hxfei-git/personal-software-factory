@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@psf/artifact-store':
+        specifier: workspace:*
+        version: link:packages/artifact-store
       '@psf/auto-fix-loop':
         specifier: workspace:*
         version: link:packages/auto-fix-loop
@@ -159,6 +162,25 @@ importers:
         specifier: ^3.2.0
         version: 3.2.4(@types/node@25.9.1)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
 
+  packages/artifact-store:
+    dependencies:
+      '@psf/mission-schema':
+        specifier: workspace:*
+        version: link:../mission-schema
+      '@psf/security':
+        specifier: workspace:*
+        version: link:../security
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.1
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@25.9.1)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
+
   packages/auto-fix-loop:
     dependencies:
       '@psf/codex-worker':
@@ -170,6 +192,9 @@ importers:
       '@psf/mission-schema':
         specifier: workspace:*
         version: link:../mission-schema
+      '@psf/security':
+        specifier: workspace:*
+        version: link:../security
     devDependencies:
       typescript:
         specifier: ^5.8.0
@@ -311,6 +336,18 @@ importers:
         specifier: ^3.2.0
         version: 3.2.4(@types/node@25.9.1)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
 
+  packages/security:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.1
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@25.9.1)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
+
   packages/worker-runtime:
     dependencies:
       '@psf/mission-schema':
@@ -332,10 +369,22 @@ importers:
 
   workers/codex-worker:
     dependencies:
+      '@psf/artifact-store':
+        specifier: workspace:*
+        version: link:../../packages/artifact-store
       '@psf/mission-schema':
         specifier: workspace:*
         version: link:../../packages/mission-schema
+      '@psf/security':
+        specifier: workspace:*
+        version: link:../../packages/security
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.76
     devDependencies:
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.1
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -345,9 +394,15 @@ importers:
 
   workers/qa-worker:
     dependencies:
+      '@psf/artifact-store':
+        specifier: workspace:*
+        version: link:../../packages/artifact-store
       '@psf/mission-schema':
         specifier: workspace:*
         version: link:../../packages/mission-schema
+      '@psf/security':
+        specifier: workspace:*
+        version: link:../../packages/security
     devDependencies:
       typescript:
         specifier: ^5.8.0

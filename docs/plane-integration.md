@@ -1,6 +1,6 @@
 # Plane Integration
 
-Plane integration is currently a mock/dry-run adapter. It simulates Mission and Bug issue payloads without creating or updating Plane records.
+Plane integration keeps the existing mock/dry-run adapter and now also exposes a code-level real adapter for later orchestrator wiring. The Hub/API dry-run surface still does not call Plane.
 
 ## Commands
 
@@ -28,7 +28,22 @@ PLANE_PROJECT_ID=
 ENABLE_REAL_PLANE=0
 ```
 
-`ENABLE_REAL_PLANE=1` only reports `realEnabled: true`; `realNetworkCall` remains `false`.
+Default is disabled. When `ENABLE_REAL_PLANE` is unset or `0`, the real adapter returns `realEnabled: false`, `realNetworkCall: false`, and manual-action guidance. Missing URL/token/workspace/project also returns manual action instead of throwing.
+
+## Gated Real Mode
+
+`runPlaneReal` requires all of the following before it can call the injected transport:
+
+- `ENABLE_REAL_PLANE=1`;
+- configured `PLANE_BASE_URL`, `PLANE_API_TOKEN`, `PLANE_WORKSPACE_ID`, and `PLANE_PROJECT_ID`;
+- an injected `IntegrationTransport` function;
+- `gates.allowNetwork=true`.
+
+The adapter can create/update a Mission issue, create/update Bug issues, map Mission/Bug statuses to Plane states, and return issue URLs from transport responses. Request summaries include method and URL only, never bearer tokens. Mission descriptions, Bug issue descriptions, evidence summaries, errors, logs, and result objects are redacted before return.
+
+## Injected Transport Testing
+
+Tests pass fake transports that capture requests and return success, 401 auth failure, 403 permission failure, and thrown timeout/network errors. No test performs a real network call.
 
 ## Dry-Run Output
 

@@ -32,14 +32,21 @@ import { z } from "zod";
 import {
   assertDemoMissionActionSupported,
   buildQueuedActionJob,
+  gatedRealActionContracts,
+  buildQueuedRealActionJob,
+  isGatedRealActionEnabled,
+  RealActionRequestSchema,
   runAiNovelistDemoAction as runAiNovelistDemoDryRunAction,
   runCodexDryRunAction as runCodexDryRunDryRunAction,
   runFixDryRunAction as runFixDryRunDryRunAction,
   runLoopDryRunAction as runLoopDryRunDryRunAction,
   runMissionPlanAction as runMissionPlanDryRunAction,
   runQaDryRunAction as runQaDryRunDryRunAction,
+  toBlockedRealActionResponse,
   toQueuedActionResponse,
+  toQueuedRealActionResponse,
   type ActionExecutionMode,
+  type GatedRealActionKind,
   type QueuedActionKind,
 } from "./actions.js";
 import { badRequest, invalidTransition, notFound, serviceUnavailable } from "./errors.js";
@@ -357,26 +364,71 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     return sanitizeApiResponse(await inlineRunner(id, body));
   }
 
-  async function queueAction(mission: Mission, body: unknown, action: QueuedActionKind) {
+  async function runGatedRealAction(id: string, body: unknown, action: GatedRealActionKind) {
+    const mission = await getRawMission(id);
+    const input = parseRequest(RealActionRequestSchema, body ?? {});
+    const approvals = await storage.listMissionApprovals(mission.id);
+    const approvalCoverage = buildActionApprovalCoverage(action, approvals);
+    const realEnabled = isGatedRealActionEnabled(action);
+    if (actionExecutionMode !== "queued" || !realEnabled || approvalCoverage.missingApprovalTypes.length > 0) {
+      const blocked = toBlockedRealActionResponse({
+        action,
+        missionId: mission.id,
+        projectId: mission.project_id,
+        executionMode: actionExecutionMode,
+      });
+      return sanitizeApiResponse({
+        ...blocked,
+        realEnabled,
+        requiredApprovalTypes: approvalCoverage.requiredApprovalTypes,
+        approvedApprovalTypes: approvalCoverage.approvedApprovalTypes,
+        missingApprovalTypes: approvalCoverage.missingApprovalTypes,
+        recommendedNextAction: approvalCoverage.missingApprovalTypes.length > 0
+          ? blocked.recommendedNextAction + " Missing approved mission approvals: " + approvalCoverage.missingApprovalTypes.join(", ") + "."
+          : blocked.recommendedNextAction,
+      });
+    }
+    return sanitizeApiResponse(await queueAction(mission, {
+      ...input,
+      approvalRecordIds: approvedApprovalRecordIdsForAction(action, approvals),
+      approvalIds: approvalGrantIdsForAction(action),
+    }, action, "real"));
+  }
+
+  async function queueAction(mission: Mission, body: unknown, action: QueuedActionKind | GatedRealActionKind, mode: "dry-run" | "real" = "dry-run") {
     if (!workerRuntime) {
       throw badRequest("QUEUE_RUNTIME_UNAVAILABLE", "Worker runtime is not configured for queued actions");
     }
     const now = new Date().toISOString();
     const workerRunId = "worker-run-" + randomUUID();
-    const job = buildQueuedActionJob({
-      action,
-      missionId: mission.id,
-      projectId: mission.project_id,
-      workerRunId,
-      body,
-    });
+    const job = mode === "real"
+      ? buildQueuedRealActionJob({
+        action: action as GatedRealActionKind,
+        missionId: mission.id,
+        projectId: mission.project_id,
+        workerRunId,
+        body,
+        approvalRecordIds: isRecord(body) && Array.isArray(body.approvalRecordIds)
+          ? body.approvalRecordIds.filter((value): value is string => typeof value === "string")
+          : [],
+        approvalGrantIds: isRecord(body) && Array.isArray(body.approvalIds)
+          ? body.approvalIds.filter((value): value is string => typeof value === "string")
+          : [],
+      })
+      : buildQueuedActionJob({
+        action: action as QueuedActionKind,
+        missionId: mission.id,
+        projectId: mission.project_id,
+        workerRunId,
+        body,
+      });
     const wrapperOutput = buildQueueWrapperOutput(job);
     const wrapperWorkerRun: WorkerRun = {
       id: workerRunId,
       mission_id: mission.id,
       worker_type: "orchestrator",
       status: "queued",
-      mode: "dry-run",
+      mode: job.mode,
       input: {
         action,
         jobType: job.type,
@@ -388,6 +440,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         queueWrapper: true,
         jobId: job.id,
         jobType: job.type,
+        ...(mode === "real" ? { realEnabled: true, realNetworkCall: false, realExternalCall: false } : {}),
       },
       created_at: now,
       updated_at: now,
@@ -433,6 +486,16 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         jobType: job.type,
       });
     }
+    if (mode === "real") {
+      return toQueuedRealActionResponse({
+        action: action as GatedRealActionKind,
+        missionId: mission.id,
+        projectId: mission.project_id,
+        executionMode: actionExecutionMode,
+        workerRunId: wrapperWorkerRun.id,
+        job,
+      });
+    }
     return toQueuedActionResponse({
       missionId: mission.id,
       projectId: mission.project_id,
@@ -467,6 +530,14 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         workerRunCount: workerRuns.length,
         artifactCount: artifacts.length,
       };
+      const integrationStatuses = listIntegrationStatuses({ env: process.env });
+      const realModeReadiness = buildRealModeReadiness({
+        integrationStatuses,
+        actionExecutionMode,
+        workerRuntimeConfigured: workerRuntime !== undefined,
+        env: process.env,
+        approvals: [],
+      });
 
       return {
         metrics,
@@ -476,7 +547,9 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         recentFailedWorkerRuns: sanitizeApiList(recentByCreatedAt(workerRuns.filter((workerRun) => workerRun.status === "failed"))),
         recentQaRuns: sanitizeApiList(recentByCreatedAt(qaRuns)),
         recentArtifacts: sanitizeApiList(recentByCreatedAt(artifacts)),
-        integrationStatuses: listIntegrationStatuses({ env: process.env }),
+        integrationStatuses,
+        realModeReadiness,
+        policyFailures: buildPolicyFailures(realModeReadiness),
         recommendedNextActions: buildDashboardRecommendedNextActions(metrics),
         healthSignals: buildDashboardHealthSignals(metrics),
       };
@@ -527,6 +600,15 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       const safeBugs = sanitizeApiList(bugs);
       const safeApprovals = sanitizeApiList(approvals);
 
+      const integrationStatuses = listIntegrationStatuses({ env: process.env });
+      const realModeReadiness = buildRealModeReadiness({
+        integrationStatuses,
+        actionExecutionMode,
+        workerRuntimeConfigured: workerRuntime !== undefined,
+        env: process.env,
+        approvals,
+      });
+
       return {
         mission: sanitizeApiResponse(mission),
         project: sanitizeApiResponse(project),
@@ -543,6 +625,13 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         codexCommandArtifact: findArtifactByType(safeArtifacts, "codex_command"),
         fixMissionArtifact: findArtifactByType(safeArtifacts, "fix_mission"),
         fixCodexCommandArtifact: findArtifactByType(safeArtifacts, "fix_codex_command"),
+        realModeReadiness,
+        policyFailures: buildPolicyFailures(realModeReadiness),
+        externalLinks: buildExternalLinks(sanitizeApiResponse(mission), safeWorkerRuns, safeArtifacts, safeApprovals),
+        deploymentStatus: buildExternalStatus("deployment", safeWorkerRuns),
+        monitorStatus: buildExternalStatus("monitor", safeWorkerRuns),
+        planeStatus: buildExternalStatus("plane", safeWorkerRuns),
+        artifactRetention: buildArtifactRetention(safeArtifacts),
         recommendedNextAction: buildMissionRecommendedNextAction(mission, bugs, approvals, qaRuns, workerRuns),
       };
     },
@@ -568,6 +657,30 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     },
     async runLoopDryRunAction(id: string, body: unknown) {
       return runMissionAction(id, body, "loop", runLoopDryRunDryRunAction);
+    },
+    async runCodexRealAction(id: string, body: unknown) {
+      return runGatedRealAction(id, body, "codex-real");
+    },
+    async runQaPlaywrightAction(id: string, body: unknown) {
+      return runGatedRealAction(id, body, "qa-playwright");
+    },
+    async runQaAiExploratoryAction(id: string, body: unknown) {
+      return runGatedRealAction(id, body, "qa-ai-exploratory");
+    },
+    async runFixRealAction(id: string, body: unknown) {
+      return runGatedRealAction(id, body, "fix-real");
+    },
+    async runGithubPrAction(id: string, body: unknown) {
+      return runGatedRealAction(id, body, "github-pr");
+    },
+    async runDeployStagingAction(id: string, body: unknown) {
+      return runGatedRealAction(id, body, "deploy-staging");
+    },
+    async runMonitorSyncAction(id: string, body: unknown) {
+      return runGatedRealAction(id, body, "monitor-sync");
+    },
+    async runPlaneSyncAction(id: string, body: unknown) {
+      return runGatedRealAction(id, body, "plane-sync");
     },
     async runAiNovelistDemoAction(body: unknown) {
       if (actionExecutionMode === "queued") {
@@ -1200,6 +1313,7 @@ function nextRetryAttempt(output: unknown): number {
 
 
 function buildQueueWrapperOutput(job: QueueWorkerJob): Record<string, unknown> {
+  const realMode = job.mode === "real";
   return {
     queueWrapper: true,
     jobId: job.id,
@@ -1208,8 +1322,13 @@ function buildQueueWrapperOutput(job: QueueWorkerJob): Record<string, unknown> {
     childQARunIds: [],
     childArtifactIds: [],
     childBugReportIds: [],
-    summary: "Queued dry-run action; waiting for Worker Runner consumption.",
-    recommendedNextAction: "Start or refresh the Worker Runner, then refresh Mission Summary.",
+    summary: realMode
+      ? "Queued gated real-mode action; waiting for Worker Runner support."
+      : "Queued dry-run action; waiting for Worker Runner consumption.",
+    recommendedNextAction: realMode
+      ? "Worker Runner real handlers land in Task 9; the API has not made any external call."
+      : "Start or refresh the Worker Runner, then refresh Mission Summary.",
+    ...(realMode ? { realEnabled: true, realNetworkCall: false, realExternalCall: false } : {}),
   };
 }
 
@@ -1432,6 +1551,260 @@ function buildDashboardHealthSignals(metrics: DashboardMetrics) {
 
 function findArtifactByType(artifacts: Artifact[], type: Artifact["type"]): Artifact | null {
   return artifacts.find((artifact) => artifact.type === type) ?? null;
+}
+
+type ReadinessKey = "codex" | "qaPlaywright" | "qaAiExploratory" | "fix" | "github" | "coolify" | "uptimeKuma" | "plane";
+
+type ReadinessEntry = {
+  key: ReadinessKey;
+  label: string;
+  action: GatedRealActionKind;
+  enabled: boolean;
+  configured: boolean;
+  ready: boolean;
+  safeToRun: boolean;
+  realNetworkCall: false;
+  missingEnv: string[];
+  requiredApprovalTypes: string[];
+  approvedApprovalTypes: string[];
+  missingApprovalTypes: string[];
+  message: string;
+};
+
+type RealModeReadiness = Record<ReadinessKey, ReadinessEntry>;
+
+type IntegrationStatusLike = ReturnType<typeof listIntegrationStatuses>[number];
+
+type ReadinessBuildInput = {
+  integrationStatuses: IntegrationStatusLike[];
+  actionExecutionMode: ActionExecutionMode;
+  workerRuntimeConfigured: boolean;
+  env: Record<string, string | undefined>;
+  approvals: Approval[];
+};
+
+const readinessDefinitions: Record<ReadinessKey, {
+  action: GatedRealActionKind;
+  integrationName?: ExternalIntegrationName;
+  requiredApprovalTypes: string[];
+}> = {
+  codex: { action: "codex-real", requiredApprovalTypes: ["SECURITY_RISK"] },
+  qaPlaywright: { action: "qa-playwright", requiredApprovalTypes: [] },
+  qaAiExploratory: { action: "qa-ai-exploratory", requiredApprovalTypes: ["EXTERNAL_COST_RISK"] },
+  fix: { action: "fix-real", requiredApprovalTypes: ["SECURITY_RISK"] },
+  github: { action: "github-pr", integrationName: "github", requiredApprovalTypes: [] },
+  coolify: { action: "deploy-staging", integrationName: "coolify", requiredApprovalTypes: ["PRODUCTION_DEPLOY"] },
+  uptimeKuma: { action: "monitor-sync", integrationName: "uptime_kuma", requiredApprovalTypes: [] },
+  plane: { action: "plane-sync", integrationName: "plane", requiredApprovalTypes: [] },
+};
+
+function buildActionApprovalCoverage(action: GatedRealActionKind, approvals: Approval[]) {
+  return buildApprovalCoverage(requiredApprovalTypesForAction(action), approvals);
+}
+
+function approvedApprovalRecordIdsForAction(action: GatedRealActionKind, approvals: Approval[]): string[] {
+  const required = new Set(requiredApprovalTypesForAction(action));
+  return approvals
+    .filter((approval) => approval.status === "approved" && required.has(approval.type))
+    .map((approval) => approval.id);
+}
+
+function approvalGrantIdsForAction(action: GatedRealActionKind): string[] {
+  switch (action) {
+    case "codex-real":
+    case "fix-real":
+      return ["real_codex_execution"];
+    case "qa-ai-exploratory":
+      return ["external_cost_risk"];
+    case "deploy-staging":
+      return ["production_deploy"];
+    case "github-pr":
+    case "qa-playwright":
+    case "monitor-sync":
+    case "plane-sync":
+      return [];
+  }
+}
+
+function requiredApprovalTypesForAction(action: GatedRealActionKind): string[] {
+  return Object.values(readinessDefinitions).find((definition) => definition.action === action)?.requiredApprovalTypes ?? [];
+}
+
+function buildApprovalCoverage(requiredApprovalTypes: string[], approvals: Approval[]) {
+  const approvedTypes = new Set<string>(approvals
+    .filter((approval) => approval.status === "approved")
+    .map((approval) => approval.type));
+  return {
+    requiredApprovalTypes,
+    approvedApprovalTypes: requiredApprovalTypes.filter((type) => approvedTypes.has(type)),
+    missingApprovalTypes: requiredApprovalTypes.filter((type) => !approvedTypes.has(type)),
+  };
+}
+
+function buildRealModeReadiness(input: ReadinessBuildInput): RealModeReadiness {
+  return Object.fromEntries(Object.entries(readinessDefinitions).map(([rawKey, definition]) => {
+    const key = rawKey as ReadinessKey;
+    const contract = gatedRealActionContracts[definition.action];
+    const integration = definition.integrationName
+      ? input.integrationStatuses.find((status) => status.name === definition.integrationName || status.externalName === definition.integrationName)
+      : undefined;
+    const missingEnv = integration?.missingEnv ?? [];
+    const configured = integration ? integration.configured : true;
+    const enabled = input.env[contract.gateEnv] === "true";
+    const queueReady = input.actionExecutionMode === "queued";
+    const ready = enabled && configured && queueReady && input.workerRuntimeConfigured;
+    const approvalCoverage = buildApprovalCoverage(definition.requiredApprovalTypes, input.approvals);
+    const safeToRun = ready && approvalCoverage.missingApprovalTypes.length === 0;
+    const blockers: string[] = [];
+    if (!queueReady) blockers.push("PSF_ACTION_EXECUTION_MODE=queued");
+    if (!input.workerRuntimeConfigured) blockers.push("worker runtime configured");
+    if (!enabled) blockers.push(contract.gateEnv + "=true");
+    if (missingEnv.length > 0) blockers.push("missing " + missingEnv.join(", "));
+    if (approvalCoverage.missingApprovalTypes.length > 0) blockers.push("missing approved approvals " + approvalCoverage.missingApprovalTypes.join(", "));
+    const message = safeToRun
+      ? contract.label + " is ready to queue; API summary still reports realNetworkCall=false."
+      : contract.label + " blocked/manual-action: " + blockers.join("; ") + ".";
+    return [key, {
+      key,
+      label: contract.label,
+      action: definition.action,
+      enabled,
+      configured,
+      ready,
+      safeToRun,
+      realNetworkCall: false as const,
+      missingEnv,
+      requiredApprovalTypes: approvalCoverage.requiredApprovalTypes,
+      approvedApprovalTypes: approvalCoverage.approvedApprovalTypes,
+      missingApprovalTypes: approvalCoverage.missingApprovalTypes,
+      message,
+    } satisfies ReadinessEntry];
+  })) as RealModeReadiness;
+}
+
+function buildPolicyFailures(readiness: RealModeReadiness): string[] {
+  return Object.values(readiness)
+    .filter((entry) => !entry.safeToRun)
+    .flatMap((entry) => {
+      const contract = gatedRealActionContracts[entry.action];
+      const failures: string[] = [];
+      if (entry.message.includes("PSF_ACTION_EXECUTION_MODE=queued")) {
+        failures.push(entry.label + " requires PSF_ACTION_EXECUTION_MODE=queued.");
+      }
+      if (!entry.enabled) {
+        failures.push(entry.label + " requires " + contract.gateEnv + "=true.");
+      }
+      if (entry.missingEnv.length > 0) {
+        failures.push(entry.label + " missing env: " + entry.missingEnv.join(", ") + ".");
+      }
+      if (entry.message.includes("worker runtime configured")) {
+        failures.push(entry.label + " requires a configured Worker Runtime.");
+      }
+      if (entry.missingApprovalTypes.length > 0) {
+        failures.push(entry.label + " missing approvals: " + entry.missingApprovalTypes.join(", ") + ".");
+      }
+      return failures;
+    });
+}
+
+function buildExternalLinks(
+  mission: Mission,
+  workerRuns: WorkerRun[],
+  artifacts: Artifact[],
+  approvals: Approval[],
+): Partial<Record<string, string>> {
+  return compactUndefined({
+    githubPrUrl: firstString([mission.pr_url, ...readResourceStrings(workerRuns, artifacts, approvals, ["githubPrUrl", "prUrl", "pullRequestUrl"])]),
+    deploymentUrl: firstString(readResourceStrings(workerRuns, artifacts, approvals, ["deploymentUrl", "deployUrl", "stagingUrl"])),
+    monitorUrl: firstString(readResourceStrings(workerRuns, artifacts, approvals, ["monitorUrl", "uptimeKumaUrl"])),
+    planeIssueUrl: firstString(readResourceStrings(workerRuns, artifacts, approvals, ["planeIssueUrl", "planeUrl", "issueUrl"])),
+  });
+}
+
+function buildExternalStatus(kind: "deployment" | "monitor" | "plane", workerRuns: WorkerRun[]) {
+  const run = [...workerRuns].reverse().find((candidate) => workerRunMatchesExternalKind(candidate, kind));
+  if (!run) {
+    return null;
+  }
+  const source = mergeJsonObject(run.metadata, run.output);
+  const urlKeys = kind === "deployment"
+    ? ["deploymentUrl", "deployUrl", "stagingUrl"]
+    : kind === "monitor"
+      ? ["monitorUrl", "uptimeKumaUrl"]
+      : ["planeIssueUrl", "planeUrl", "issueUrl"];
+  const statusKeys = kind === "deployment"
+    ? ["deploymentStatus", "deployStatus", "status"]
+    : kind === "monitor"
+      ? ["monitorStatus", "uptimeKumaStatus", "status"]
+      : ["planeStatus", "issueStatus", "status"];
+  return compactUndefined({
+    status: firstString(statusKeys.map((key) => source[key])) ?? run.status,
+    workerRunId: run.id,
+    url: firstString(urlKeys.map((key) => source[key])),
+    mode: run.mode,
+    realNetworkCall: false,
+  });
+}
+
+function workerRunMatchesExternalKind(workerRun: WorkerRun, kind: "deployment" | "monitor" | "plane"): boolean {
+  const source = mergeJsonObject(workerRun.metadata, workerRun.output);
+  const jobType = firstString([source.jobType, source.type]);
+  if (kind === "deployment") {
+    return workerRun.worker_type === "deploy" || jobType === "deploy.coolify" || hasAnyKey(source, ["deploymentUrl", "deployUrl", "deploymentStatus"]);
+  }
+  if (kind === "monitor") {
+    return workerRun.worker_type === "monitor" || jobType === "monitor.uptime_kuma" || hasAnyKey(source, ["monitorUrl", "uptimeKumaUrl", "monitorStatus"]);
+  }
+  return jobType === "plane.sync" || hasAnyKey(source, ["planeIssueUrl", "planeUrl", "planeStatus"]);
+}
+
+function buildArtifactRetention(artifacts: Artifact[]) {
+  return artifacts.flatMap((artifact) => {
+    const metadata = isRecord(artifact.metadata) ? artifact.metadata : {};
+    if (metadata.retentionClass === undefined && metadata.path === undefined && metadata.missing === undefined) {
+      return [];
+    }
+    return [compactUndefined({
+      artifactId: artifact.id,
+      type: artifact.type,
+      path: artifact.path,
+      retentionClass: typeof metadata.retentionClass === "string" ? metadata.retentionClass : undefined,
+      retentionPath: typeof metadata.path === "string" ? metadata.path : undefined,
+      missing: typeof metadata.missing === "boolean" ? metadata.missing : undefined,
+    })];
+  });
+}
+
+function readResourceStrings(
+  workerRuns: WorkerRun[],
+  artifacts: Artifact[],
+  approvals: Approval[],
+  keys: string[],
+): unknown[] {
+  return [
+    ...workerRuns.flatMap((run) => readStringsFromRecords([run.output, run.metadata, run.input], keys)),
+    ...artifacts.flatMap((artifact) => readStringsFromRecords([artifact.metadata], keys)),
+    ...approvals.flatMap((approval) => readStringsFromRecords([approval.payload], keys)),
+  ];
+}
+
+function readStringsFromRecords(records: unknown[], keys: string[]): unknown[] {
+  return records.flatMap((record) => {
+    if (!isRecord(record)) return [];
+    return keys.map((key) => record[key]);
+  });
+}
+
+function firstString(values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === "string" && value.trim() !== "");
+}
+
+function hasAnyKey(record: Record<string, unknown>, keys: string[]): boolean {
+  return keys.some((key) => typeof record[key] === "string");
+}
+
+function compactUndefined<T extends Record<string, unknown>>(value: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)) as Partial<T>;
 }
 
 function buildMissionRecommendedNextAction(

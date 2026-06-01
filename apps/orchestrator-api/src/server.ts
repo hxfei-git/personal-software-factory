@@ -82,6 +82,30 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   server.post<{ Params: { id: string } }>("/missions/:id/actions/loop-dry-run", async (request, reply) => {
     return sendActionResponse(reply, await services.runLoopDryRunAction(request.params.id, request.body));
   });
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/codex-real", async (request, reply) => {
+    return sendActionResponse(reply, await services.runCodexRealAction(request.params.id, request.body));
+  });
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/qa-playwright", async (request, reply) => {
+    return sendActionResponse(reply, await services.runQaPlaywrightAction(request.params.id, request.body));
+  });
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/qa-ai-exploratory", async (request, reply) => {
+    return sendActionResponse(reply, await services.runQaAiExploratoryAction(request.params.id, request.body));
+  });
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/fix-real", async (request, reply) => {
+    return sendActionResponse(reply, await services.runFixRealAction(request.params.id, request.body));
+  });
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/github-pr", async (request, reply) => {
+    return sendActionResponse(reply, await services.runGithubPrAction(request.params.id, request.body));
+  });
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/deploy-staging", async (request, reply) => {
+    return sendActionResponse(reply, await services.runDeployStagingAction(request.params.id, request.body));
+  });
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/monitor-sync", async (request, reply) => {
+    return sendActionResponse(reply, await services.runMonitorSyncAction(request.params.id, request.body));
+  });
+  server.post<{ Params: { id: string } }>("/missions/:id/actions/plane-sync", async (request, reply) => {
+    return sendActionResponse(reply, await services.runPlaneSyncAction(request.params.id, request.body));
+  });
   server.post("/demo/ai-novelist", async (request, reply) => {
     return sendActionResponse(reply, await services.runAiNovelistDemoAction(request.body));
   });
@@ -190,6 +214,8 @@ function sendActionResponse(reply: FastifyReply, response: unknown) {
   return response;
 }
 
-function isQueuedActionResponse(value: unknown): value is { executionMode: "queued" } {
-  return Boolean(value && typeof value === "object" && (value as { executionMode?: unknown }).executionMode === "queued");
+function isQueuedActionResponse(value: unknown): value is { accepted: true; executionMode: "queued"; status: "queued" } {
+  if (!value || typeof value !== "object") return false;
+  const response = value as { accepted?: unknown; executionMode?: unknown; status?: unknown };
+  return response.accepted === true && response.executionMode === "queued" && response.status === "queued";
 }

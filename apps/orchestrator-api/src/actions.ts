@@ -14,6 +14,8 @@ import { badRequest } from "./errors.js";
 
 export type ActionExecutionMode = "inline" | "queued";
 export type QueuedActionKind = "plan" | "codex" | "qa" | "fix" | "loop" | "demo";
+export type GatedRealActionKind = "codex-real" | "qa-playwright" | "qa-ai-exploratory" | "fix-real" | "github-pr" | "deploy-staging" | "monitor-sync" | "plane-sync";
+
 
 export const MissionActionRequestSchema = z.object({
   withSampleBug: z.boolean().default(false),
@@ -23,6 +25,21 @@ export const DemoActionRequestSchema = z.object({
   withSampleBug: z.boolean().default(false),
   resetDemo: z.literal(false).default(false),
 }).strict();
+
+export const RealActionRequestSchema = z.object({
+  approvalId: z.string().min(1).optional(),
+}).strict();
+
+export const gatedRealActionContracts: Record<GatedRealActionKind, { jobType: WorkerJobType; gateEnv: string; label: string }> = {
+  "codex-real": { jobType: "codex.real", gateEnv: "PSF_ENABLE_REAL_CODEX", label: "Codex real execution" },
+  "qa-playwright": { jobType: "qa.playwright", gateEnv: "PSF_ENABLE_REAL_QA_PLAYWRIGHT", label: "Playwright QA" },
+  "qa-ai-exploratory": { jobType: "qa.ai_exploratory", gateEnv: "PSF_ENABLE_REAL_QA_AI_EXPLORATORY", label: "AI exploratory QA" },
+  "fix-real": { jobType: "fix.real", gateEnv: "PSF_ENABLE_REAL_FIX", label: "real fix loop" },
+  "github-pr": { jobType: "github.pr", gateEnv: "PSF_ENABLE_REAL_GITHUB_PR", label: "GitHub PR" },
+  "deploy-staging": { jobType: "deploy.coolify", gateEnv: "PSF_ENABLE_REAL_COOLIFY_DEPLOY", label: "Coolify staging deploy" },
+  "monitor-sync": { jobType: "monitor.uptime_kuma", gateEnv: "PSF_ENABLE_REAL_UPTIME_KUMA_SYNC", label: "Uptime Kuma monitor sync" },
+  "plane-sync": { jobType: "plane.sync", gateEnv: "PSF_ENABLE_REAL_PLANE_SYNC", label: "Plane sync" },
+};
 
 const demoOnlyMessage = "This dry-run action currently supports the ai-novelist demo mission only.";
 
@@ -39,6 +56,28 @@ export interface BuildQueuedActionJobInput {
 export interface QueuedActionResponseInput {
   missionId: string;
   projectId: string;
+  workerRunId: string;
+  job: QueueWorkerJob;
+}
+
+export interface BuildQueuedRealActionJobInput {
+  action: GatedRealActionKind;
+  missionId: string;
+  projectId: string;
+  workerRunId: string;
+  body: unknown;
+  approvalRecordIds?: string[];
+  approvalGrantIds?: string[];
+}
+
+export interface GatedRealActionResponseInput {
+  action: GatedRealActionKind;
+  missionId: string;
+  projectId: string;
+  executionMode: ActionExecutionMode;
+}
+
+export interface QueuedRealActionResponseInput extends GatedRealActionResponseInput {
   workerRunId: string;
   job: QueueWorkerJob;
 }
@@ -82,6 +121,29 @@ export function buildQueuedActionJob(input: BuildQueuedActionJobInput): QueueWor
   });
 }
 
+export function buildQueuedRealActionJob(input: BuildQueuedRealActionJobInput): QueueWorkerJob {
+  const bodyRecord = input.body && typeof input.body === "object" && !Array.isArray(input.body)
+    ? input.body as Record<string, unknown>
+    : {};
+  const parsedBody = parseActionRequest(RealActionRequestSchema, { approvalId: bodyRecord.approvalId });
+  const contract = gatedRealActionContracts[input.action];
+  const payload = {
+    enableRealMode: true,
+    approvalRecordIds: input.approvalRecordIds ?? [],
+    approvalIds: input.approvalGrantIds ?? [],
+    ...(parsedBody.approvalId ? { requestedApprovalId: parsedBody.approvalId } : {}),
+  };
+
+  return buildWorkerJob({
+    missionId: input.missionId,
+    projectId: input.projectId,
+    workerRunId: input.workerRunId,
+    type: contract.jobType,
+    mode: "real",
+    payload,
+  });
+}
+
 export function toQueuedActionResponse(input: QueuedActionResponseInput) {
   return {
     accepted: true,
@@ -98,6 +160,54 @@ export function toQueuedActionResponse(input: QueuedActionResponseInput) {
     realDeploy: false,
     recommendedNextAction: "WorkerRun queued. Start or refresh the Worker Runner, then refresh Mission Summary.",
   };
+}
+
+export function toBlockedRealActionResponse(input: GatedRealActionResponseInput) {
+  const contract = gatedRealActionContracts[input.action];
+  return {
+    accepted: false,
+    executionMode: input.executionMode,
+    missionId: input.missionId,
+    projectId: input.projectId,
+    action: input.action,
+    jobType: contract.jobType,
+    status: "blocked" as const,
+    dryRun: false,
+    realEnabled: false,
+    realNetworkCall: false,
+    realCodexExecuted: false,
+    realExternalCall: false,
+    realPush: false,
+    realDeploy: false,
+    recommendedNextAction: "Set " + contract.gateEnv + "=true and PSF_ACTION_EXECUTION_MODE=queued after approvals and worker support are ready.",
+  };
+}
+
+export function toQueuedRealActionResponse(input: QueuedRealActionResponseInput) {
+  const contract = gatedRealActionContracts[input.action];
+  return {
+    accepted: true,
+    executionMode: "queued" as const,
+    workerRunId: input.workerRunId,
+    jobId: input.job.id,
+    missionId: input.missionId,
+    projectId: input.projectId,
+    action: input.action,
+    jobType: contract.jobType,
+    status: "queued" as const,
+    dryRun: false,
+    realEnabled: true,
+    realNetworkCall: false,
+    realCodexExecuted: false,
+    realExternalCall: false,
+    realPush: false,
+    realDeploy: false,
+    recommendedNextAction: "Gated real-mode WorkerRun queued. Worker Runner real handlers are scheduled for Task 9; no external call has been made by the API.",
+  };
+}
+
+export function isGatedRealActionEnabled(action: GatedRealActionKind, env: Record<string, string | undefined> = process.env): boolean {
+  return env[gatedRealActionContracts[action].gateEnv] === "true";
 }
 
 export function assertDemoMissionActionSupported(missionId: string) {

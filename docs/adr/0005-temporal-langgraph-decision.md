@@ -12,14 +12,15 @@ Status: accepted
 
 Do not introduce Temporal or LangGraph now. Continue with BullMQ plus the explicit TypeScript state machine until there is concrete evidence of need.
 
-Temporal should be reconsidered only if the system demonstrates problems with:
+Temporal or LangGraph should be reconsidered only after the team can point to repeated evidence in the following checklist:
 
-- long-running workflow recovery;
-- compensation logic;
-- durable timers;
-- complex retry orchestration;
-- high multi-project concurrency;
-- restart recovery beyond the current queue/runtime model.
+- recovery failures that are not handled cleanly by the current BullMQ runtime, WorkerRun records, and MissionEvents;
+- compensation needs where rollback, cleanup, or manual recovery steps become hard to audit in the current state machine;
+- durable timers that must survive restarts and coordinate long-running waits beyond the queue/runtime model;
+- branching graph complexity where explicit workers, policies, and Mission state transitions become unclear or brittle;
+- multi-project pressure where concurrent Missions make scheduling, throttling, or recovery difficult to operate.
+
+Temporal should be reconsidered only if the evidence points to durable workflow execution, recovery, compensation, timers, or retry orchestration needs that exceed the current BullMQ/state-machine baseline.
 
 LangGraph should be reconsidered only if the system demonstrates real AI decision-graph complexity that cannot be cleanly represented by explicit workers, policies, and state transitions.
 
@@ -29,3 +30,4 @@ LangGraph should be reconsidered only if the system demonstrates real AI decisio
 - Worker code remains understandable and testable.
 - Future migration remains possible by wrapping existing job handlers as workflow activities or graph nodes.
 - No batch should add Temporal or LangGraph merely for architectural completeness.
+- Orchestrator, WorkerRun, and MissionEvent contracts remain the integration boundary for any future migration.
