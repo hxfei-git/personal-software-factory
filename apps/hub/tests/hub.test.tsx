@@ -961,6 +961,8 @@ describe("Hub render helpers", () => {
           realNetworkCall: false,
           missingEnv: [],
           requiredApprovalTypes: ["SECURITY_RISK"],
+          approvedApprovalTypes: [],
+          missingApprovalTypes: ["SECURITY_RISK"],
           action: "codex-real",
           message: "Blocked until PSF_ENABLE_REAL_CODEX=true and queued mode are configured.",
         },
@@ -1026,6 +1028,8 @@ describe("Hub render helpers", () => {
           realNetworkCall: false,
           missingEnv: ["COOLIFY_TOKEN"],
           requiredApprovalTypes: ["PRODUCTION_DEPLOY"],
+          approvedApprovalTypes: [],
+          missingApprovalTypes: ["PRODUCTION_DEPLOY"],
           action: "deploy-staging",
           message: "Deployment is blocked until approval and configuration are ready.",
         },
@@ -1099,6 +1103,8 @@ describe("Hub render helpers", () => {
     expect(text).toContain("GitHub PR");
     expect(text).toContain("blocked/manual-action");
     expect(text).toContain("Missing GITHUB_TOKEN");
+    expect(text).toContain("Missing approvals SECURITY_RISK");
+    expect(text).toContain("Missing approvals PRODUCTION_DEPLOY");
     expect(text).toContain("Policy blockers");
     expect(text).toContain("PSF_ACTION_EXECUTION_MODE=queued");
     expect(text).toContain("External links");

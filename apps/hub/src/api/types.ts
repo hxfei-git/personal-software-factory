@@ -279,6 +279,8 @@ export interface RealModeReadinessEntry {
   realNetworkCall: false;
   missingEnv: string[];
   requiredApprovalTypes?: string[];
+  approvedApprovalTypes?: string[];
+  missingApprovalTypes?: string[];
   message: string;
 }
 

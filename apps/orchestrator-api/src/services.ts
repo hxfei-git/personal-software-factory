@@ -35,6 +35,7 @@ import {
   gatedRealActionContracts,
   buildQueuedRealActionJob,
   isGatedRealActionEnabled,
+  RealActionRequestSchema,
   runAiNovelistDemoAction as runAiNovelistDemoDryRunAction,
   runCodexDryRunAction as runCodexDryRunDryRunAction,
   runFixDryRunAction as runFixDryRunDryRunAction,
@@ -365,15 +366,29 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
 
   async function runGatedRealAction(id: string, body: unknown, action: GatedRealActionKind) {
     const mission = await getRawMission(id);
-    if (actionExecutionMode !== "queued" || !isGatedRealActionEnabled(action)) {
-      return sanitizeApiResponse(toBlockedRealActionResponse({
+    const input = parseRequest(RealActionRequestSchema, body ?? {});
+    const approvals = await storage.listMissionApprovals(mission.id);
+    const approvalCoverage = buildActionApprovalCoverage(action, approvals);
+    const realEnabled = isGatedRealActionEnabled(action);
+    if (actionExecutionMode !== "queued" || !realEnabled || approvalCoverage.missingApprovalTypes.length > 0) {
+      const blocked = toBlockedRealActionResponse({
         action,
         missionId: mission.id,
         projectId: mission.project_id,
         executionMode: actionExecutionMode,
-      }));
+      });
+      return sanitizeApiResponse({
+        ...blocked,
+        realEnabled,
+        requiredApprovalTypes: approvalCoverage.requiredApprovalTypes,
+        approvedApprovalTypes: approvalCoverage.approvedApprovalTypes,
+        missingApprovalTypes: approvalCoverage.missingApprovalTypes,
+        recommendedNextAction: approvalCoverage.missingApprovalTypes.length > 0
+          ? blocked.recommendedNextAction + " Missing approved mission approvals: " + approvalCoverage.missingApprovalTypes.join(", ") + "."
+          : blocked.recommendedNextAction,
+      });
     }
-    return sanitizeApiResponse(await queueAction(mission, body, action, "real"));
+    return sanitizeApiResponse(await queueAction(mission, input, action, "real"));
   }
 
   async function queueAction(mission: Mission, body: unknown, action: QueuedActionKind | GatedRealActionKind, mode: "dry-run" | "real" = "dry-run") {
@@ -511,6 +526,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         actionExecutionMode,
         workerRuntimeConfigured: workerRuntime !== undefined,
         env: process.env,
+        approvals: [],
       });
 
       return {
@@ -580,6 +596,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         actionExecutionMode,
         workerRuntimeConfigured: workerRuntime !== undefined,
         env: process.env,
+        approvals,
       });
 
       return {
@@ -1539,6 +1556,8 @@ type ReadinessEntry = {
   realNetworkCall: false;
   missingEnv: string[];
   requiredApprovalTypes: string[];
+  approvedApprovalTypes: string[];
+  missingApprovalTypes: string[];
   message: string;
 };
 
@@ -1551,6 +1570,7 @@ type ReadinessBuildInput = {
   actionExecutionMode: ActionExecutionMode;
   workerRuntimeConfigured: boolean;
   env: Record<string, string | undefined>;
+  approvals: Approval[];
 };
 
 const readinessDefinitions: Record<ReadinessKey, {
@@ -1568,6 +1588,25 @@ const readinessDefinitions: Record<ReadinessKey, {
   plane: { action: "plane-sync", integrationName: "plane", requiredApprovalTypes: [] },
 };
 
+function buildActionApprovalCoverage(action: GatedRealActionKind, approvals: Approval[]) {
+  return buildApprovalCoverage(requiredApprovalTypesForAction(action), approvals);
+}
+
+function requiredApprovalTypesForAction(action: GatedRealActionKind): string[] {
+  return Object.values(readinessDefinitions).find((definition) => definition.action === action)?.requiredApprovalTypes ?? [];
+}
+
+function buildApprovalCoverage(requiredApprovalTypes: string[], approvals: Approval[]) {
+  const approvedTypes = new Set<string>(approvals
+    .filter((approval) => approval.status === "approved")
+    .map((approval) => approval.type));
+  return {
+    requiredApprovalTypes,
+    approvedApprovalTypes: requiredApprovalTypes.filter((type) => approvedTypes.has(type)),
+    missingApprovalTypes: requiredApprovalTypes.filter((type) => !approvedTypes.has(type)),
+  };
+}
+
 function buildRealModeReadiness(input: ReadinessBuildInput): RealModeReadiness {
   return Object.fromEntries(Object.entries(readinessDefinitions).map(([rawKey, definition]) => {
     const key = rawKey as ReadinessKey;
@@ -1580,12 +1619,15 @@ function buildRealModeReadiness(input: ReadinessBuildInput): RealModeReadiness {
     const enabled = input.env[contract.gateEnv] === "true";
     const queueReady = input.actionExecutionMode === "queued";
     const ready = enabled && configured && queueReady && input.workerRuntimeConfigured;
-    const blockers = [];
+    const approvalCoverage = buildApprovalCoverage(definition.requiredApprovalTypes, input.approvals);
+    const safeToRun = ready && approvalCoverage.missingApprovalTypes.length === 0;
+    const blockers: string[] = [];
     if (!queueReady) blockers.push("PSF_ACTION_EXECUTION_MODE=queued");
     if (!input.workerRuntimeConfigured) blockers.push("worker runtime configured");
     if (!enabled) blockers.push(contract.gateEnv + "=true");
     if (missingEnv.length > 0) blockers.push("missing " + missingEnv.join(", "));
-    const message = ready
+    if (approvalCoverage.missingApprovalTypes.length > 0) blockers.push("missing approved approvals " + approvalCoverage.missingApprovalTypes.join(", "));
+    const message = safeToRun
       ? contract.label + " is ready to queue; API summary still reports realNetworkCall=false."
       : contract.label + " blocked/manual-action: " + blockers.join("; ") + ".";
     return [key, {
@@ -1595,10 +1637,12 @@ function buildRealModeReadiness(input: ReadinessBuildInput): RealModeReadiness {
       enabled,
       configured,
       ready,
-      safeToRun: ready,
+      safeToRun,
       realNetworkCall: false as const,
       missingEnv,
-      requiredApprovalTypes: definition.requiredApprovalTypes,
+      requiredApprovalTypes: approvalCoverage.requiredApprovalTypes,
+      approvedApprovalTypes: approvalCoverage.approvedApprovalTypes,
+      missingApprovalTypes: approvalCoverage.missingApprovalTypes,
       message,
     } satisfies ReadinessEntry];
   })) as RealModeReadiness;
@@ -1606,13 +1650,10 @@ function buildRealModeReadiness(input: ReadinessBuildInput): RealModeReadiness {
 
 function buildPolicyFailures(readiness: RealModeReadiness): string[] {
   return Object.values(readiness)
-    .filter((entry) => !entry.ready)
+    .filter((entry) => !entry.safeToRun)
     .flatMap((entry) => {
       const contract = gatedRealActionContracts[entry.action];
       const failures: string[] = [];
-      if (!entry.message.includes("PSF_ACTION_EXECUTION_MODE=queued") && entry.safeToRun) {
-        return failures;
-      }
       if (entry.message.includes("PSF_ACTION_EXECUTION_MODE=queued")) {
         failures.push(entry.label + " requires PSF_ACTION_EXECUTION_MODE=queued.");
       }
@@ -1624,6 +1665,9 @@ function buildPolicyFailures(readiness: RealModeReadiness): string[] {
       }
       if (entry.message.includes("worker runtime configured")) {
         failures.push(entry.label + " requires a configured Worker Runtime.");
+      }
+      if (entry.missingApprovalTypes.length > 0) {
+        failures.push(entry.label + " missing approvals: " + entry.missingApprovalTypes.join(", ") + ".");
       }
       return failures;
     });

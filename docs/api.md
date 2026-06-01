@@ -52,8 +52,8 @@ Public read endpoint for Mission detail screens. Returns the Mission, Project, c
 
 Additional summary fields are derived only from Orchestrator-owned records and sanitized API values:
 
-- `realModeReadiness`: entries for `codex`, `qaPlaywright`, `qaAiExploratory`, `fix`, `github`, `coolify`, `uptimeKuma`, and `plane`. Each entry includes `enabled`, `configured`, `ready`, `safeToRun`, `missingEnv`, `requiredApprovalTypes`, `message`, and `realNetworkCall: false`.
-- `policyFailures`: human-readable blockers such as missing `PSF_ACTION_EXECUTION_MODE=queued`, disabled `PSF_ENABLE_REAL_*` gates, missing provider environment variables, or missing Worker Runtime configuration.
+- `realModeReadiness`: entries for `codex`, `qaPlaywright`, `qaAiExploratory`, `fix`, `github`, `coolify`, `uptimeKuma`, and `plane`. Each entry includes `enabled`, `configured`, `ready`, `safeToRun`, `missingEnv`, `requiredApprovalTypes`, `approvedApprovalTypes`, `missingApprovalTypes`, `message`, and `realNetworkCall: false`. `safeToRun` is false when a real action requires an approval type that is not present as an approved Approval on that Mission.
+- `policyFailures`: human-readable blockers such as missing `PSF_ACTION_EXECUTION_MODE=queued`, disabled `PSF_ENABLE_REAL_*` gates, missing provider environment variables, missing approved Mission approvals, or missing Worker Runtime configuration.
 - `externalLinks`: `githubPrUrl`, `deploymentUrl`, `monitorUrl`, and `planeIssueUrl` when those safe URLs are present on the Mission, WorkerRuns, Artifacts, or Approvals.
 - `deploymentStatus`, `monitorStatus`, and `planeStatus`: latest relevant WorkerRun-derived status summaries.
 - `artifactRetention`: Artifact retention metadata from `metadata.retentionClass`, `metadata.path`, and `metadata.missing`.
@@ -237,9 +237,9 @@ Blocked response shape:
 }
 ```
 
-When queued mode and the route-specific gate are both enabled, the API creates the existing queue wrapper WorkerRun and enqueues only the mapped whitelisted job type. The response has `accepted: true`, `status: queued`, `mode: real` on the wrapper WorkerRun, and `realNetworkCall: false`. Worker Runner handlers for these real/gated job types are intentionally not implemented until Task 9.
+When queued mode and the route-specific gate are both enabled, the API creates the existing queue wrapper WorkerRun and enqueues only the mapped whitelisted job type. Required approval types must already exist as approved Approvals on the same Mission; otherwise the route returns `accepted: false`, includes `missingApprovalTypes`, and does not create a WorkerRun or queue job. The queued response has `accepted: true`, `status: queued`, `mode: real` on the wrapper WorkerRun, and `realNetworkCall: false`. Worker Runner handlers for these real/gated job types are intentionally not implemented until Task 9.
 
-Request body is strict and currently accepts only an optional approval reference:
+Request body is strict and currently accepts only an optional approval reference. This reference is not sufficient by itself; the gate is enforced from stored approved Mission approvals:
 
 ```json
 {

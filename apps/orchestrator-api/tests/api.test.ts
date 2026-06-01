@@ -101,6 +101,17 @@ describe("orchestrator api", () => {
     { path: "plane-sync", jobType: "plane.sync", gate: "PSF_ENABLE_REAL_PLANE_SYNC" },
   ] as const;
 
+  const requiredApprovalTypesByRealAction: Record<typeof realActionRoutes[number]["path"], string[]> = {
+    "codex-real": ["SECURITY_RISK"],
+    "qa-playwright": [],
+    "qa-ai-exploratory": ["EXTERNAL_COST_RISK"],
+    "fix-real": ["SECURITY_RISK"],
+    "github-pr": [],
+    "deploy-staging": ["PRODUCTION_DEPLOY"],
+    "monitor-sync": [],
+    "plane-sync": [],
+  };
+
   async function createRegistryRoot() {
     const root = await mkdtemp(join(tmpdir(), "psf-api-registry-"));
     const projectDir = join(root, "sample");
@@ -311,6 +322,21 @@ describe("orchestrator api", () => {
     });
     expect(response.statusCode).toBe(201);
     return response.json();
+  }
+
+  async function createApprovedApproval(server: ReturnType<typeof buildServer>, missionId: string, type: string) {
+    const approval = (await server.inject({
+      method: "POST",
+      url: "/missions/" + missionId + "/approvals",
+      payload: { type, reason: type + " approval for real action." },
+    })).json();
+    const decision = await server.inject({
+      method: "POST",
+      url: "/approvals/" + approval.id + "/decision",
+      payload: { status: "approved", decidedBy: "local-user", decision: "Approved for queued real action." },
+    });
+    expect(decision.statusCode).toBe(200);
+    return approval;
   }
 
   it("returns health", async () => {
@@ -716,17 +742,104 @@ describe("orchestrator api", () => {
     });
   });
 
+  it("blocks gated real actions when required mission approvals are missing", async () => {
+    await withEnv({ PSF_ACTION_EXECUTION_MODE: "queued", PSF_ENABLE_REAL_CODEX: "true" }, async () => {
+      const workerRuntime = new InProcessWorkerRuntime();
+      const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime });
+      await seedDemoMission(storage);
+
+      const response = await server.inject({
+        method: "POST",
+        url: `/missions/${EXAMPLE_MISSION_ID}/actions/codex-real`,
+        payload: { approvalId: "approval-arbitrary" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        accepted: false,
+        executionMode: "queued",
+        missionId: EXAMPLE_MISSION_ID,
+        projectId: "ai-novelist",
+        status: "blocked",
+        jobType: "codex.real",
+        realEnabled: true,
+        realNetworkCall: false,
+        realExternalCall: false,
+        missingApprovalTypes: ["SECURITY_RISK"],
+      });
+      expect(response.json().recommendedNextAction).toContain("SECURITY_RISK");
+      expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(0);
+      expect(await workerRuntime.listJobs()).toHaveLength(0);
+    });
+  });
+
+  it("reports missing approval types in real-mode readiness", async () => {
+    await withEnv({ PSF_ACTION_EXECUTION_MODE: "queued", PSF_ENABLE_REAL_CODEX: "true" }, async () => {
+      const { server, storage } = await createTestServer({
+        auth: { disabled: true },
+        workerRuntime: new InProcessWorkerRuntime(),
+      });
+      await seedDemoMission(storage);
+
+      const response = await server.inject({ method: "GET", url: `/missions/${EXAMPLE_MISSION_ID}/summary` });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().realModeReadiness.codex).toMatchObject({
+        enabled: true,
+        ready: true,
+        safeToRun: false,
+        requiredApprovalTypes: ["SECURITY_RISK"],
+        approvedApprovalTypes: [],
+        missingApprovalTypes: ["SECURITY_RISK"],
+      });
+      expect(response.json().policyFailures).toContain("Codex real execution missing approvals: SECURITY_RISK.");
+    });
+  });
+
+  it("queues gated real actions when matching mission approvals are approved", async () => {
+    await withEnv({ PSF_ACTION_EXECUTION_MODE: "queued", PSF_ENABLE_REAL_CODEX: "true" }, async () => {
+      const workerRuntime = new InProcessWorkerRuntime();
+      const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime });
+      await seedDemoMission(storage);
+      const approval = await createApprovedApproval(server, EXAMPLE_MISSION_ID, "SECURITY_RISK");
+
+      const response = await server.inject({
+        method: "POST",
+        url: `/missions/${EXAMPLE_MISSION_ID}/actions/codex-real`,
+        payload: { approvalId: approval.id },
+      });
+
+      expect(response.statusCode).toBe(202);
+      expect(response.json()).toMatchObject({
+        accepted: true,
+        executionMode: "queued",
+        missionId: EXAMPLE_MISSION_ID,
+        projectId: "ai-novelist",
+        status: "queued",
+        jobType: "codex.real",
+        realEnabled: true,
+        realNetworkCall: false,
+      });
+      expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(1);
+      expect(await workerRuntime.listJobs()).toHaveLength(1);
+    });
+  });
+
   it("queues only whitelisted gated real action jobs when queued mode and route gates are enabled", async () => {
     for (const route of realActionRoutes) {
       await withEnv({ PSF_ACTION_EXECUTION_MODE: "queued", [route.gate]: "true" }, async () => {
         const workerRuntime = new InProcessWorkerRuntime();
         const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime });
         await seedDemoMission(storage);
+        const approvals = [];
+        for (const type of requiredApprovalTypesByRealAction[route.path]) {
+          approvals.push(await createApprovedApproval(server, EXAMPLE_MISSION_ID, type));
+        }
 
         const response = await server.inject({
           method: "POST",
           url: `/missions/${EXAMPLE_MISSION_ID}/actions/${route.path}`,
-          payload: { approvalId: "approval-real-mode" },
+          payload: { approvalId: approvals[0]?.id ?? "approval-real-mode" },
         });
 
         expect(response.statusCode).toBe(202);
@@ -771,7 +884,7 @@ describe("orchestrator api", () => {
             workerRunId: body.workerRunId,
             type: route.jobType,
             mode: "real",
-            payload: { approvalId: "approval-real-mode" },
+            payload: { approvalId: approvals[0]?.id ?? "approval-real-mode" },
           },
         });
       });

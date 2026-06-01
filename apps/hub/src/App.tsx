@@ -470,20 +470,29 @@ function renderMissionActions(
         <button type="button" disabled={busy} onClick={() => void actions.onRunAction("fix-dry-run", {})}>Run Fix dry-run</button>
         <button type="button" disabled={busy} onClick={() => void actions.onRunAction("loop-dry-run", {})}>Run Full Loop dry-run</button>
         <button type="button" disabled={busy} onClick={() => void actions.onRefresh()}>Refresh Summary</button>
-        {guardedRealActions.map((entry) => (
-          <button
-            type="button"
-            key={entry.action}
-            disabled={busy || !entry.safeToRun}
-            title={entry.message}
-          >
-            {realActionButtonLabel(entry.action)}
-          </button>
-        ))}
+        {guardedRealActions.map((entry) => {
+          const missingApprovalText = formatMissingApprovalTypes(entry.missingApprovalTypes);
+          return (
+            <button
+              type="button"
+              key={entry.action}
+              disabled={busy || !entry.safeToRun}
+              title={[entry.message, missingApprovalText].filter(Boolean).join(" ")}
+            >
+              {realActionButtonLabel(entry.action)}
+            </button>
+          );
+        })}
       </div>
       {renderActionStatus(actionState)}
     </section>
   );
+}
+
+function formatMissingApprovalTypes(missingApprovalTypes?: string[]): string {
+  return missingApprovalTypes && missingApprovalTypes.length > 0
+    ? "Missing approvals " + missingApprovalTypes.join(", ")
+    : "";
 }
 
 function realActionButtonLabel(action: string): string {
@@ -807,6 +816,7 @@ function renderRealModeReadiness(data: MissionSummaryResponse): ReactElement {
             <span>{entry.message}</span>
             {entry.missingEnv.length > 0 ? <span>Missing {entry.missingEnv.join(", ")}</span> : null}
             {entry.requiredApprovalTypes && entry.requiredApprovalTypes.length > 0 ? <span>Approvals {entry.requiredApprovalTypes.join(", ")}</span> : null}
+            {entry.missingApprovalTypes && entry.missingApprovalTypes.length > 0 ? <span>{`Missing approvals ${entry.missingApprovalTypes.join(", ")}`}</span> : null}
           </div>
           <span>{entry.enabled ? "enabled" : "disabled"}</span>
         </div>
