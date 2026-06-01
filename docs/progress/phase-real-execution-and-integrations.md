@@ -129,24 +129,26 @@ No real secrets should be committed. Tokens and passwords must not appear in pro
 
 Task 14 is documentation-only and adds no Prisma migration. This rollup does not change runtime code or schema.
 
-## Verification Guidance
+## Verification Results
 
-Per the task instruction, full verification is left to the coordinator after this docs commit. The smallest check for this documentation update is:
+Final coordinator verification was run after this rollup and the follow-up test-stability commits.
 
-```bash
-git diff --check
-```
-
-Recommended coordinator gates:
+Passed:
 
 ```bash
+pnpm install --lockfile-only
 pnpm check
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm psf doctor
+git diff --check
+git status --short --branch
 ```
 
-Focused phase checks when validating the real-mode surfaces:
+`pnpm psf doctor` exited successfully with warning status because local `.env` and optional provider credentials are not configured. No token values were printed, and no real external APIs were called.
+
+Focused phase checks also passed while validating the real-mode surfaces:
 
 ```bash
 pnpm --filter @psf/integrations test
@@ -159,7 +161,6 @@ pnpm --filter @psf/hub test
 
 ## Remaining Manual Actions
 
-- Run final verification gates.
 - Configure real credentials only outside tracked files.
 - Decide which real action, if any, is approved for a later run.
 - Start Redis/API/Worker Runner in queued mode before accepting real-action route contracts.

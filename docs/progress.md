@@ -28,6 +28,7 @@ Detailed phase rollup: `docs/progress/phase-real-execution-and-integrations.md`.
 - `.env.example` now lists the phase real-mode variables and Orchestrator route gates with empty placeholders/comments for secrets.
 - This progress file and `docs/progress/phase-real-execution-and-integrations.md` summarize changed capabilities, safety boundaries, migrations, test commands, and remaining manual actions.
 - Real external APIs were not called during this documentation task.
+- Final verification passed after the documentation rollup and targeted test-stability commits.
 
 ## Changed Capability List
 
@@ -47,19 +48,24 @@ Default-safe capabilities remain local dry-runs, mock integration status/dry-run
 
 Task 14 is documentation-only and introduces no Prisma migration. The phase rollup does not change schema or runtime code.
 
-## Tests To Run
+## Verification Results
 
-Task 14 intentionally does not run full verification. The coordinator should run final gates for the phase. Recommended checks are:
+Final coordinator gates passed:
 
 ```bash
-git diff --check
+pnpm install --lockfile-only
 pnpm check
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm psf doctor
+git diff --check
+git status --short --branch
 ```
 
-Focused checks that match the changed documentation surface:
+`pnpm psf doctor` completed with warnings because `.env` and optional provider credentials are absent in this local checkout. That is expected for the safe default setup and did not enable any real external call.
+
+Focused checks that match the changed real-mode surfaces also passed:
 
 ```bash
 pnpm --filter @psf/integrations test
@@ -72,7 +78,6 @@ pnpm --filter @psf/hub test
 
 ## Remaining Manual Actions
 
-- Coordinator runs final verification gates after this docs commit.
 - Operator must provide real credentials only in local `.env` or secret storage, never in tracked docs.
 - Operator must explicitly approve and wire queued runtime, route gates, worker gates, injected runners/transports, and provider operation gates before any real external action.
 - Provider API behavior should remain behind fake transports in tests unless a later approved task intentionally performs real network validation.
