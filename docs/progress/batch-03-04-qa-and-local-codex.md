@@ -19,6 +19,13 @@
 - Artifact-writing Codex runner tests use a temporary cwd and clean it after assertions, so they do not leave package-local `workers/codex-worker/artifacts/` output.
 - Tests use local fake executables plus injected spawn where needed; no real `codex exec`, push, provider API, or network clone is performed.
 
+## Task 7 Orchestrator Codex Payload Context
+
+- `codex-real` queued preflight now requires an explicitly provided local repository mirror from the request body or `PSF_LOCAL_REPO_<project>` / uppercase env fallback; GitHub HTTPS/SSH passport URLs are blocked before enqueue.
+- Queued Codex payloads include Project Passport, mission files, AGENTS.md context, safe test/build-oriented command strings, local `repoUrl`, `defaultBranch`, `agent/*` branch name, workspace root, and approval record/grant IDs.
+- Branch names for real Codex are rejected when they target `main`, `master`, or anything outside `agent/`.
+- API responses and queued payload assertions cover secret-value redaction while preserving `realNetworkCall: false` and avoiding any real Codex execution, clone, push, or provider call.
+
 ## Verification
 
 ```bash
@@ -26,6 +33,8 @@ pnpm --filter @psf/worker-runner test
 pnpm --filter @psf/worker-runner typecheck
 pnpm --filter @psf/codex-worker test
 pnpm --filter @psf/codex-worker typecheck
+pnpm --filter @psf/orchestrator-api test
+pnpm --filter @psf/orchestrator-api typecheck
 ```
 
 The requested `pnpm --filter @psf/worker-runner test -- --runInBand` command is not accepted by this package's Vitest CLI because `--runInBand` is a Jest option.

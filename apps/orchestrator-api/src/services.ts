@@ -558,19 +558,19 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       });
     }
     if (action === "codex-real") {
+      const repoUrl = resolveCodexLocalRepoUrl(input, registryProject);
+      assertCodexLocalRepoUrlAvailable(mission, registryProject, repoUrl);
+      const branchName = resolveCodexBranchName(input, mission, registryProject);
+      assertCodexBranchNameAllowed(mission, branchName);
       return sanitizeApiResponse({
         passport: registryProject.passport,
         missionFiles,
-        repoUrl: input.repoUrl ?? registryProject.passport.repo.url,
+        projectAgents: await readProjectAgentsContext(registryProject.passportPath),
+        repoUrl,
         defaultBranch: registryProject.passport.repo.default_branch,
-        branchName: nonEmptyStringOrUndefined(input.branchName) ?? nonEmptyStringOrUndefined(mission.branch_name) ?? `agent/${mission.id}`,
-        workspaceRoot: nonEmptyStringOrUndefined(input.workspaceRoot) ?? nonEmptyStringOrUndefined(mission.workspace_path) ?? nonEmptyStringOrUndefined(project.local_path) ?? `./workspaces/${project.id}`,
-        commands: uniqueNonEmptyStrings([
-          ...normalizeCommandValues(registryProject.passport.commands.test),
-          ...normalizeCommandValues(registryProject.passport.commands.build),
-          ...normalizeCommandValues(registryProject.passport.commands.lint),
-          ...normalizeCommandValues(registryProject.passport.commands.e2e),
-        ]),
+        branchName,
+        workspaceRoot: resolveCodexWorkspaceRoot(input, registryProject),
+        commands: buildSafeCodexCommands(registryProject),
       });
     }
     return {};
@@ -614,6 +614,98 @@ Risk level: ${mission.risk_level}.
       registryProject.passport.urls.staging,
       registryProject.passport.urls.production,
     ].find(isNonEmptyString);
+  }
+
+  function resolveCodexLocalRepoUrl(input: z.infer<typeof RealActionRequestSchema>, registryProject: RegistryProject): string | undefined {
+    return [
+      input.repoUrl,
+      process.env[localRepoEnvName(registryProject.project.id)],
+      process.env[localRepoEnvName(registryProject.project.id).toUpperCase()],
+    ].find(isNonEmptyString);
+  }
+
+  function localRepoEnvName(projectId: string): string {
+    return `PSF_LOCAL_REPO_${projectId.replace(/[^A-Za-z0-9]+/g, "_")}`;
+  }
+
+  function assertCodexLocalRepoUrlAvailable(mission: Mission, registryProject: RegistryProject, repoUrl: string | undefined) {
+    if (repoUrl && isLocalRepoUrl(repoUrl)) {
+      return;
+    }
+    throw badRequest("MISSION_ACTION_PREFLIGHT_BLOCKED", "codex-real requires an explicitly provided local repository mirror; GitHub HTTPS/SSH remotes are not accepted as real Codex repoUrl values.", {
+      missionId: mission.id,
+      projectId: mission.project_id,
+      passportPath: registryProject.passportPath,
+      action: "codex-real",
+      missingLocalMirror: true,
+      recommendedNextAction: `Provide repoUrl in the request body, or set ${localRepoEnvName(registryProject.project.id)} to a local mirror path under operator control.`,
+    });
+  }
+
+  function isLocalRepoUrl(repoUrl: string): boolean {
+    return repoUrl.startsWith("file://") || !/^(?:[a-z][a-z0-9+.-]*:|[^@\s]+@[^:]+:)/i.test(repoUrl);
+  }
+
+  function resolveCodexBranchName(input: z.infer<typeof RealActionRequestSchema>, mission: Mission, registryProject: RegistryProject): string {
+    return nonEmptyStringOrUndefined(input.branchName)
+      ?? nonEmptyStringOrUndefined(mission.branch_name)
+      ?? `agent/${slugForCodexBranch(registryProject.project.id)}-${slugForCodexBranch(mission.id)}`;
+  }
+
+  function assertCodexBranchNameAllowed(mission: Mission, branchName: string) {
+    if (branchName === "main" || branchName === "master" || !branchName.startsWith("agent/")) {
+      throw badRequest("MISSION_ACTION_PREFLIGHT_BLOCKED", "codex-real branchName must be under agent/ and cannot be main or master.", {
+        missionId: mission.id,
+        projectId: mission.project_id,
+        action: "codex-real",
+        invalidBranchName: branchName,
+        recommendedNextAction: "Use a branch name such as agent/<project>-<mission> for real Codex work.",
+      });
+    }
+  }
+
+  function resolveCodexWorkspaceRoot(input: z.infer<typeof RealActionRequestSchema>, registryProject: RegistryProject): string {
+    return nonEmptyStringOrUndefined(input.workspaceRoot)
+      ?? nonEmptyStringOrUndefined(process.env.PSF_WORKSPACE_ROOT)
+      ?? `./workspaces/${registryProject.project.id}`;
+  }
+
+  async function readProjectAgentsContext(passportPath: string): Promise<string> {
+    const projectAgentsPath = join(dirname(passportPath), "AGENTS.md");
+    const rootAgentsPath = join(process.cwd(), "AGENTS.md");
+    for (const candidatePath of [projectAgentsPath, rootAgentsPath]) {
+      try {
+        return await readFile(candidatePath, "utf8");
+      } catch (error) {
+        if (isNodeError(error) && error.code === "ENOENT") {
+          continue;
+        }
+        throw badRequest("VALIDATION_ERROR", "Unable to read project AGENTS.md", { path: candidatePath, cause: errorMessage(error) });
+      }
+    }
+    return "# AGENTS.md\nNo project AGENTS.md content was found during Orchestrator preflight.\n";
+  }
+
+  function buildSafeCodexCommands(registryProject: RegistryProject): string[] {
+    const commands = uniqueNonEmptyStrings([
+      ...normalizeCommandValues(registryProject.passport.commands.test),
+      ...normalizeCommandValues(registryProject.passport.commands.build),
+      ...normalizeCommandValues(registryProject.passport.commands.lint),
+      ...normalizeCommandValues(registryProject.passport.commands.e2e),
+    ]).filter(isSafeCodexPayloadCommand);
+    return commands.length > 0 ? commands : ["pnpm test"];
+  }
+
+  function isSafeCodexPayloadCommand(command: string): boolean {
+    if (/\b(?:push|deploy|curl|wget|ssh|scp|rsync|coolify|uptime|plane|gh)\b/i.test(command)) {
+      return false;
+    }
+    return /^(?:pnpm (?:test|build|typecheck|check)|npm run (?:test|build|typecheck|check)|pytest(?: -q)?)$/.test(command);
+  }
+
+  function slugForCodexBranch(value: string): string {
+    const slug = value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+    return slug.length > 0 ? slug : "mission";
   }
 
   function normalizeCommandValues(value: unknown): string[] {
