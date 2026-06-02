@@ -28,7 +28,7 @@ import {
   type PlaneDryRunInput,
   type UptimeKumaDryRunInput,
 } from "@psf/integrations";
-import { RealCodexRunner, type CodexExecutionResult, type CodexRunner } from "@psf/codex-worker";
+import type { CodexExecutionResult, CodexExecutionStatus, CodexRunner } from "@psf/codex-worker";
 import {
   AiExploratoryQaRunner,
   runDeterministicPlaywrightQa,
@@ -48,6 +48,9 @@ export interface WorkerJobHandlerResult {
   childBugReportIds: string[];
   summary: string;
   recommendedNextAction: string;
+  status?: string;
+  manualActionRequired?: boolean;
+  reason?: string;
   childWorkerRuns?: WorkerRun[];
   childQARuns?: QAReport[];
   childArtifacts?: Artifact[];
@@ -58,6 +61,7 @@ export interface WorkerJobHandlerResult {
 export interface WorkerJobHandlerDependencies {
   codexRunner?: CodexRunner;
   deterministicQaExecute?: DeterministicQaInput["execute"];
+  deterministicQaRunner?: (input: DeterministicQaInput) => Promise<DeterministicQaResult>;
   aiExploratoryQaExecute?: AiExploratoryQaExecutor;
 }
 
@@ -87,8 +91,14 @@ export function createDefaultJobHandler(cwd = process.cwd(), deps: WorkerJobHand
         return toIntegrationHandlerResult(runIntegrationDryRun(resolveIntegrationName(job), buildIntegrationInput(job)));
       case "codex.real":
         return toCodexRealHandlerResult(await runCodexRealJob(cwd, job, deps));
-      case "qa.playwright":
-        return toDeterministicQaHandlerResult(await runDeterministicPlaywrightQa(buildDeterministicQaInput(job, deps)));
+      case "qa.playwright": {
+        const deterministicQaInput = buildDeterministicQaInput(job, deps);
+        if (!hasQueuedQaProjectContext(job.payload)) {
+          return toDeterministicQaHandlerResult(await runDeterministicPlaywrightQa(withFallbackQaProjectContext(deterministicQaInput)));
+        }
+        const deterministicQaRunner = deps.deterministicQaRunner ?? runDeterministicPlaywrightQa;
+        return toDeterministicQaHandlerResult(await deterministicQaRunner(deterministicQaInput));
+      }
       case "qa.ai_exploratory":
         return toAiExploratoryQaHandlerResult(await AiExploratoryQaRunner.real({
           env: buildAiExploratoryEnv(job),
@@ -109,8 +119,93 @@ export function createDefaultJobHandler(cwd = process.cwd(), deps: WorkerJobHand
 }
 
 async function runCodexRealJob(cwd: string, job: QueueWorkerJob, deps: WorkerJobHandlerDependencies): Promise<CodexExecutionResult> {
-  const runner = deps.codexRunner ?? new RealCodexRunner({ env: buildCodexEnv(job) });
-  return runner.run(buildCodexRealInput(cwd, job));
+  const preflightFailure = validateCodexRealQueuedJob(job);
+  if (preflightFailure) {
+    return buildCodexManualActionResult(job, preflightFailure.reason);
+  }
+  if (!deps.codexRunner) {
+    return buildCodexManualActionResult(job, "Worker Runner codex.real requires an injected Codex runner; real execution is not enabled in this phase.");
+  }
+  return deps.codexRunner.run(buildCodexRealInput(cwd, job));
+}
+
+function validateCodexRealQueuedJob(job: QueueWorkerJob): { reason: string } | undefined {
+  const repoUrl = stringValue(job.payload.repoUrl);
+  if (!repoUrl || !isLocalRepoUrl(repoUrl)) {
+    return { reason: "codex.real queued job requires local repoUrl as a local path or file:// URL; remote repository URLs are blocked at Worker Runner." };
+  }
+
+  const branchName = stringValue(job.payload.branchName) ?? `agent/${job.missionId}`;
+  if (!isSafeCodexBranchName(branchName)) {
+    return { reason: "codex.real branchName must be under agent/ and cannot be main or master." };
+  }
+
+  return undefined;
+}
+
+function buildCodexManualActionResult(job: QueueWorkerJob, reason: string): CodexExecutionResult {
+  const timestamp = job.createdAt;
+  const workerRunId = `worker-run-${job.missionId}-codex-worker-runner-manual-action`;
+  const workerRun: WorkerRun = {
+    id: workerRunId,
+    mission_id: job.missionId,
+    worker_type: "codex",
+    status: "skipped",
+    mode: "real",
+    input: {
+      missionId: job.missionId,
+      projectId: job.projectId,
+      mode: "real",
+      branchName: stringValue(job.payload.branchName) ?? `agent/${job.missionId}`,
+    },
+    output: {
+      executed: false,
+      status: "manual_action",
+      reason,
+    },
+    logs: [reason],
+    metadata: {
+      realNetworkCall: false,
+      pushed: false,
+      workerRunnerPreflight: true,
+    },
+    error: reason,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+  return {
+    status: "manual_action",
+    executed: false,
+    reason,
+    workerRun,
+    artifacts: [],
+    events: [buildCodexResultEvent(job, "manual_action", reason, workerRunId, timestamp)],
+    stdout: "",
+    stderr: "",
+  };
+}
+
+function buildCodexResultEvent(
+  job: QueueWorkerJob,
+  status: CodexExecutionStatus,
+  reason: string,
+  workerRunId: string,
+  timestamp: string,
+): MissionEvent {
+  return {
+    id: `event-${job.workerRunId}-codex-real-${status}-${job.id}`,
+    mission_id: job.missionId,
+    type: `codex.real.${status}`,
+    message: reason,
+    payload: {
+      workerRunId,
+      jobId: job.id,
+      jobType: job.type,
+      realNetworkCall: false,
+      pushed: false,
+    },
+    created_at: timestamp,
+  };
 }
 
 function buildWorkflowOptions(cwd: string, job: QueueWorkerJob) {
@@ -160,6 +255,9 @@ function toCodexRealHandlerResult(result: CodexExecutionResult): WorkerJobHandle
     childBugReportIds: [],
     summary: result.reason,
     recommendedNextAction: codexRecommendedNextAction(result),
+    status: result.status,
+    reason: result.reason,
+    ...(result.status === "blocked" || result.status === "manual_action" ? { manualActionRequired: true } : {}),
     childWorkerRuns: [result.workerRun],
     childArtifacts: result.artifacts,
     childEvents: result.events,
@@ -178,6 +276,9 @@ function toDeterministicQaHandlerResult(result: DeterministicQaResult): WorkerJo
       : result.status === "failed"
         ? "Inspect QA bugs and enqueue a fix job after reviewing evidence."
         : "Review deterministic QA artifacts and continue the Mission.",
+    status: result.status,
+    manualActionRequired: result.manualActionRequired,
+    reason: result.summary.logs[0] ?? result.qaRun.summary,
     childWorkerRuns: [result.workerRun],
     childQARuns: [result.qaRun],
     childArtifacts: result.artifacts,
@@ -198,6 +299,9 @@ function toAiExploratoryQaHandlerResult(result: AiExploratoryQaResult): WorkerJo
       : result.status === "failed"
         ? "Review AI exploratory findings and convert reproducible bugs into deterministic regressions."
         : "Review AI exploratory QA artifacts and continue the Mission.",
+    status: result.status,
+    manualActionRequired: result.manualActionRequired,
+    reason: result.summary.logs[0] ?? result.qaRun.summary,
     childWorkerRuns: [result.workerRun],
     childQARuns: [result.qaRun],
     childArtifacts: result.artifacts,
@@ -290,10 +394,13 @@ function buildCodexRealInput(cwd: string, job: QueueWorkerJob) {
   return {
     missionId: job.missionId,
     projectId: job.projectId,
-    repoUrl: stringValue(payload.repoUrl) ?? passport.repo.url,
+    repoUrl: stringValue(payload.repoUrl) as string,
     defaultBranch: stringValue(payload.defaultBranch) ?? passport.repo.default_branch,
     missionFiles: buildMissionFiles(job),
+    ...(safeRecord(payload.passport) ? { passport: safeRecord(payload.passport) as ProjectPassport } : {}),
+    ...(stringValue(payload.projectAgents) ? { projectAgents: stringValue(payload.projectAgents) } : {}),
     approvalIds: stringArray(payload.approvalIds),
+    approvalRecordIds: stringArray(payload.approvalRecordIds),
     commands: stringArray(payload.commands),
     branchName: stringValue(payload.branchName) ?? `agent/${job.missionId}`,
     workspaceRoot: stringValue(payload.workspaceRoot) ?? path.join(cwd, "workspaces", job.projectId),
@@ -304,12 +411,38 @@ function buildCodexRealInput(cwd: string, job: QueueWorkerJob) {
 
 function buildDeterministicQaInput(job: QueueWorkerJob, deps: WorkerJobHandlerDependencies): DeterministicQaInput {
   const targetUrl = stringValue(job.payload.targetUrl) ?? stringValue(job.payload.stagingUrl);
+  const passport = safeRecord(job.payload.passport);
+  const missionFiles = stringRecord(job.payload.missionFiles);
+  const qaCharter = stringValue(job.payload.qaCharter);
+  const e2eCommandMetadata = safeRecord(job.payload.e2eCommandMetadata);
   return {
     missionId: job.missionId,
     projectId: job.projectId,
     ...(targetUrl ? { targetUrl } : {}),
+    ...(passport ? { passport: passport as ProjectPassport } : {}),
+    ...(qaCharter ? { qaCharter } : {}),
+    ...(missionFiles ? { missionFiles } : {}),
+    ...(e2eCommandMetadata ? { e2eCommandMetadata } : {}),
     env: buildPlaywrightEnv(job),
     ...(deps.deterministicQaExecute ? { execute: deps.deterministicQaExecute } : {}),
+  };
+}
+
+function hasQueuedQaProjectContext(payload: Record<string, unknown>): boolean {
+  return safeRecord(payload.passport) !== undefined
+    || stringValue(payload.qaCharter) !== undefined
+    || stringRecord(payload.missionFiles) !== undefined;
+}
+
+function withFallbackQaProjectContext(input: DeterministicQaInput): DeterministicQaInput {
+  return {
+    ...input,
+    missionFiles: input.missionFiles ?? {
+      "mission.md": `# ${input.missionId}\n\nQueue QA job did not include project mission context.`,
+      "acceptance.md": "# Acceptance\n\n- Manual selector verification is required before deterministic QA can pass.",
+      "technical-notes.md": "# Technical Notes\n\n- Orchestrator must enqueue qa.playwright with passport, qaCharter, and missionFiles.",
+      "risk-notes.md": "# Risk Notes\n\n- Do not mark QA passed without project QA context and verified selectors.",
+    },
   };
 }
 
@@ -407,13 +540,6 @@ function buildPlaneRealInput(job: QueueWorkerJob): PlaneRealInput {
   };
 }
 
-function buildCodexEnv(job: QueueWorkerJob): Record<string, string | undefined> {
-  return {
-    ...process.env,
-    ENABLE_REAL_CODEX: job.payload.enableRealMode === true && process.env.ENABLE_REAL_CODEX === "1" ? "1" : "0",
-  };
-}
-
 function buildPlaywrightEnv(job: QueueWorkerJob): Record<string, string | undefined> {
   return {
     QA_TEST_URL: stringValue(job.payload.targetUrl) ?? process.env.QA_TEST_URL,
@@ -486,6 +612,14 @@ function buildVerificationCommands(payload: Record<string, unknown>) {
   };
 }
 
+function isLocalRepoUrl(repoUrl: string): boolean {
+  return repoUrl.startsWith("file://") || !/^(?:[a-z][a-z0-9+.-]*:|[^@\s]+@[^:]+:)/i.test(repoUrl);
+}
+
+function isSafeCodexBranchName(branchName: string): boolean {
+  return branchName.startsWith("agent/") && branchName !== "main" && branchName !== "master";
+}
+
 function safeRecord(value: unknown): Record<string, unknown> | undefined {
   return isRecord(value) ? value : undefined;
 }
@@ -496,6 +630,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function stringRecord(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const entries = Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string");
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function stringArray(value: unknown): string[] {

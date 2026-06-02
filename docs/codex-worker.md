@@ -108,6 +108,12 @@ When a gated real run executes an explicit executable, prompt, command, stdout, 
 
 Before workspace leasing, the runner blocks unsafe CLI policy and project commands. `CODEX_SANDBOX` is limited to `workspace-write` or `read-only`, and `CODEX_APPROVAL_MODE` is limited to `on-request`. Project commands are checked with the shared command policy before any worktree or agent branch is created, then checked again inside the leased workspace. Timed-out child processes receive `SIGTERM`, then `SIGKILL`, with a hard fallback so ignored termination does not hang the worker.
 
+## Queued Worker Runner Boundary
+
+Batch 03/04 Worker Runner `codex.real` jobs consume Orchestrator queued payloads only after preflight confirms a local `repoUrl` and an `agent/*` branch. The queued payload carries local mirror path, default branch, workspace root, Project Passport, Mission files, project `AGENTS.md`, safe commands, approval record IDs, and approval grant IDs.
+
+Task 8 does not make Worker Runner spawn real Codex by default. Without an explicitly injected Codex runner, the handler returns `manual_action` and records a safe wrapper/action-result summary. Injected runners are used for fixture proof and tests; they are not evidence that a real `codex exec`, AI provider call, push, PR, deployment, or external network operation occurred.
+
 ## Current Non-Goals
 
-This package still does not implement remote repository clone/update, arbitrary command execution from Hub/API, remote push, PR creation, production deployment, or external provider calls. Real mode is a gated local runner surface for approved operator-controlled execution only.
+This package still does not implement remote repository clone/update, arbitrary command execution from Hub/API, remote push, PR creation, production deployment, external provider calls, or default Worker Runner spawning of real Codex. Real mode is a gated local runner surface for approved operator-controlled execution only, and the Worker Runner integration remains injected-runner/manual-action until a later approved phase intentionally enables real execution.

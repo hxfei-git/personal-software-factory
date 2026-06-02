@@ -10,6 +10,7 @@ export {
 } from "./playwright-smoke.js";
 
 export {
+  buildDeterministicScenarios,
   runDeterministicPlaywrightQa,
   type DeterministicQaExecutionInput,
   type DeterministicQaExecutionResult,
@@ -17,6 +18,8 @@ export {
   type DeterministicQaInput,
   type DeterministicQaResult,
   type DeterministicQaStatus,
+  type DeterministicScenario,
+  type DeterministicScenarioId,
   type DeterministicQaSummary,
 } from "./deterministic.js";
 export {

@@ -3,8 +3,18 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildWorkerJob } from "@psf/worker-runtime";
-import { MissionStatus, type Artifact, type BugReport, type Mission, type MissionEvent, type WorkerRun } from "@psf/mission-schema";
+import {
+  MissionStatus,
+  type Artifact,
+  type BugReport,
+  type Mission,
+  type MissionEvent,
+  type ProjectPassport,
+  type WorkerRun,
+} from "@psf/mission-schema";
 import { createInMemoryMissionStorage } from "@psf/orchestrator-api/storage";
+import { runDeterministicPlaywrightQa, type DeterministicQaInput } from "@psf/qa-worker";
+import type { CodexExecutionRequest } from "@psf/codex-worker";
 import { createDefaultJobHandler } from "../src/handlers.js";
 import { processWorkerJob } from "../src/runner.js";
 
@@ -506,11 +516,302 @@ describe("worker runner", () => {
     });
   });
 
+  it("does not auto-transition qa.playwright blocked manual-action results", async () => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-qa-playwright-blocked", MissionStatus.qa_running)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-qa-playwright-blocked", "qa.playwright", "job-qa-playwright")],
+    });
+    const job = buildWorkerJob({
+      id: "job-qa-playwright",
+      missionId: "mission-qa-playwright-blocked",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "qa.playwright",
+      mode: "real",
+      payload: {},
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd()),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(wrapper.status).toBe("succeeded");
+    expect(wrapper.output).toMatchObject({
+      status: "blocked",
+      manualActionRequired: true,
+      summary: "No target_url, QA_TEST_URL, or STAGING_URL was configured.",
+    });
+    await expect(storage.getMission("mission-qa-playwright-blocked")).resolves.toMatchObject({ status: MissionStatus.qa_running });
+    const events = await storage.listMissionEvents("mission-qa-playwright-blocked");
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "mission.action_result",
+        payload: expect.objectContaining({
+          status: "blocked",
+          manualActionRequired: true,
+          summary: "No target_url, QA_TEST_URL, or STAGING_URL was configured.",
+        }),
+      }),
+    ]));
+    expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "mission.status.auto_transition" })]));
+  });
+
+  it("does not auto-transition qa.ai_exploratory blocked manual-action results", async () => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-qa-ai-blocked", MissionStatus.qa_running)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-qa-ai-blocked", "qa.ai_exploratory", "job-qa-ai")],
+    });
+    const job = buildWorkerJob({
+      id: "job-qa-ai",
+      missionId: "mission-qa-ai-blocked",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "qa.ai_exploratory",
+      mode: "real",
+      payload: { targetUrl: "https://example.test/app" },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd()),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(wrapper.status).toBe("succeeded");
+    expect(wrapper.output).toMatchObject({
+      status: "blocked",
+      manualActionRequired: true,
+    });
+    await expect(storage.getMission("mission-qa-ai-blocked")).resolves.toMatchObject({ status: MissionStatus.qa_running });
+    const events = await storage.listMissionEvents("mission-qa-ai-blocked");
+    expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "mission.status.auto_transition" })]));
+  }, 15_000);
+
+  it("keeps child event persistence idempotent when deterministic QA is retried", async () => {
+    const storage = createInMemoryMissionStorage({
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-qa-idempotent", "qa.playwright", "job-qa-idempotent")],
+    });
+    const seenEventIds = new Set<string>();
+    const originalAppend = storage.appendMissionEvent.bind(storage);
+    storage.appendMissionEvent = async (event) => {
+      if (seenEventIds.has(event.id)) {
+        throw new Error(`duplicate event ${event.id}`);
+      }
+      seenEventIds.add(event.id);
+      return originalAppend(event);
+    };
+    const job = buildWorkerJob({
+      id: "job-qa-idempotent",
+      missionId: "mission-qa-idempotent",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "qa.playwright",
+      mode: "real",
+      payload: {},
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd()),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+    const secondWrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd()),
+      now: sequenceNow(["2026-05-31T00:03:00.000Z", "2026-05-31T00:04:00.000Z"]),
+    });
+
+    expect(secondWrapper.status).toBe("succeeded");
+    expect(secondWrapper.output).toMatchObject({ status: "blocked", manualActionRequired: true });
+  });
+
+  it("passes project context to real deterministic QA and blocks unverified scenarios without executing browser", async () => {
+    let executeCalled = false;
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-qa-playwright-context-blocked", MissionStatus.qa_running)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-qa-playwright-context-blocked", "qa.playwright", "job-qa-playwright")],
+    });
+    const missionFiles = {
+      "mission.md": "# Mission\n\nReview the ai-novelist home flow.\n",
+      "acceptance.md": "# Acceptance\n\n- Report deterministic failures.\n",
+      "technical-notes.md": "# Technical Notes\n\nUse injected QA runner only.\n",
+      "risk-notes.md": "# Risk Notes\n\nNo network or real browser.\n",
+    };
+    const job = buildWorkerJob({
+      id: "job-qa-playwright",
+      missionId: "mission-qa-playwright-context-blocked",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "qa.playwright",
+      mode: "real",
+      payload: {
+        targetUrl: "https://example.test/app",
+        passport: projectPassport(),
+        qaCharter: "QA Charter: cover open_home without external calls.",
+        missionFiles,
+      },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        deterministicQaExecute: async () => {
+          executeCalled = true;
+          throw new Error("Injected Playwright executor should not run while selectors are unverified.");
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(executeCalled).toBe(false);
+    expect(wrapper.status).toBe("succeeded");
+    expect(wrapper.output).toMatchObject({
+      status: "blocked",
+      manualActionRequired: true,
+      childWorkerRunIds: ["worker-run-mission-qa-playwright-context-blocked-qa-deterministic"],
+      childQARunIds: ["qa-run-mission-qa-playwright-context-blocked-deterministic"],
+      childBugReportIds: [],
+    });
+    expect(String(wrapper.output.summary)).toContain("manual action required");
+    await expect(storage.getWorkerRun("worker-run-mission-qa-playwright-context-blocked-qa-deterministic")).resolves.toMatchObject({
+      status: "skipped",
+      mode: "dry-run",
+    });
+    await expect(storage.getMission("mission-qa-playwright-context-blocked")).resolves.toMatchObject({ status: MissionStatus.qa_running });
+    const events = await storage.listMissionEvents("mission-qa-playwright-context-blocked");
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "qa.completed", payload: expect.objectContaining({ status: "blocked", bugCount: 0 }) }),
+      expect.objectContaining({
+        type: "mission.action_result",
+        payload: expect.objectContaining({ status: "blocked", manualActionRequired: true }),
+      }),
+    ]));
+    expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "mission.status.auto_transition" })]));
+  });
+
+
+  it("persists qa.playwright child resources and passes enriched payload to deterministic QA", async () => {
+    let capturedInput: DeterministicQaInput | undefined;
+    const passport = projectPassport();
+    const missionFiles = {
+      "mission.md": "# Mission\n\nReview the ai-novelist home flow.\n",
+      "acceptance.md": "# Acceptance\n\n- Report deterministic failures.\n",
+      "technical-notes.md": "# Technical Notes\n\nUse injected QA runner only.\n",
+      "risk-notes.md": "# Risk Notes\n\nNo network or real browser.\n",
+    };
+    const e2eCommandMetadata = {
+      commands: ["pnpm test:e2e"],
+      executionPolicy: "review-only",
+    };
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-qa-playwright-resources", MissionStatus.qa_running)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-qa-playwright-resources", "qa.playwright", "job-qa-playwright")],
+    });
+    const job = buildWorkerJob({
+      id: "job-qa-playwright",
+      missionId: "mission-qa-playwright-resources",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "qa.playwright",
+      mode: "real",
+      payload: {
+        targetUrl: "https://example.test/app",
+        passport,
+        qaCharter: "QA Charter: cover open_home without external calls.",
+        missionFiles,
+        e2eCommandMetadata,
+      },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        deterministicQaRunner: async (input) => {
+          capturedInput = input;
+          return runDeterministicPlaywrightQa({
+            missionId: input.missionId,
+            projectId: input.projectId,
+            targetUrl: input.targetUrl ?? "",
+            now: "2026-05-31T00:01:30.000Z",
+            execute: async (executionInput) => ({
+              status: "failed",
+              passed: 0,
+              failed: 1,
+              logs: [`Injected deterministic QA visited ${executionInput.targetUrl}`],
+              browserOpened: false,
+              stagingVisited: true,
+              failures: [{
+                title: "Home flow did not render",
+                severity: "P1",
+                reproductionSteps: ["Open the target URL.", "Run the deterministic home flow."],
+                expectedResult: "The home flow renders.",
+                actualResult: "The home flow did not render.",
+                evidence: { scenarioId: "smoke_home", screenshotPath: executionInput.artifacts.screenshotsDir },
+              }],
+            }),
+          });
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(capturedInput).toMatchObject({
+      missionId: "mission-qa-playwright-resources",
+      projectId: "ai-novelist",
+      targetUrl: "https://example.test/app",
+      passport,
+      qaCharter: "QA Charter: cover open_home without external calls.",
+      missionFiles,
+      e2eCommandMetadata,
+    });
+    expect(wrapper.output).toMatchObject({
+      childWorkerRunIds: ["worker-run-mission-qa-playwright-resources-qa-deterministic"],
+      childQARunIds: ["qa-run-mission-qa-playwright-resources-deterministic"],
+      childBugReportIds: ["bug-mission-qa-playwright-resources-deterministic-1-home-flow-did-not-render"],
+    });
+    await expect(storage.getWorkerRun("worker-run-mission-qa-playwright-resources-qa-deterministic")).resolves.toMatchObject({
+      status: "failed",
+      worker_type: "qa",
+    });
+    await expect(storage.getQARun("qa-run-mission-qa-playwright-resources-deterministic")).resolves.toMatchObject({
+      status: "failed",
+      target_url: "https://example.test/app",
+    });
+    await expect(storage.getBug("bug-mission-qa-playwright-resources-deterministic-1-home-flow-did-not-render")).resolves.toMatchObject({
+      status: "open",
+      title: "Home flow did not render",
+    });
+    expect((await storage.listMissionArtifacts("mission-qa-playwright-resources")).map((artifact) => artifact.type)).toEqual(
+      expect.arrayContaining(["qa_report", "bugs_json", "screenshot", "playwright_trace", "log"]),
+    );
+    await expect(storage.getMission("mission-qa-playwright-resources")).resolves.toMatchObject({ status: MissionStatus.bugs_found });
+    expect(await storage.listMissionEvents("mission-qa-playwright-resources")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "qa.completed" }),
+      expect.objectContaining({
+        type: "mission.status.auto_transition",
+        payload: expect.objectContaining({ from: MissionStatus.qa_running, to: MissionStatus.bugs_found }),
+      }),
+    ]));
+  });
+
 
   it.each([
     {
       type: "codex.real" as const,
-      payload: {},
+      payload: { repoUrl: "/tmp/ai-novelist.git", branchName: "agent/mission-real" },
       expectedSummary: "Mock codex real handler completed.",
       deps: {
         codexRunner: {
@@ -532,7 +833,7 @@ describe("worker runner", () => {
     {
       type: "qa.playwright" as const,
       payload: { targetUrl: "https://example.test/app" },
-      expectedSummary: "Deterministic QA passed through injected runner.",
+      expectedSummary: "manual action required",
       deps: {
         deterministicQaExecute: async () => ({
           status: "passed" as const,
@@ -650,7 +951,403 @@ describe("worker runner", () => {
     );
   }, 15_000);
 
+  it("persists codex.real child resources and records wrapper status and reason", async () => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-real", MissionStatus.fixing)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const childRun = workerRun("worker-run-mission-real-codex", "codex", "failed", "real");
+    const childArtifact = artifact("artifact-mission-codex-dev-summary", childRun.id, "dev_summary");
+    const childEvent = event("codex.real.failed");
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload: { repoUrl: "/tmp/ai-novelist.git", branchName: "agent/mission-real" },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        codexRunner: {
+          run: async () => ({
+            status: "failed",
+            executed: false,
+            reason: "Codex runner failed safely.",
+            workerRun: childRun,
+            artifacts: [childArtifact],
+            events: [childEvent],
+            stdout: "",
+            stderr: "safe failure",
+          }),
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(wrapper.output).toMatchObject({
+      childWorkerRunIds: [childRun.id],
+      childArtifactIds: [childArtifact.id],
+      summary: "Codex runner failed safely.",
+      recommendedNextAction: "Inspect Codex worker stderr and artifacts before retrying.",
+      status: "failed",
+      reason: "Codex runner failed safely.",
+    });
+    await expect(storage.getWorkerRun(childRun.id)).resolves.toMatchObject({ id: childRun.id, worker_type: "codex" });
+    await expect(storage.getArtifact(childArtifact.id)).resolves.toMatchObject({ id: childArtifact.id, worker_run_id: childRun.id });
+    expect(await storage.listMissionEvents("mission-real")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "codex.real.failed" }),
+      expect.objectContaining({
+        type: "mission.action_result",
+        payload: expect.objectContaining({
+          childWorkerRunIds: [childRun.id],
+          childArtifactIds: [childArtifact.id],
+          status: "failed",
+          reason: "Codex runner failed safely.",
+        }),
+      }),
+    ]));
+  });
+
+  it("passes enriched codex.real payload through to the injected Codex runner", async () => {
+    let capturedInput: CodexExecutionRequest | undefined;
+    const storage = createInMemoryMissionStorage({
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const missionFiles = {
+      "mission.md": "# Mission\n\nImplement the change.\n",
+      "acceptance.md": "# Acceptance\n\n- Tests pass.\n",
+      "technical-notes.md": "# Technical Notes\n\nUse existing adapters.\n",
+      "risk-notes.md": "# Risk Notes\n\nNo push.\n",
+    };
+    const payload = {
+      passport: projectPassport(),
+      missionFiles,
+      projectAgents: "Follow AGENTS.md and do not expose secrets.",
+      repoUrl: "/tmp/ai-novelist.git",
+      defaultBranch: "trunk",
+      branchName: "agent/mission-real",
+      workspaceRoot: "/tmp/psf-workspaces",
+      commands: ["pnpm --filter ai-novelist test"],
+      approvalIds: ["approval-real-codex"],
+      approvalRecordIds: ["approval-record-real-codex"],
+    };
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload,
+      timeoutMs: 123_456,
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        codexRunner: {
+          run: async (input) => {
+            capturedInput = input;
+            return codexResult("succeeded", "Codex runner completed safely.");
+          },
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(capturedInput).toMatchObject({
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      mode: "real",
+      passport: payload.passport,
+      missionFiles,
+      projectAgents: payload.projectAgents,
+      repoUrl: payload.repoUrl,
+      defaultBranch: payload.defaultBranch,
+      branchName: payload.branchName,
+      workspaceRoot: payload.workspaceRoot,
+      commands: payload.commands,
+      approvalIds: payload.approvalIds,
+      approvalRecordIds: payload.approvalRecordIds,
+      timeoutMs: 123_456,
+    });
+  });
+
+  it.each([
+    [{ passport: projectPassport() }, "missing local repoUrl"],
+    [{ repoUrl: "https://github.com/example/ai-novelist.git" }, "remote repoUrl"],
+    [{ repoUrl: "git@github.com:example/ai-novelist.git" }, "scp-style remote repoUrl"],
+  ])("blocks codex.real %s before calling injected runner", async (payload, _label) => {
+    let runnerCalls = 0;
+    const storage = createInMemoryMissionStorage({
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload,
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        codexRunner: {
+          run: async () => {
+            runnerCalls += 1;
+            return codexResult("succeeded", "Should not run.");
+          },
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(runnerCalls).toBe(0);
+    expect(wrapper.output).toMatchObject({
+      status: "manual_action",
+      manualActionRequired: true,
+    });
+    expect(String(wrapper.output.reason)).toContain("codex.real queued job requires local repoUrl");
+  });
+
+  it.each(["main", "master", "feature/mission-real"])("blocks unsafe codex.real branch %s before calling injected runner", async (branchName) => {
+    let runnerCalls = 0;
+    const storage = createInMemoryMissionStorage({
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload: { repoUrl: "/tmp/ai-novelist.git", branchName },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        codexRunner: {
+          run: async () => {
+            runnerCalls += 1;
+            return codexResult("succeeded", "Should not run.");
+          },
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(runnerCalls).toBe(0);
+    expect(wrapper.output).toMatchObject({
+      status: "manual_action",
+      manualActionRequired: true,
+    });
+    expect(String(wrapper.output.reason)).toContain("codex.real branchName must be under agent/");
+  });
+
+  it("returns manual_action for codex.real default handler when no injected Codex runner is configured", async () => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-real", MissionStatus.fixing)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload: { repoUrl: "/tmp/ai-novelist.git", branchName: "agent/mission-real" },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd()),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(wrapper.output).toMatchObject({
+      status: "manual_action",
+      manualActionRequired: true,
+    });
+    expect(String(wrapper.output.reason)).toContain("requires an injected Codex runner");
+    await expect(storage.getMission("mission-real")).resolves.toMatchObject({ status: MissionStatus.fixing });
+  });
+
+  it("fails the wrapper when codex.real child event persistence fails", async () => {
+    const storage = createInMemoryMissionStorage({
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const originalAppendMissionEvent = storage.appendMissionEvent.bind(storage);
+    storage.appendMissionEvent = async (missionEvent) => {
+      if (missionEvent.type === "codex.real.succeeded") {
+        throw new Error("append child event failed");
+      }
+      return originalAppendMissionEvent(missionEvent);
+    };
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload: { repoUrl: "/tmp/ai-novelist.git", branchName: "agent/mission-real" },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    await expect(processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        codexRunner: { run: async () => codexResult("succeeded", "Codex runner completed safely.") },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z", "2026-05-31T00:03:00.000Z"]),
+    })).rejects.toThrow("append child event failed");
+
+    await expect(storage.getWorkerRun("worker-run-wrapper")).resolves.toMatchObject({
+      status: "failed",
+      error: "append child event failed",
+    });
+  });
+
+  it.each([
+    ["blocked" as const, "Codex gates blocked execution."],
+    ["manual_action" as const, "Manual action is required before Codex can run."],
+  ])("does not advance Mission to success states when codex.real returns %s", async (status, reason) => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-real", MissionStatus.fixing)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload: { repoUrl: "/tmp/ai-novelist.git", branchName: "agent/mission-real" },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        codexRunner: { run: async () => codexResult(status, reason) },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(wrapper.output).toMatchObject({ status, reason, summary: reason });
+    await expect(storage.getMission("mission-real")).resolves.toMatchObject({ status: MissionStatus.fixing });
+    expect(await storage.listMissionEvents("mission-real")).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "mission.status.auto_transition",
+        payload: expect.objectContaining({ to: MissionStatus.ready_for_review }),
+      }),
+      expect.objectContaining({
+        type: "mission.status.auto_transition",
+        payload: expect.objectContaining({ to: "released" }),
+      }),
+    ]));
+  });
+
+  it("redacts secrets from codex.real wrapper output, action result, artifacts, and events", async () => {
+    const storage = createInMemoryMissionStorage({
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const secretText = "token=raw-token password=raw-password apiKey=raw-api-key";
+    const unsafeWorkerRun = {
+      ...workerRun("worker-run-mission-real-codex", "codex", "failed", "real"),
+      output: { reason: secretText },
+      error: secretText,
+      logs: [secretText],
+    };
+    const unsafeArtifact = {
+      ...artifact("artifact-mission-codex-secret", unsafeWorkerRun.id, "dev_summary"),
+      content: secretText,
+      metadata: { token: "raw-token" },
+    };
+    const unsafeEvent = {
+      ...event("codex.real.failed"),
+      message: secretText,
+      payload: { password: "raw-password", nested: { apiKey: "raw-api-key" } },
+    };
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload: { repoUrl: "/tmp/ai-novelist.git", branchName: "agent/mission-real" },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        codexRunner: {
+          run: async () => ({
+            status: "failed",
+            executed: false,
+            reason: secretText,
+            workerRun: unsafeWorkerRun,
+            artifacts: [unsafeArtifact],
+            events: [unsafeEvent],
+            stdout: secretText,
+            stderr: secretText,
+          }),
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    const persistedJson = JSON.stringify({
+      wrapper: await storage.getWorkerRun("worker-run-wrapper"),
+      child: await storage.getWorkerRun(unsafeWorkerRun.id),
+      artifact: await storage.getArtifact(unsafeArtifact.id),
+      events: await storage.listMissionEvents("mission-real"),
+    });
+    expect(persistedJson).not.toMatch(/raw-token|raw-password|raw-api-key/);
+    expect(persistedJson).not.toMatch(/token=raw|password=raw|apiKey=raw/i);
+    expect(persistedJson).toContain("[REDACTED]");
+  });
+
 });
+
+function codexResult(status: "blocked" | "manual_action" | "succeeded" | "failed", reason: string) {
+  return {
+    status,
+    executed: false,
+    reason,
+    workerRun: workerRun("worker-run-mission-real-codex", "codex", status === "succeeded" ? "succeeded" : status === "failed" ? "failed" : "skipped", "real"),
+    artifacts: [artifact("artifact-mission-codex-dev-summary", "worker-run-mission-real-codex", "dev_summary")],
+    events: [event(`codex.real.${status}`)],
+    stdout: "",
+    stderr: "",
+  };
+}
 
 async function createDemoCwd(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "psf-worker-runner-"));
@@ -755,5 +1452,37 @@ function bug(id: string): BugReport {
     source: "qa-worker",
     created_at: "2026-05-31T00:00:00.000Z",
     updated_at: "2026-05-31T00:00:00.000Z",
+  };
+}
+
+function projectPassport(): ProjectPassport {
+  return {
+    id: "ai-novelist",
+    name: "AI Novelist",
+    description: "Deterministic QA fixture passport.",
+    repo: {
+      url: "https://example.invalid/ai-novelist.git",
+      default_branch: "main",
+    },
+    runtime: { kind: "web" },
+    commands: {
+      install: "pnpm install --lockfile-only",
+      test: "pnpm test",
+      build: "pnpm build",
+      run_staging: "pnpm dev",
+      e2e: ["pnpm test:e2e"],
+    },
+    urls: {
+      production: "",
+      local: "http://127.0.0.1:5173",
+      staging: "https://example.test/app",
+    },
+    quality_gates: {
+      require_build: true,
+      require_unit_tests: true,
+      require_e2e_tests: true,
+      require_pr_review: true,
+    },
+    core_flows: [{ id: "open_home", name: "Open home", priority: "P1" }],
   };
 }

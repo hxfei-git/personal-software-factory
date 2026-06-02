@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import type { Approval, Artifact, BugReport, WorkerRun } from "../api/types";
 import type { LoadState } from "../App";
+import { isSensitiveKey, redactDisplayValue, redactJsonForDisplay } from "../displaySafety";
 
 export function renderBugsView({ state, selectedId }: { state: LoadState<BugReport[]>; selectedId?: string | undefined }): ReactElement {
   return renderResourceView({
@@ -42,7 +43,7 @@ export function renderWorkerRunsView({ state, selectedId }: { state: LoadState<W
       <article className="record-row" key={run.id}>
         <div>
           <h2>{run.id}</h2>
-          <p>{run.error ?? run.command ?? run.worker_type}</p>
+          <p>{run.error ? redactDisplayValue(run.error) : run.command ? redactDisplayValue(run.command) : run.worker_type}</p>
           <div className="record-meta">
             <span>{run.mission_id}</span>
             <span>{run.worker_type}</span>
@@ -66,22 +67,27 @@ export function renderArtifactsView({ state, selectedId }: { state: LoadState<Ar
     state,
     selectedId,
     renderDetail: renderArtifactDetail,
-    renderItem: (artifact) => (
-      <article className="record-row" key={artifact.id}>
-        <div>
-          <h2>{artifact.type}</h2>
-          <p>{artifact.id}</p>
-          <code className="resource-code">{artifact.path}</code>
-          <div className="record-meta">
-            <span>{artifact.mission_id}</span>
-            <span>{artifact.size} bytes</span>
-            {artifact.mime_type ? <span>{artifact.mime_type}</span> : null}
+    renderItem: (artifact) => {
+      const metadata = jsonRecordOrEmpty(artifact.metadata);
+      const artifactName = readString(metadata, "name") ?? artifact.id;
+      return (
+        <article className="record-row" key={artifact.id}>
+          <div>
+            <h2>{artifact.type}</h2>
+            <p>name {artifactName}</p>
+            <code className="resource-code">{redactDisplayValue(artifact.path)}</code>
+            <div className="record-meta">
+              <span>{artifact.mission_id}</span>
+              <span>{artifact.size} bytes</span>
+              {artifact.mime_type ? <span>{artifact.mime_type}</span> : null}
+            </div>
+            {renderMetadata(metadata)}
+            <a className="inline-link" href={`#artifacts?id=${encodeURIComponent(artifact.id)}`}>Open detail</a>
           </div>
-          <a className="inline-link" href={`#artifacts?id=${encodeURIComponent(artifact.id)}`}>Open detail</a>
-        </div>
-        <span className="status-pill">artifact</span>
-      </article>
-    ),
+          <span className="status-pill">artifact</span>
+        </article>
+      );
+    },
   });
 }
 
@@ -232,26 +238,30 @@ function renderWorkerRunDetail(run: WorkerRun | undefined, selectedId: string): 
         <dt>mode</dt><dd>{run.mode ?? "unknown"}</dd>
         <dt>jobId</dt><dd>{readString(run.metadata, "jobId") ?? readString(run.output, "jobId") ?? "none"}</dd>
         <dt>jobType</dt><dd>{readString(run.metadata, "jobType") ?? readString(run.output, "jobType") ?? "none"}</dd>
-        <dt>error</dt><dd>{run.error ?? "none"}</dd>
+        <dt>error</dt><dd>{run.error ? redactDisplayValue(run.error) : "none"}</dd>
       </dl>
-      <pre>{JSON.stringify(run.output, null, 2)}</pre>
+      <pre>{JSON.stringify(redactJsonForDisplay(run.output), null, 2)}</pre>
     </section>
   );
 }
 
 function renderArtifactDetail(artifact: Artifact | undefined, selectedId: string): ReactElement {
   if (!artifact) return renderMissingDetail("Artifact detail", selectedId);
+  const metadata = jsonRecordOrEmpty(artifact.metadata);
+  const artifactName = readString(metadata, "name") ?? artifact.id;
   return (
     <section className="panel detail-panel" aria-label="Artifact detail">
       <div className="panel-heading"><h2>Artifact detail</h2><span>{artifact.type}</span></div>
       <dl className="definition-grid">
         <dt>id</dt><dd>{artifact.id}</dd>
         <dt>mission</dt><dd>{artifact.mission_id}</dd>
-        <dt>path</dt><dd>{artifact.path}</dd>
+        <dt>type</dt><dd>{artifact.type}</dd>
+        <dt>name</dt><dd>{artifactName}</dd>
+        <dt>path</dt><dd>{redactDisplayValue(artifact.path)}</dd>
         <dt>mime_type</dt><dd>{artifact.mime_type ?? "none"}</dd>
         <dt>size</dt><dd>{artifact.size} bytes</dd>
       </dl>
-      {artifact.content ? <pre>{artifact.content}</pre> : <p className="empty-line">No inline content; inspect artifact path from the shared workspace.</p>}
+      {renderMetadata(metadata)}
     </section>
   );
 }
@@ -287,9 +297,30 @@ function itemId(item: unknown): string | undefined {
     : undefined;
 }
 
+function jsonRecordOrEmpty(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
 function readString(record: Record<string, unknown>, key: string): string | undefined {
+  if (isSensitiveKey(key)) return undefined;
   const value = record[key];
-  return typeof value === "string" ? value : undefined;
+  return typeof value === "string" ? redactDisplayValue(value) : undefined;
+}
+
+function renderMetadata(metadata: Record<string, unknown>): ReactElement | null {
+  const rows = Object.entries(metadata)
+    .filter(([key]) => !isSensitiveKey(key))
+    .flatMap(([key, value]) => {
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        return ["metadata " + key + " " + redactDisplayValue(String(value))];
+      }
+      if (Array.isArray(value)) {
+        const values = value.filter((item): item is string => typeof item === "string");
+        return values.length > 0 ? ["metadata " + key + " " + values.map(redactDisplayValue).join(", ")] : [];
+      }
+      return [];
+    });
+  return rows.length > 0 ? <>{rows.map((row) => <span key={row}>{row}</span>)}</> : null;
 }
 
 function renderListStatus(title: string, message: string, tone: "neutral" | "error" = "neutral"): ReactElement {

@@ -344,6 +344,25 @@ describe("integration dry-run adapters", () => {
     expect(text).not.toContain("plain-key");
   });
 
+  it("scrubs complete Authorization bearer assignment values in user supplied text", () => {
+    const result = runGitHubDryRun({
+      env: {},
+      now: fixedNow,
+      mission: {
+        ...missionInput,
+        missionSummary: "Authorization: Bearer raw-bearer-secret\nauthorization=Bearer raw-equals-secret",
+      },
+    });
+
+    const text = textOf(result);
+
+    expect(text).toContain("Authorization: [REDACTED]");
+    expect(text).toContain("authorization=[REDACTED]");
+    expect(text).not.toContain("raw-bearer-secret");
+    expect(text).not.toContain("raw-equals-secret");
+    expect(text).not.toContain("Bearer raw");
+  });
+
   it("scrubs secret-like bug evidence fields and keeps an evidence summary on Plane bug issues", () => {
     const result = runPlaneDryRun({
       env: {},

@@ -7,7 +7,7 @@ import { MissionStatus, projectExample, projectPassportExample } from "@psf/miss
 import { createDeterministicMissionPlan } from "@psf/mission-planner";
 import { buildWorkerJob, InProcessWorkerRuntime, type QueuedJobRecord, type QueueStats, type QueueWorkerJob, type WorkerRuntime } from "@psf/worker-runtime";
 import type { ApiAuthOptions } from "../src/auth.js";
-import type { ActionExecutionMode } from "../src/actions.js";
+import { buildQueuedRealActionJob, type ActionExecutionMode } from "../src/actions.js";
 import { buildServer } from "../src/server.js";
 import { createInMemoryMissionStorage } from "../src/storage.js";
 
@@ -172,8 +172,8 @@ describe("orchestrator api", () => {
       "quality_gates:",
       "  require_build: true",
       "core_flows:",
-      "  - id: review_chapter",
-      "    name: 自动审稿",
+      "  - id: open_home",
+      "    name: 打开首页",
       "    priority: P0",
       "",
     ].join("\n"));
@@ -202,12 +202,13 @@ describe("orchestrator api", () => {
       "  run_staging: pnpm dev",
       "urls:",
       "  production: \"\"",
+      "  local: \"\"",
       "  staging: \"\"",
       "quality_gates:",
       "  require_build: true",
       "core_flows:",
-      "  - id: review_chapter",
-      "    name: 自动审稿",
+      "  - id: open_home",
+      "    name: 打开首页",
       "    priority: P0",
       "",
     ].join("\n"));
@@ -858,6 +859,187 @@ describe("orchestrator api", () => {
     }
   });
 
+  it("queues qa-playwright with Project Passport, QA charter, targetUrl, mission files, and e2e command metadata", async () => {
+    const registryRoot = await createAiNovelistRegistryRoot();
+    const injectedSecret = "qa-playwright-api-secret-value";
+    try {
+      await withEnv({
+        PSF_ACTION_EXECUTION_MODE: "queued",
+        PSF_ENABLE_REAL_QA_PLAYWRIGHT: "true",
+        PSF_API_TOKEN: injectedSecret,
+      }, async () => {
+        const workerRuntime = new InProcessWorkerRuntime();
+        const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime, registryRoot });
+        await seedDemoMission(storage);
+
+        const response = await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/actions/qa-playwright`,
+          payload: { targetUrl: "http://127.0.0.1:8999/app" },
+        });
+
+        expect(response.statusCode).toBe(202);
+        const jobs = await workerRuntime.listJobs();
+        expect(jobs).toHaveLength(1);
+        expect(jobs[0]?.job).toMatchObject({
+          missionId: EXAMPLE_MISSION_ID,
+          projectId: "ai-novelist",
+          type: "qa.playwright",
+          mode: "real",
+          payload: expect.objectContaining({
+            enableRealMode: true,
+            targetUrl: "http://127.0.0.1:8999/app",
+            qaCharter: expect.stringContaining("QA Charter"),
+            passport: expect.objectContaining({
+              id: "ai-novelist",
+              core_flows: expect.arrayContaining([expect.objectContaining({ id: "open_home" })]),
+            }),
+            missionFiles: expect.objectContaining({
+              "mission.md": expect.stringContaining("Mission"),
+              "acceptance.md": expect.stringContaining("Acceptance"),
+              "technical-notes.md": expect.any(String),
+              "risk-notes.md": expect.any(String),
+            }),
+            e2eCommandMetadata: expect.objectContaining({
+              commands: expect.any(Array),
+              executionPolicy: "review-only",
+            }),
+          }),
+        });
+        expect(JSON.stringify(response.json())).not.toContain(injectedSecret);
+        expect(JSON.stringify(jobs[0]?.job.payload)).not.toContain(injectedSecret);
+      });
+    } finally {
+      await rm(registryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("blocks qa-playwright preflight when request and passport target URLs are absent", async () => {
+    const registryRoot = await createAiNovelistRegistryRootWithoutQaTarget();
+    try {
+      await withEnv({ PSF_ACTION_EXECUTION_MODE: "queued", PSF_ENABLE_REAL_QA_PLAYWRIGHT: "true" }, async () => {
+        const workerRuntime = new InProcessWorkerRuntime();
+        const { server } = await createTestServer({ auth: { disabled: true }, workerRuntime, registryRoot });
+        const mission = await createMission(server, "QA missing target URL");
+
+        const response = await server.inject({
+          method: "POST",
+          url: `/missions/${mission.id}/actions/qa-playwright`,
+          payload: {},
+        });
+
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toMatchObject({
+          code: "MISSION_ACTION_PREFLIGHT_BLOCKED",
+          details: expect.objectContaining({ action: "qa-playwright", missingTargetUrl: true }),
+        });
+        expect(response.json().message).toContain("target URL");
+      });
+    } finally {
+      await rm(registryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("queues codex-real with safe local Codex project context and approval records", async () => {
+    const registryRoot = await createAiNovelistRegistryRoot();
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "psf-codex-workspaces-"));
+    const localMirror = join(workspaceRoot, "mirrors", "ai-novelist.git");
+    await mkdir(localMirror, { recursive: true });
+    try {
+      await withEnv({
+        PSF_ACTION_EXECUTION_MODE: "queued",
+        PSF_ENABLE_REAL_CODEX: "true",
+        PSF_API_TOKEN: "codex-real-secret-token",
+      }, async () => {
+        const workerRuntime = new InProcessWorkerRuntime();
+        const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime, registryRoot });
+        await seedDemoMission(storage);
+        const approval = await createApprovedApproval(server, EXAMPLE_MISSION_ID, "SECURITY_RISK");
+
+        const response = await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/actions/codex-real`,
+          payload: {
+            approvalId: approval.id,
+            repoUrl: localMirror,
+            branchName: "agent/ai-novelist-task-7",
+            workspaceRoot,
+          },
+        });
+
+        expect(response.statusCode).toBe(202);
+        const jobs = await workerRuntime.listJobs();
+        expect(jobs).toHaveLength(1);
+        const payload = jobs[0]?.job.payload;
+        expect(payload).toMatchObject({
+          enableRealMode: true,
+          repoUrl: localMirror,
+          defaultBranch: "main",
+          branchName: "agent/ai-novelist-task-7",
+          workspaceRoot,
+          approvalRecordIds: [approval.id],
+          approvalIds: ["real_codex_execution"],
+          requestedApprovalId: approval.id,
+          passport: expect.objectContaining({
+            id: "ai-novelist",
+            repo: expect.objectContaining({ url: "https://github.com/hxfei-git/ai-novelist.git" }),
+          }),
+          missionFiles: expect.objectContaining({
+            "mission.md": expect.stringContaining("Mission"),
+            "acceptance.md": expect.stringContaining("Acceptance"),
+            "technical-notes.md": expect.any(String),
+            "risk-notes.md": expect.any(String),
+          }),
+          projectAgents: expect.stringContaining("AGENTS"),
+          commands: expect.arrayContaining(["pnpm test", "pnpm build"]),
+        });
+        expect(String(payload?.branchName)).toMatch(/^agent\//);
+        expect(payload?.repoUrl).not.toMatch(/^https:\/\/github\.com\//);
+        expect(JSON.stringify(payload)).not.toMatch(/codex-real-secret-token|password|api[_-]?key/i);
+        expect(JSON.stringify(response.json())).not.toMatch(/codex-real-secret-token|password|api[_-]?key/i);
+      });
+    } finally {
+      await rm(registryRoot, { recursive: true, force: true });
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("blocks codex-real preflight instead of using a GitHub HTTPS repo URL when no local mirror is provided", async () => {
+    const registryRoot = await createAiNovelistRegistryRoot();
+    try {
+      await withEnv({
+        PSF_ACTION_EXECUTION_MODE: "queued",
+        PSF_ENABLE_REAL_CODEX: "true",
+        PSF_LOCAL_REPO_ai_novelist: undefined,
+        PSF_LOCAL_REPO_AI_NOVELIST: undefined,
+      }, async () => {
+        const workerRuntime = new InProcessWorkerRuntime();
+        const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime, registryRoot });
+        await seedDemoMission(storage);
+        const approval = await createApprovedApproval(server, EXAMPLE_MISSION_ID, "SECURITY_RISK");
+
+        const response = await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/actions/codex-real`,
+          payload: { approvalId: approval.id },
+        });
+
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toMatchObject({
+          code: "MISSION_ACTION_PREFLIGHT_BLOCKED",
+          details: expect.objectContaining({
+            action: "codex-real",
+            missingLocalMirror: true,
+          }),
+        });
+        expect(response.json().message).toContain("local repository mirror");
+        expect(await workerRuntime.listJobs()).toHaveLength(0);
+      });
+    } finally {
+      await rm(registryRoot, { recursive: true, force: true });
+    }
+  });
+
   it("queues mission qa dry-run action without executing child workflow resources", async () => {
     const workerRuntime = new InProcessWorkerRuntime();
     const { server, storage } = await createTestServer({
@@ -1022,40 +1204,76 @@ describe("orchestrator api", () => {
     });
   });
 
-  it("queues gated real actions when matching mission approvals are approved", async () => {
-    await withEnv({ PSF_ACTION_EXECUTION_MODE: "queued", PSF_ENABLE_REAL_CODEX: "true" }, async () => {
-      const workerRuntime = new InProcessWorkerRuntime();
-      const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime });
-      await seedDemoMission(storage);
-      const approval = await createApprovedApproval(server, EXAMPLE_MISSION_ID, "SECURITY_RISK");
-
-      const response = await server.inject({
-        method: "POST",
-        url: `/missions/${EXAMPLE_MISSION_ID}/actions/codex-real`,
-        payload: { approvalId: approval.id },
-      });
-
-      expect(response.statusCode).toBe(202);
-      expect(response.json()).toMatchObject({
-        accepted: true,
-        executionMode: "queued",
-        missionId: EXAMPLE_MISSION_ID,
-        projectId: "ai-novelist",
-        status: "queued",
-        jobType: "codex.real",
-        realEnabled: true,
-        realNetworkCall: false,
-      });
-      expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(1);
-      const jobs = await workerRuntime.listJobs();
-      expect(jobs).toHaveLength(1);
-      expect(jobs[0]?.job.payload).toMatchObject({
-        enableRealMode: true,
-        approvalRecordIds: [approval.id],
-        approvalIds: ["real_codex_execution"],
-        requestedApprovalId: approval.id,
-      });
+  it("protects real action reserved payload fields from queued context", () => {
+    const job = buildQueuedRealActionJob({
+      action: "codex-real",
+      missionId: EXAMPLE_MISSION_ID,
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-reserved-context",
+      body: { approvalId: "approval-approved" },
+      context: {
+        enableRealMode: false,
+        approvalIds: ["bad"],
+        approvalRecordIds: ["bad"],
+        requestedApprovalId: "bad",
+        missionFiles: { "mission.md": "# Mission" },
+      },
+      approvalRecordIds: ["approval-approved"],
+      approvalGrantIds: ["real_codex_execution"],
     });
+
+    expect(job.payload).toMatchObject({
+      enableRealMode: true,
+      approvalRecordIds: ["approval-approved"],
+      approvalIds: ["real_codex_execution"],
+      requestedApprovalId: "approval-approved",
+      missionFiles: { "mission.md": "# Mission" },
+    });
+  });
+
+  it("queues gated real actions when matching mission approvals are approved", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "psf-codex-workspaces-"));
+    const localMirror = join(workspaceRoot, "mirrors", "ai-novelist.git");
+    await mkdir(localMirror, { recursive: true });
+    try {
+      await withEnv({ PSF_ACTION_EXECUTION_MODE: "queued", PSF_ENABLE_REAL_CODEX: "true" }, async () => {
+        const workerRuntime = new InProcessWorkerRuntime();
+        const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime });
+        await seedDemoMission(storage);
+        const approval = await createApprovedApproval(server, EXAMPLE_MISSION_ID, "SECURITY_RISK");
+
+        const response = await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/actions/codex-real`,
+          payload: { approvalId: approval.id, repoUrl: localMirror, workspaceRoot },
+        });
+
+        expect(response.statusCode).toBe(202);
+        expect(response.json()).toMatchObject({
+          accepted: true,
+          executionMode: "queued",
+          missionId: EXAMPLE_MISSION_ID,
+          projectId: "ai-novelist",
+          status: "queued",
+          jobType: "codex.real",
+          realEnabled: true,
+          realNetworkCall: false,
+        });
+        expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(1);
+        const jobs = await workerRuntime.listJobs();
+        expect(jobs).toHaveLength(1);
+        expect(jobs[0]?.job.payload).toMatchObject({
+          enableRealMode: true,
+          repoUrl: localMirror,
+          workspaceRoot,
+          approvalRecordIds: [approval.id],
+          approvalIds: ["real_codex_execution"],
+          requestedApprovalId: approval.id,
+        });
+      });
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it("queues only whitelisted gated real action jobs when queued mode and route gates are enabled", async () => {
@@ -1069,10 +1287,18 @@ describe("orchestrator api", () => {
           approvals.push(await createApprovedApproval(server, EXAMPLE_MISSION_ID, type));
         }
 
+        const codexWorkspaceRoot = route.path === "codex-real" ? await mkdtemp(join(tmpdir(), "psf-codex-workspaces-")) : "";
+        const codexLocalMirror = codexWorkspaceRoot === "" ? "" : join(codexWorkspaceRoot, "mirrors", "ai-novelist.git");
+        if (codexLocalMirror !== "") {
+          await mkdir(codexLocalMirror, { recursive: true });
+        }
         const response = await server.inject({
           method: "POST",
           url: `/missions/${EXAMPLE_MISSION_ID}/actions/${route.path}`,
-          payload: { approvalId: approvals[0]?.id ?? "approval-real-mode" },
+          payload: {
+            approvalId: approvals[0]?.id ?? "approval-real-mode",
+            ...(route.path === "codex-real" ? { repoUrl: codexLocalMirror, workspaceRoot: codexWorkspaceRoot } : {}),
+          },
         });
 
         expect(response.statusCode).toBe(202);
@@ -1119,6 +1345,7 @@ describe("orchestrator api", () => {
             mode: "real",
             payload: {
               enableRealMode: true,
+              ...(route.path === "codex-real" ? { repoUrl: codexLocalMirror, workspaceRoot: codexWorkspaceRoot } : {}),
               approvalRecordIds: approvals.map((approval) => approval.id),
               approvalIds: route.path === "codex-real" || route.path === "fix-real"
                 ? ["real_codex_execution"]
@@ -1131,6 +1358,9 @@ describe("orchestrator api", () => {
             },
           },
         });
+        if (codexWorkspaceRoot !== "") {
+          await rm(codexWorkspaceRoot, { recursive: true, force: true });
+        }
       });
     }
   });

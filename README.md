@@ -19,7 +19,7 @@ Implemented:
 - `packages/worker-runtime`: in-process and optional BullMQ queue facade for dry-run action jobs.
 - `apps/orchestrator-api`: Fastify API with health, dashboard, project sync/passport, Mission creation/planning/summary, Approval, WorkerRun, Artifact, BugReport, QARun, Integration routes, global Hub resource list routes, and protected real-action contract routes that require queued mode plus route-specific `PSF_ENABLE_REAL_*` gates.
 - `apps/hub`: React/Vite Hub Web console for dashboard, API-backed project, Mission, bug, WorkerRun, artifact, and approval resource pages, Mission creation at `/missions/new`, Mission detail, queue status, Integration status, approval decision recording, and gated real-action visibility.
-- `apps/worker-runner`: BullMQ Worker Runner that consumes whitelisted dry-run jobs and gated real-mode contract jobs, then updates queue wrapper WorkerRuns and child run references.
+- `apps/worker-runner`: BullMQ Worker Runner that consumes whitelisted dry-run jobs and gated real-mode contract jobs, then updates queue wrapper WorkerRuns and child run references. Batch 03/04 `codex.real` remains manual-action unless an injected runner is supplied.
 - `workers/codex-worker`: dry-run prompt, command review artifact, dev summary generator, and gated real Codex runner. Real execution is disabled by default and requires `ENABLE_REAL_CODEX=1`, an explicit absolute `CODEX_EXECUTABLE`, workspace guards, safe Codex CLI policy, runtime limits, approvals, and queue/runtime wiring.
 - `workers/qa-worker`: deterministic Playwright QA runner and AI exploratory QA abstraction. Real browser execution requires a target URL plus `ENABLE_REAL_PLAYWRIGHT=1` or an injected runner; AI exploratory QA stays manual-action/dry-run unless `ENABLE_AI_EXPLORATORY_QA=1` and an approved executor path are wired.
 - `scripts/psf.ts`: local dry-run CLI for registry sync, example Mission creation, planning, Codex/QA/fix dry-run artifacts, Integration dry-runs, doctor, demo reset, and demo report.
@@ -27,14 +27,14 @@ Implemented:
 Real but disabled/gated:
 
 - Codex real runner, deterministic Playwright QA, AI exploratory QA abstraction, real fix-loop contract, GitHub/Coolify/Uptime Kuma/Plane real adapters via injected transport, and Worker Runner real job handlers are present as code paths or contracts.
-- They require explicit environment gates, credentials or target URLs where relevant, queue-backed runtime wiring, approval/policy gates, safe workspace configuration, and injected runners/transports before they can do real work.
+- They require explicit environment gates, credentials or target URLs where relevant, queue-backed runtime wiring, approval/policy gates, safe workspace configuration, local mirrors for Codex, and injected runners/transports before they can do real work. Worker Runner does not spawn real Codex by default in Batch 03/04.
 - Orchestrator real-action routes require `PSF_ACTION_EXECUTION_MODE=queued` and the route-specific gate, such as `PSF_ENABLE_REAL_CODEX=true` or `PSF_ENABLE_REAL_GITHUB_PR=true`, before a gated contract job is accepted.
 
 Default safe behavior:
 
 - Local CLI examples, demo workflow, integration status/dry-runs, Hub buttons, and normal tests remain dry-run/mock/manual-action oriented.
 - External integrations do not call GitHub, Coolify, Uptime Kuma, or Plane by default. Setting `ENABLE_REAL_GITHUB=1`, `ENABLE_REAL_COOLIFY=1`, `ENABLE_REAL_UPTIME_KUMA=1`, or `ENABLE_REAL_PLANE=1` only makes real mode eligible; it still needs runtime wiring, operation gates, credentials, and an injected transport.
-- Real push, PR creation, deployment, monitor creation, Plane issue sync, production changes, and arbitrary command execution remain off unless a later approved run deliberately enables the full gate chain.
+- Real Codex spawn, real AI provider calls, real push, PR creation, deployment, monitor creation, Plane issue sync, production changes, and arbitrary command execution remain off unless a later approved run deliberately enables the full gate chain.
 
 ## Run The Local MVP Demo
 
@@ -55,7 +55,7 @@ VITE_ORCHESTRATOR_API_URL=http://127.0.0.1:3000 pnpm dev:hub
 
 Run `pnpm dev:api` and `pnpm dev:hub` in separate terminals. Open `http://127.0.0.1:5173` to inspect the dashboard, API-backed resource pages, `/missions/new` Mission creation, Mission detail, protected dry-run buttons, approval decisions, and gated real-action readiness states. The dashboard still links the fixed demo Mission as a shortcut, but normal navigation no longer falls back to it.
 
-The default MVP flow does not execute Codex, push, create PRs, deploy, create monitors, create Plane issues, or call external services.
+The default MVP flow does not execute Codex, call a real AI provider, push, create PRs, deploy, create monitors, create Plane issues, or call external services.
 
 Useful follow-up commands:
 

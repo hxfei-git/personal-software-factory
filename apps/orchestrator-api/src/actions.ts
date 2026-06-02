@@ -28,6 +28,10 @@ export const DemoActionRequestSchema = z.object({
 
 export const RealActionRequestSchema = z.object({
   approvalId: z.string().min(1).optional(),
+  targetUrl: z.string().url().optional(),
+  repoUrl: z.string().min(1).optional(),
+  branchName: z.string().min(1).optional(),
+  workspaceRoot: z.string().min(1).optional(),
 }).strict();
 
 const queuedActionKinds = new Set<QueuedActionKind>(["plan", "codex", "qa", "fix", "loop", "demo"]);
@@ -68,6 +72,7 @@ export interface BuildQueuedRealActionJobInput {
   projectId: string;
   workerRunId: string;
   body: unknown;
+  context?: Record<string, unknown>;
   approvalRecordIds?: string[];
   approvalGrantIds?: string[];
 }
@@ -150,9 +155,20 @@ export function buildQueuedRealActionJob(input: BuildQueuedRealActionJobInput): 
   const bodyRecord = input.body && typeof input.body === "object" && !Array.isArray(input.body)
     ? input.body as Record<string, unknown>
     : {};
-  const parsedBody = parseActionRequest(RealActionRequestSchema, { approvalId: bodyRecord.approvalId });
+  const parsedBody = parseActionRequest(RealActionRequestSchema, {
+    approvalId: bodyRecord.approvalId,
+    targetUrl: bodyRecord.targetUrl,
+    repoUrl: bodyRecord.repoUrl,
+    branchName: bodyRecord.branchName,
+    workspaceRoot: bodyRecord.workspaceRoot,
+  });
   const contract = gatedRealActionContracts[input.action];
   const payload = {
+    ...(input.context ?? {}),
+    ...(parsedBody.targetUrl ? { targetUrl: parsedBody.targetUrl } : {}),
+    ...(parsedBody.repoUrl ? { repoUrl: parsedBody.repoUrl } : {}),
+    ...(parsedBody.branchName ? { branchName: parsedBody.branchName } : {}),
+    ...(parsedBody.workspaceRoot ? { workspaceRoot: parsedBody.workspaceRoot } : {}),
     enableRealMode: true,
     approvalRecordIds: input.approvalRecordIds ?? [],
     approvalIds: input.approvalGrantIds ?? [],

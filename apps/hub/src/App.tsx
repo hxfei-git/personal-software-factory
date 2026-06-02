@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactElement } from "react";
 import { createOrchestratorClient, type OrchestratorClient } from "./api/client";
+import { isSensitiveKey, redactDisplayValue } from "./displaySafety";
 import { renderMissionCreationView, renderMissionsView, renderMissionSelectionRequiredView, type MissionCreationField, type MissionCreationSubmitState } from "./views/missions";
 import { renderProjectsView } from "./views/projects";
 import { renderApprovalsView, renderArtifactsView, renderBugsView, renderWorkerRunsView } from "./views/resources";
@@ -851,15 +852,22 @@ function renderBugList(title: string, bugs: BugReport[]): ReactElement {
   return (
     <section className="panel">
       <div className="panel-heading"><h2>{title}</h2></div>
-      {bugs.length === 0 ? <p className="empty-line">No bugs reported</p> : bugs.map((bug) => (
-        <div className="list-row" key={bug.id}>
-          <div>
-            <strong>{bug.title}</strong>
-            <span>{bug.id}</span>
+      {bugs.length === 0 ? <p className="empty-line">No bugs reported</p> : bugs.map((bug) => {
+        const evidence = jsonRecordOrEmpty(bug.evidence);
+        return (
+          <div className="list-row" key={bug.id}>
+            <div>
+              <strong>{bug.title}</strong>
+              <span>{bug.id}</span>
+              {renderNamedString(evidence, "screenshotPath")}
+              {renderNamedString(evidence, "tracePath")}
+              {renderNamedString(evidence, "logPath")}
+              {renderNamedString(evidence, "scenarioId")}
+            </div>
+            <span>{bug.severity} / {bug.status}</span>
           </div>
-          <span>{bug.severity} / {bug.status}</span>
-        </div>
-      ))}
+        );
+      })}
     </section>
   );
 }
@@ -875,6 +883,9 @@ function renderWorkerRunList(title: string, workerRuns: WorkerRun[]): ReactEleme
         const jobId = readString(metadata, "jobId") ?? readString(output, "jobId");
         const jobType = readString(metadata, "jobType") ?? readString(output, "jobType");
         const childWorkerRunIds = readStringArray(output, "childWorkerRunIds");
+        const childQARunIds = readStringArray(output, "childQARunIds");
+        const childArtifactIds = readStringArray(output, "childArtifactIds");
+        const childBugReportIds = readStringArray(output, "childBugReportIds");
         return (
           <div className={queueWrapper ? "list-row worker-run-row queue-wrapper" : "list-row worker-run-row"} key={run.id}>
             <div>
@@ -882,8 +893,14 @@ function renderWorkerRunList(title: string, workerRuns: WorkerRun[]): ReactEleme
               <span>{queueWrapper ? "Queue wrapper" : "Child WorkerRun"} / {run.worker_type} / {run.mode ?? "unknown"}</span>
               {jobId ? <span>jobId {jobId}</span> : null}
               {jobType ? <span>jobType {jobType}</span> : null}
+              {renderNamedString(output, "status", "output status")}
+              {renderNamedBoolean(output, "manualActionRequired")}
+              {renderNamedString(output, "reason")}
               {childWorkerRunIds.length > 0 ? <span>Child WorkerRuns {childWorkerRunIds.join(", ")}</span> : null}
-              {run.error ? <span className="error-summary">{run.error}</span> : null}
+              {childQARunIds.length > 0 ? <span>Child QARuns {childQARunIds.join(", ")}</span> : null}
+              {childArtifactIds.length > 0 ? <span>Child Artifacts {childArtifactIds.join(", ")}</span> : null}
+              {childBugReportIds.length > 0 ? <span>Child Bugs {childBugReportIds.join(", ")}</span> : null}
+              {run.error ? <span className="error-summary">{redactDisplayValue(run.error)}</span> : null}
             </div>
             <span>{run.status}</span>
           </div>
@@ -914,14 +931,18 @@ function renderArtifactList(title: string, artifacts: Artifact[]): ReactElement 
   return (
     <section className="panel">
       <div className="panel-heading"><h2>{title}</h2></div>
-      {artifacts.length === 0 ? <p className="empty-line">No artifacts yet</p> : artifacts.map((artifact) => (
-        <div className="artifact-block" key={artifact.id}>
-          <strong>{artifact.type}</strong>
-          <span>{artifact.id}</span>
-          <code>{artifact.path}</code>
-          {artifact.content ? <pre>{artifact.content}</pre> : null}
-        </div>
-      ))}
+      {artifacts.length === 0 ? <p className="empty-line">No artifacts yet</p> : artifacts.map((artifact) => {
+        const metadata = jsonRecordOrEmpty(artifact.metadata);
+        const artifactName = readString(metadata, "name") ?? artifact.id;
+        return (
+          <div className="artifact-block" key={artifact.id}>
+            <strong>{artifact.type}</strong>
+            <span>name {artifactName}</span>
+            <code>{redactDisplayValue(artifact.path)}</code>
+            {renderMetadata(metadata)}
+          </div>
+        );
+      })}
     </section>
   );
 }
@@ -941,7 +962,7 @@ function renderArtifactHighlights(data: MissionSummaryResponse): ReactElement {
         <div className="list-row" key={label}>
           <div>
             <strong>{label}</strong>
-            <span>{artifact?.path ?? "missing"}</span>
+            <span>{artifact?.path ? redactDisplayValue(artifact.path) : "missing"}</span>
           </div>
           <span>{artifact?.id ?? "none"}</span>
         </div>
@@ -1027,7 +1048,7 @@ function renderExternalVisibility(data: MissionSummaryResponse): ReactElement {
         <div className="list-row" key={label}>
           <div>
             <strong>{label}</strong>
-            <span>{value ?? "missing"}</span>
+            <span>{value ? redactDisplayValue(value) : "missing"}</span>
           </div>
         </div>
       ))}
@@ -1038,7 +1059,7 @@ function renderExternalVisibility(data: MissionSummaryResponse): ReactElement {
         <div className="subsection-block">
           <strong>Artifact retention</strong>
           {data.artifactRetention.map((entry) => (
-            <span key={entry.artifactId}>{entry.type} / {entry.retentionClass ?? "unclassified"} / {entry.retentionPath ?? entry.path} / missing {String(entry.missing ?? false)}</span>
+            <span key={entry.artifactId}>{entry.type} / {entry.retentionClass ?? "unclassified"} / {redactDisplayValue(entry.retentionPath ?? entry.path)} / missing {String(entry.missing ?? false)}</span>
           ))}
         </div>
       ) : <p className="empty-line">No artifact retention metadata</p>}
@@ -1052,7 +1073,7 @@ function renderExternalStatusRow(title: string, status: MissionSummaryResponse["
       <div>
         <strong>{title}</strong>
         <span>{status?.status ?? "missing"}</span>
-        {status?.url ? <span>{status.url}</span> : null}
+        {status?.url ? <span>{redactDisplayValue(status.url)}</span> : null}
       </div>
       <span>{status?.workerRunId ?? "none"}</span>
     </div>
@@ -1071,7 +1092,14 @@ function renderWorkerRunDetail(workerRuns: WorkerRun[]): ReactElement {
             <span>{run.worker_type} / {run.status} / {run.mode ?? "unknown"}</span>
             {readString(output, "summary") ? <span>{readString(output, "summary")}</span> : null}
             {readString(output, "githubPrUrl") ? <span>{readString(output, "githubPrUrl")}</span> : null}
-            {run.logs.length > 0 ? <pre>{run.logs.slice(0, 4).join("\n")}</pre> : null}
+            {renderNamedString(output, "status", "output status")}
+            {renderNamedBoolean(output, "manualActionRequired")}
+            {renderNamedString(output, "reason")}
+            {renderNamedStringArray(output, "childWorkerRunIds", "Child WorkerRuns")}
+            {renderNamedStringArray(output, "childQARunIds", "Child QARuns")}
+            {renderNamedStringArray(output, "childArtifactIds", "Child Artifacts")}
+            {renderNamedStringArray(output, "childBugReportIds", "Child Bugs")}
+            {run.logs.length > 0 ? <pre>{run.logs.slice(0, 4).map(redactDisplayValue).join("\n")}</pre> : null}
           </div>
         );
       })}
@@ -1089,10 +1117,12 @@ function renderQaRunDetail(qaRuns: QAReport[]): ReactElement {
             <strong>{run.id}</strong>
             <span>{run.mode} / {run.status} / passed {run.passed ?? 0} / failed {run.failed ?? 0}</span>
             <span>{run.summary}</span>
-            {run.report_path ? <span>{run.report_path}</span> : null}
-            {run.trace_path ? <span>{run.trace_path}</span> : null}
+            {run.report_path ? <span>{redactDisplayValue(run.report_path)}</span> : null}
+            {run.screenshots_dir ? <span>{redactDisplayValue(run.screenshots_dir)}</span> : null}
+            {run.trace_path ? <span>{redactDisplayValue(run.trace_path)}</span> : null}
+            {run.bugs_json_path ? <span>{redactDisplayValue(run.bugs_json_path)}</span> : null}
           </div>
-          <span>{run.target_url || run.staging_url || "no target"}</span>
+          <span>{run.target_url ? redactDisplayValue(run.target_url) : run.staging_url ? redactDisplayValue(run.staging_url) : "no target"}</span>
         </div>
       ))}
     </section>
@@ -1109,8 +1139,8 @@ function renderArtifactDetail(data: MissionSummaryResponse): ReactElement {
           <div className="artifact-block" key={artifact.id}>
             <strong>{artifact.id}</strong>
             <span>{artifact.type} / {artifact.size} bytes</span>
-            <code>{artifact.path}</code>
-            {readString(metadata, "retentionClass") ? <span>retention {readString(metadata, "retentionClass")}</span> : null}
+            <code>{redactDisplayValue(artifact.path)}</code>
+            {renderMetadata(metadata)}
           </div>
         );
       })}
@@ -1171,14 +1201,54 @@ function jsonRecordOrEmpty(value: unknown): Record<string, unknown> {
 }
 
 function readString(record: Record<string, unknown>, key: string): string | undefined {
+  if (isSensitiveKey(key)) return undefined;
   const value = record[key];
-  return typeof value === "string" ? value : undefined;
+  return typeof value === "string" ? redactDisplayValue(value) : undefined;
 }
 
 function readStringArray(record: Record<string, unknown>, key: string): string[] {
+  if (isSensitiveKey(key)) return [];
   const value = record[key];
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map(redactDisplayValue) : [];
 }
+
+function readBoolean(record: Record<string, unknown>, key: string): boolean | undefined {
+  if (isSensitiveKey(key)) return undefined;
+  const value = record[key];
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function renderNamedString(record: Record<string, unknown>, key: string, label = key): ReactElement | null {
+  const value = readString(record, key);
+  return value ? <span>{label + " " + value}</span> : null;
+}
+
+function renderNamedBoolean(record: Record<string, unknown>, key: string, label = key): ReactElement | null {
+  const value = readBoolean(record, key);
+  return value === undefined ? null : <span>{label + " " + String(value)}</span>;
+}
+
+function renderNamedStringArray(record: Record<string, unknown>, key: string, label = key): ReactElement | null {
+  const values = readStringArray(record, key);
+  return values.length > 0 ? <span>{label + " " + values.join(", ")}</span> : null;
+}
+
+function renderMetadata(metadata: Record<string, unknown>): ReactElement | null {
+  const rows = Object.entries(metadata)
+    .filter(([key]) => !isSensitiveKey(key))
+    .flatMap(([key, value]) => {
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        return ["metadata " + key + " " + redactDisplayValue(String(value))];
+      }
+      if (Array.isArray(value)) {
+        const values = value.filter((item): item is string => typeof item === "string");
+        return values.length > 0 ? ["metadata " + key + " " + values.map(redactDisplayValue).join(", ")] : [];
+      }
+      return [];
+    });
+  return rows.length > 0 ? <>{rows.map((row) => <span key={row}>{row}</span>)}</> : null;
+}
+
 
 function queueWarningMessage(error: unknown): string {
   return safeQueueMessage(errorMessage(error, "GET /queues/status failed"));

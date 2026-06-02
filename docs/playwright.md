@@ -33,7 +33,7 @@ Gates:
 - `ENABLE_REAL_PLAYWRIGHT=1` is required for the built-in real browser path.
 - Tests can pass an injected `execute` function to simulate pass/fail fixture runs without browser binaries.
 
-No URL returns a blocked/manual-action result and exits through normal test assertions without failing the test process. A failing deterministic assertion creates `bugs.json` and a schema-valid `BugReport` with reproduction steps, expected result, actual result, and redacted evidence.
+No URL, an invalid URL, or an unverified selector returns a blocked/manual-action result and exits through normal test assertions without failing the test process. The runner must not mark those cases `passed` unless an injected or gated real Playwright runner actually verifies the scenario. A failing deterministic assertion creates `bugs.json` and a schema-valid `BugReport` with reproduction steps, expected result, actual result, and redacted evidence. Evidence can carry path-only `screenshotPath`, `tracePath`, `logPath`, and `scenarioId` values; large binary artifacts are not inlined.
 
 The optional smoke command remains:
 

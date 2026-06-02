@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -42,6 +42,14 @@ function gitOutput(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 }
 
+function gitMaybeOutput(cwd: string, args: string[]): string {
+  try {
+    return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return "";
+  }
+}
+
 async function createTempGitRepo(name = "repo", root?: string): Promise<string> {
   const repoRoot = root ?? await mkdtemp(path.join(os.tmpdir(), "psf-codex-worker-"));
   const repo = path.join(repoRoot, name);
@@ -62,6 +70,23 @@ async function createWorkspaceMirrorRepo(workspaceRoot: string, name = "repo"): 
   const mirrorRoot = path.join(workspaceRoot, "mirrors");
   await mkdir(mirrorRoot, { recursive: true });
   return createTempGitRepo(name, mirrorRoot);
+}
+
+async function createWorkspaceMirrorRepoWithBareOrigin(workspaceRoot: string): Promise<{ repo: string; remote: string }> {
+  const mirrorRoot = path.join(workspaceRoot, "mirrors");
+  await mkdir(mirrorRoot, { recursive: true });
+  const repo = await createTempGitRepo("repo", mirrorRoot);
+  const remote = path.join(await mkdtemp(path.join(os.tmpdir(), "psf-codex-remote-")), "origin.git");
+
+  git(path.dirname(remote), ["init", "--bare", remote]);
+  git(repo, ["remote", "set-url", "origin", remote]);
+  git(repo, ["push", "origin", "main"]);
+
+  return { repo, remote };
+}
+
+function gitRemoteRefs(remote: string): string {
+  return gitMaybeOutput(remote, ["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads"]);
 }
 
 async function createFakeCodexExecutable(exitCode: 0 | 1): Promise<string> {
@@ -118,21 +143,15 @@ function realRequest(overrides: Partial<Parameters<typeof CodexExecutionRequestS
   });
 }
 
-function monorepoRoot(): string {
-  const cwd = process.cwd();
-  if (path.basename(cwd) === "codex-worker" && path.basename(path.dirname(cwd)) === "workers") {
-    return path.resolve(cwd, "../..");
-  }
-  return cwd;
-}
-
-async function runFromMonorepoRoot<T>(callback: () => Promise<T>): Promise<T> {
+async function runWithTempArtifactCwd<T>(callback: () => Promise<T>): Promise<T> {
   const originalCwd = process.cwd();
-  process.chdir(monorepoRoot());
+  const tempCwd = await mkdtemp(path.join(os.tmpdir(), "psf-codex-artifacts-"));
+  process.chdir(tempCwd);
   try {
     return await callback();
   } finally {
     process.chdir(originalCwd);
+    await rm(tempCwd, { recursive: true, force: true });
   }
 }
 
@@ -252,6 +271,52 @@ describe("real Codex runner gated mode", () => {
     expect(spawned).toBe(false);
   });
 
+  it("returns a blocked result before spawning when approval is missing", async () => {
+    const executable = await createFakeCodexExecutable(0);
+    let spawned = false;
+    const runner = new RealCodexRunner({
+      env: {
+        ENABLE_REAL_CODEX: "1",
+        CODEX_EXECUTABLE: executable,
+        PSF_WORKSPACE_ROOT: path.join(os.tmpdir(), "psf-workspaces"),
+        PSF_REAL_CODEX_MAX_RUNTIME_MS: "10000",
+      },
+      spawnCodex: async () => {
+        spawned = true;
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(runner.run(realRequest({ approvalIds: [] }))).resolves.toMatchObject({
+      status: "blocked",
+      executed: false,
+      reason: expect.stringMatching(/approval/i),
+    });
+    expect(spawned).toBe(false);
+  });
+
+  it("returns manual_action before spawning when CODEX_EXECUTABLE is missing", async () => {
+    let spawned = false;
+    const runner = new RealCodexRunner({
+      env: {
+        ENABLE_REAL_CODEX: "1",
+        PSF_WORKSPACE_ROOT: path.join(os.tmpdir(), "psf-workspaces"),
+        PSF_REAL_CODEX_MAX_RUNTIME_MS: "10000",
+      },
+      spawnCodex: async () => {
+        spawned = true;
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(runner.run(realRequest())).resolves.toMatchObject({
+      status: "manual_action",
+      executed: false,
+      reason: expect.stringMatching(/CODEX_EXECUTABLE/),
+    });
+    expect(spawned).toBe(false);
+  });
+
   it("leases a git worktree under PSF_WORKSPACE_ROOT using an agent branch", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
     const repo = await createWorkspaceMirrorRepo(root);
@@ -351,7 +416,7 @@ describe("real Codex runner gated mode", () => {
       },
     });
 
-    await runFromMonorepoRoot(async () => {
+    await runWithTempArtifactCwd(async () => {
       const result = await runner.run(realRequest({
         repoUrl: repo,
         workspaceRoot,
@@ -396,7 +461,7 @@ describe("real Codex runner gated mode", () => {
       },
     });
 
-    await runFromMonorepoRoot(async () => {
+    await runWithTempArtifactCwd(async () => {
       const result = await runner.run(realRequest({
         repoUrl: repo,
         workspaceRoot,
@@ -445,11 +510,11 @@ describe("real Codex runner gated mode", () => {
       },
     });
 
-    const result = await runner.run(realRequest({
+    const result = await runWithTempArtifactCwd(() => runner.run(realRequest({
       repoUrl: repo,
       workspaceRoot,
       branchName: "agent/ai-novelist-env-allowlist",
-    }));
+    })));
 
     expect(result.status).toBe("succeeded");
     expect(childEnv).toBeDefined();
@@ -461,6 +526,116 @@ describe("real Codex runner gated mode", () => {
     expect(JSON.stringify(childEnv)).not.toContain("api-token-must-not-reach-child");
     expect(JSON.stringify(childEnv)).not.toContain("db-secret");
     expect(JSON.stringify(childEnv)).not.toContain("github-token-must-not-reach-child");
+  });
+
+  it("proves gated local fixture execution stays on a local agent worktree and writes redacted artifacts", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const { repo, remote } = await createWorkspaceMirrorRepoWithBareOrigin(workspaceRoot);
+    const mainHeadBefore = gitOutput(repo, ["rev-parse", "main"]);
+    const mainReadmeBefore = await readFile(path.join(repo, "README.md"), "utf8");
+    const remoteRefsBefore = gitRemoteRefs(remote);
+    const remoteMainBefore = gitOutput(remote, ["rev-parse", "refs/heads/main"]);
+    const branchName = "agent/ai-novelist-fixture-proof";
+    const rawToken = "fixture-token-value";
+    const rawPassword = "fixture-password-value";
+    const rawApiKey = "fixture-api-key-value";
+    const executable = await createFakeCodexExecutable(0);
+    let spawnCwd = "";
+    let spawnArgs: string[] = [];
+    let spawnEnv: Record<string, string | undefined> = {};
+
+    const runner = new RealCodexRunner({
+      env: {
+        ENABLE_REAL_CODEX: "1",
+        CODEX_EXECUTABLE: executable,
+        CODEX_SANDBOX: "workspace-write",
+        CODEX_APPROVAL_MODE: "on-request",
+        PSF_WORKSPACE_ROOT: workspaceRoot,
+        PSF_REAL_CODEX_MAX_RUNTIME_MS: "10000",
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        GITHUB_TOKEN: rawToken,
+        ADMIN_PASSWORD: rawPassword,
+        PROVIDER_API_KEY: rawApiKey,
+      },
+      spawnCodex: async (spawnInput) => {
+        spawnCwd = spawnInput.cwd;
+        spawnArgs = spawnInput.args;
+        spawnEnv = spawnInput.env;
+        await writeFile(path.join(spawnInput.cwd, "codex-fixture.txt"), "fixture worker output\n", "utf8");
+        git(spawnInput.cwd, ["add", "codex-fixture.txt"]);
+        git(spawnInput.cwd, ["commit", "-m", "fixture local codex work"]);
+        return {
+          exitCode: 0,
+          stdout: `stdout includes ${rawToken} and token=inline-secret-value`,
+          stderr: `stderr includes ${rawPassword} and api_key=${rawApiKey}`,
+        };
+      },
+    });
+
+    const result = await runWithTempArtifactCwd(async () => {
+      const runResult = await runner.run(realRequest({
+        missionId: "fixture-proof",
+        repoUrl: repo,
+        workspaceRoot,
+        branchName,
+        commands: ["pnpm test"],
+        missionFiles: {
+          ...input.missionFiles,
+          "mission.md": `# Mission\nDo local work only. Secret ${rawToken}.`,
+          "technical-notes.md": `# Technical Notes\nPassword ${rawPassword}. API key ${rawApiKey}.`,
+        },
+      }));
+
+      const artifactTypes = runResult.artifacts.map((artifact) => artifact.type);
+      expect(artifactTypes).toEqual(expect.arrayContaining([
+        "codex_stdout",
+        "codex_stderr",
+        "dev_summary",
+        "codex_diff_summary",
+        "codex_local_commit_summary",
+      ]));
+
+      expect(JSON.stringify(runResult)).not.toContain(rawToken);
+      expect(JSON.stringify(runResult)).not.toContain(rawPassword);
+      expect(JSON.stringify(runResult)).not.toContain(rawApiKey);
+      expect(JSON.stringify(runResult)).not.toContain("inline-secret-value");
+
+      for (const artifact of runResult.artifacts) {
+        const content = await readFile(artifact.path, "utf8");
+        expect(content).not.toContain(rawToken);
+        expect(content).not.toContain(rawPassword);
+        expect(content).not.toContain(rawApiKey);
+        expect(content).not.toContain("inline-secret-value");
+        expect(content).toEqual(artifact.content);
+      }
+
+      expect(runResult.artifacts.find((artifact) => artifact.type === "codex_local_commit_summary")?.content).toContain("fixture local codex work");
+      expect(runResult.artifacts.find((artifact) => artifact.type === "codex_diff_summary")?.content).toBe("No local diff.");
+
+      return runResult;
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.executed).toBe(true);
+    expect(result.workerRun.metadata).toMatchObject({ realNetworkCall: false, pushed: false });
+    expect(result.workspacePath).toBe(spawnCwd);
+    expect(result.workspacePath).toContain(workspaceRoot);
+    expect(result.branchName).toBe(branchName);
+    expect(spawnArgs).toEqual(expect.arrayContaining(["exec", "--sandbox", "workspace-write", "--ask-for-approval", "on-request"]));
+    expect(spawnEnv.GITHUB_TOKEN).toBeUndefined();
+    expect(spawnEnv.ADMIN_PASSWORD).toBeUndefined();
+    expect(spawnEnv.PROVIDER_API_KEY).toBeUndefined();
+    expect(gitOutput(spawnCwd, ["branch", "--show-current"])).toBe(branchName);
+    expect(gitOutput(spawnCwd, ["log", "-1", "--pretty=format:%s"])).toBe("fixture local codex work");
+    expect(await readFile(path.join(spawnCwd, "codex-fixture.txt"), "utf8")).toBe("fixture worker output\n");
+
+    expect(gitOutput(repo, ["rev-parse", "main"])).toBe(mainHeadBefore);
+    expect(await readFile(path.join(repo, "README.md"), "utf8")).toBe(mainReadmeBefore);
+    expect(gitOutput(repo, ["branch", "--show-current"])).toBe("main");
+    expect(gitOutput(remote, ["rev-parse", "refs/heads/main"])).toBe(remoteMainBefore);
+    expect(gitRemoteRefs(remote)).toBe(remoteRefsBefore);
+    expect(gitMaybeOutput(remote, ["rev-parse", "--verify", `refs/heads/${branchName}`])).toBe("");
   });
 
   it("refuses to create Codex worktrees from local repositories outside the workspace mirror root", async () => {
@@ -590,7 +765,7 @@ describe("real Codex runner gated mode", () => {
     });
 
     const startedAt = Date.now();
-    const result = await runFromMonorepoRoot(() => runner.run(realRequest({
+    const result = await runWithTempArtifactCwd(() => runner.run(realRequest({
       repoUrl: repo,
       workspaceRoot,
       branchName: "agent/ai-novelist-timeout",

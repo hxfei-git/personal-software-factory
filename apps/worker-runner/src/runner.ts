@@ -36,7 +36,7 @@ export async function processWorkerJob(input: ProcessWorkerJobInput): Promise<Wo
   });
 
   try {
-    const result = await input.handler(input.job);
+    const result = sanitizeWorkerJobHandlerResult(await input.handler(input.job));
     const succeededAt = now();
     await persistChildResources(input.storage, input.job, result, succeededAt);
     const latest = await input.storage.getWorkerRun(input.job.workerRunId) ?? running;
@@ -84,7 +84,11 @@ async function recordMissionActionResult(
       childQARunIds: result.childQARunIds,
       childArtifactIds: result.childArtifactIds,
       childBugReportIds: result.childBugReportIds,
+      summary: result.summary,
       recommendedNextAction: result.recommendedNextAction,
+      ...(result.status === undefined ? {} : { status: result.status }),
+      ...(result.manualActionRequired === undefined ? {} : { manualActionRequired: result.manualActionRequired }),
+      ...(result.reason === undefined ? {} : { reason: result.reason }),
     },
     created_at: timestamp,
   });
@@ -103,7 +107,7 @@ async function applyAutomaticMissionTransitions(
 
   let currentStatus = mission.status;
   const hasBugs = hasBugReports(result) || await hasOpenMissionBugs(storage, job.missionId);
-  const transitionPath = automaticTransitionPath(currentStatus, job.type, hasBugs);
+  const transitionPath = automaticTransitionPath(currentStatus, job.type, hasBugs, result);
 
   for (const nextStatus of transitionPath) {
     if (!canTransition(currentStatus, nextStatus)) {
@@ -122,6 +126,7 @@ function automaticTransitionPath(
   currentStatus: MissionStatusValue,
   jobType: string,
   hasBugs: boolean,
+  result: WorkerJobHandlerResult,
 ): MissionStatusValue[] {
   if (jobType === "mission.plan") {
     if (
@@ -138,6 +143,9 @@ function automaticTransitionPath(
   }
 
   if (jobType.startsWith("qa.") && currentStatus === MissionStatus.qa_running) {
+    if (isBlockedQaResult(jobType, result)) {
+      return [];
+    }
     const nextStatus = hasBugs ? MissionStatus.bugs_found : MissionStatus.ready_for_review;
     return canTransition(currentStatus, nextStatus) ? [nextStatus] : [];
   }
@@ -151,6 +159,11 @@ function automaticTransitionPath(
   }
 
   return [];
+}
+
+function isBlockedQaResult(jobType: string, result: WorkerJobHandlerResult): boolean {
+  return jobType.startsWith("qa.")
+    && (result.manualActionRequired === true || result.status === "blocked" || result.status === "manual_action");
 }
 
 function hasBugReports(result: WorkerJobHandlerResult): boolean {
@@ -222,6 +235,9 @@ function buildSafeOutput(job: QueueWorkerJob, result: WorkerJobHandlerResult): R
     childBugReportIds: result.childBugReportIds,
     summary: result.summary,
     recommendedNextAction: result.recommendedNextAction,
+    ...(result.status === undefined ? {} : { status: result.status }),
+    ...(result.manualActionRequired === undefined ? {} : { manualActionRequired: result.manualActionRequired }),
+    ...(result.reason === undefined ? {} : { reason: result.reason }),
   };
 }
 
@@ -308,8 +324,14 @@ async function persistChildResources(
       });
     }
   }
-  for (const event of result.childEvents ?? []) {
-    await storage.appendMissionEvent(event).catch(() => undefined);
+  if ((result.childEvents?.length ?? 0) > 0) {
+    const existingEventIds = new Set((await storage.listMissionEvents(job.missionId)).map((event) => event.id));
+    for (const event of result.childEvents ?? []) {
+      if (!existingEventIds.has(event.id)) {
+        await storage.appendMissionEvent(event);
+        existingEventIds.add(event.id);
+      }
+    }
   }
 }
 
@@ -333,6 +355,30 @@ function buildChildEvent(
     },
     created_at: timestamp,
   };
+}
+
+function sanitizeWorkerJobHandlerResult(result: WorkerJobHandlerResult): WorkerJobHandlerResult {
+  return sanitizeJsonValue(result) as WorkerJobHandlerResult;
+}
+
+const secretKeyPattern = /(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|authorization|credential|session|jwt|bearer|cookie)/i;
+
+function sanitizeJsonValue(value: unknown, key = ""): unknown {
+  if (typeof value === "string") {
+    return secretKeyPattern.test(key) ? "[REDACTED]" : redactSecretLikeText(value);
+  }
+  if (typeof value !== "object" || value === null) {
+    return secretKeyPattern.test(key) && value !== undefined ? "[REDACTED]" : value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeJsonValue(item, key));
+  }
+
+  const sanitized: Record<string, unknown> = {};
+  for (const [entryKey, entryValue] of Object.entries(value)) {
+    sanitized[entryKey] = sanitizeJsonValue(entryValue, entryKey);
+  }
+  return sanitized;
 }
 
 function safeErrorSummary(error: unknown): string {
