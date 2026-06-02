@@ -376,7 +376,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     return { mission, registryProject };
   }
 
-  async function preflightGatedRealAction(id: string, action: GatedRealActionKind) {
+  async function preflightGatedRealAction(id: string, action: GatedRealActionKind, requestedTargetUrl?: string) {
     const mission = await getRawMission(id);
     const project = await storage.getProject(mission.project_id);
     if (!project) {
@@ -385,8 +385,8 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     const registryProject = await getRegistryProject(mission.project_id);
     assertGatedRealActionStatusAllowed(mission, action);
     assertRequiredGatedRealPassportCommands(registryProject, action);
-    assertGatedRealTargetUrlAvailable(project, registryProject, action);
-    return { mission, registryProject };
+    assertGatedRealTargetUrlAvailable(project, registryProject, action, requestedTargetUrl);
+    return { mission, project, registryProject };
   }
 
   function assertMissionActionStatusAllowed(mission: Mission, action: QueuedActionKind) {
@@ -452,12 +452,12 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     }
   }
 
-  function assertGatedRealTargetUrlAvailable(project: MissionProjectLike, registryProject: RegistryProject, action: GatedRealActionKind) {
+  function assertGatedRealTargetUrlAvailable(project: MissionProjectLike, registryProject: RegistryProject, action: GatedRealActionKind, requestedTargetUrl?: string) {
     const needsQaTarget = action === "qa-playwright" || action === "qa-ai-exploratory" || action === "fix-real" || action === "monitor-sync";
     if (!needsQaTarget) {
       return;
     }
-    if (!hasQaTargetUrl(project, registryProject)) {
+    if (!isNonEmptyString(requestedTargetUrl) && !hasQaTargetUrl(project, registryProject)) {
       throw badRequest("MISSION_ACTION_PREFLIGHT_BLOCKED", `${action} requires a local, staging, or production target URL.`, {
         projectId: registryProject.project.id,
         passportPath: registryProject.passportPath,
@@ -537,6 +537,109 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
     });
   }
 
+  async function buildGatedRealActionContext(
+    action: GatedRealActionKind,
+    mission: Mission,
+    project: MissionProjectLike,
+    registryProject: RegistryProject,
+    input: z.infer<typeof RealActionRequestSchema>,
+  ): Promise<Record<string, unknown>> {
+    const missionFiles = await buildMissionFilesContext(mission);
+    if (action === "qa-playwright") {
+      return sanitizeApiResponse({
+        passport: registryProject.passport,
+        qaCharter: await readQaCharterNextToPassport(registryProject.passportPath),
+        missionFiles,
+        targetUrl: resolveRealActionTargetUrl(input, project, registryProject),
+        e2eCommandMetadata: {
+          commands: normalizeCommandValues(registryProject.passport.commands.e2e),
+          executionPolicy: "review-only",
+        },
+      });
+    }
+    if (action === "codex-real") {
+      return sanitizeApiResponse({
+        passport: registryProject.passport,
+        missionFiles,
+        repoUrl: input.repoUrl ?? registryProject.passport.repo.url,
+        defaultBranch: registryProject.passport.repo.default_branch,
+        branchName: nonEmptyStringOrUndefined(input.branchName) ?? nonEmptyStringOrUndefined(mission.branch_name) ?? `agent/${mission.id}`,
+        workspaceRoot: nonEmptyStringOrUndefined(input.workspaceRoot) ?? nonEmptyStringOrUndefined(mission.workspace_path) ?? nonEmptyStringOrUndefined(project.local_path) ?? `./workspaces/${project.id}`,
+        commands: uniqueNonEmptyStrings([
+          ...normalizeCommandValues(registryProject.passport.commands.test),
+          ...normalizeCommandValues(registryProject.passport.commands.build),
+          ...normalizeCommandValues(registryProject.passport.commands.lint),
+          ...normalizeCommandValues(registryProject.passport.commands.e2e),
+        ]),
+      });
+    }
+    return {};
+  }
+
+  async function buildMissionFilesContext(mission: Mission): Promise<Record<typeof plannerFileNames[number], string>> {
+    const artifacts = (await getExistingPlannerResult(mission.id))?.artifacts ?? [];
+    return {
+      "mission.md": findPlannerArtifactContent(artifacts, "mission.md") ?? nonEmptyStringOrUndefined(mission.mission_markdown) ?? `# Mission
+
+${mission.title}
+
+${mission.raw_request}
+`,
+      "acceptance.md": findPlannerArtifactContent(artifacts, "acceptance.md") ?? nonEmptyStringOrUndefined(mission.acceptance_markdown) ?? `# Acceptance
+
+No acceptance notes have been planned yet.
+`,
+      "technical-notes.md": findPlannerArtifactContent(artifacts, "technical-notes.md") ?? `# Technical Notes
+
+No planner technical notes are available yet.
+`,
+      "risk-notes.md": findPlannerArtifactContent(artifacts, "risk-notes.md") ?? `# Risk Notes
+
+Risk level: ${mission.risk_level}.
+`,
+    };
+  }
+
+  function findPlannerArtifactContent(artifacts: Artifact[], fileName: typeof plannerFileNames[number]): string | undefined {
+    const artifact = artifacts.find((candidate) => candidate.path === `missions/${candidate.mission_id}/${fileName}`);
+    return nonEmptyStringOrUndefined(artifact?.content);
+  }
+
+  function resolveRealActionTargetUrl(input: z.infer<typeof RealActionRequestSchema>, project: MissionProjectLike, registryProject: RegistryProject): string | undefined {
+    return [
+      input.targetUrl,
+      project.staging_url,
+      project.production_url,
+      registryProject.passport.urls.local,
+      registryProject.passport.urls.staging,
+      registryProject.passport.urls.production,
+    ].find(isNonEmptyString);
+  }
+
+  function normalizeCommandValues(value: unknown): string[] {
+    return uniqueNonEmptyStrings(Array.isArray(value) ? value : [value]);
+  }
+
+  function uniqueNonEmptyStrings(values: unknown[]): string[] {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const value of values) {
+      if (!isNonEmptyString(value)) {
+        continue;
+      }
+      const normalized = value.trim();
+      if (!seen.has(normalized)) {
+        seen.add(normalized);
+        result.push(normalized);
+      }
+    }
+    return result;
+  }
+
+  function nonEmptyStringOrUndefined(value: unknown): string | undefined {
+    return isNonEmptyString(value) ? value : undefined;
+  }
+
   async function runMissionAction(
     id: string,
     body: unknown,
@@ -559,8 +662,8 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
   }
 
   async function runGatedRealAction(id: string, body: unknown, action: GatedRealActionKind) {
-    const { mission } = await preflightGatedRealAction(id, action);
     const input = parseRequest(RealActionRequestSchema, body ?? {});
+    const { mission, project, registryProject } = await preflightGatedRealAction(id, action, input.targetUrl);
     const approvals = await storage.listMissionApprovals(mission.id);
     const approvalCoverage = buildActionApprovalCoverage(action, approvals);
     const realEnabled = isGatedRealActionEnabled(action);
@@ -582,14 +685,15 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
           : blocked.recommendedNextAction,
       });
     }
+    const context = await buildGatedRealActionContext(action, mission, project, registryProject, input);
     return sanitizeApiResponse(await queueAction(mission, {
-      ...input,
+      ...sanitizeApiResponse(input),
       approvalRecordIds: approvedApprovalRecordIdsForAction(action, approvals),
       approvalIds: approvalGrantIdsForAction(action),
-    }, action, "real"));
+    }, action, "real", context));
   }
 
-  async function queueAction(mission: Mission, body: unknown, action: QueuedActionKind | GatedRealActionKind, mode: "dry-run" | "real" = "dry-run") {
+  async function queueAction(mission: Mission, body: unknown, action: QueuedActionKind | GatedRealActionKind, mode: "dry-run" | "real" = "dry-run", context: Record<string, unknown> = {}) {
     if (!workerRuntime) {
       throw badRequest("QUEUE_RUNTIME_UNAVAILABLE", "Worker runtime is not configured for queued actions");
     }
@@ -602,6 +706,7 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         projectId: mission.project_id,
         workerRunId,
         body,
+        context,
         approvalRecordIds: isRecord(body) && Array.isArray(body.approvalRecordIds)
           ? body.approvalRecordIds.filter((value): value is string => typeof value === "string")
           : [],
