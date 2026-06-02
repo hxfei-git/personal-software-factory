@@ -2,7 +2,7 @@
 
 ## Latest Update
 
-Batch 03/04 Task 8 connects queued `codex.real` Worker Runner jobs to injected/real Codex runners while preserving default gates: enriched payload context is passed through, child resources are persisted under the wrapper WorkerRun, outputs are redacted, and no push, deploy, release transition, real Codex executable, clone, or network call is performed by default.
+Batch 03/04 Task 8 connects queued `codex.real` Worker Runner jobs to injected Codex runners while preserving default gates: Worker Runner requires local repoUrl plus `agent/*` branch preflight, returns manual action without an injected runner, persists child resources under the wrapper WorkerRun, redacts outputs, and fails auditably when child event persistence fails.
 
 Detailed phase rollups:
 

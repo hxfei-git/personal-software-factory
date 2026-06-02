@@ -324,7 +324,7 @@ async function persistChildResources(
     }
   }
   for (const event of result.childEvents ?? []) {
-    await storage.appendMissionEvent(event).catch(() => undefined);
+    await storage.appendMissionEvent(event);
   }
 }
 

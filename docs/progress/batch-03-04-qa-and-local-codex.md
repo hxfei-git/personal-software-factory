@@ -28,10 +28,13 @@
 
 ## Task 8 Worker Runner Codex Integration
 
-- `codex.real` Worker Runner jobs now pass the queued Codex context through to the injected or real Codex runner input: Project Passport, mission files, AGENTS.md context, repo/default branch, `agent/*` branch, workspace root, commands, approval grant IDs, and approval record IDs.
+- `codex.real` Worker Runner jobs now pass the queued Codex context through to an injected Codex runner input after Worker Runner preflight: Project Passport, mission files, AGENTS.md context, local repo/default branch, `agent/*` branch, workspace root, commands, approval grant IDs, and approval record IDs.
 - Codex runner results are adapted without copying Codex Worker business logic: child WorkerRun, Artifact, and MissionEvent resources are persisted beneath the queue wrapper, and wrapper output plus `mission.action_result` record child IDs, safe summary, recommended next action, status, and reason.
-- Blocked and manual-action Codex outcomes are recorded as safe wrapper/action-result summaries and do not advance Missions to ready/released success states.
+- Worker Runner blocks missing or remote `repoUrl` values and unsafe `branchName` values before calling an injected runner; missing branch names fall back only to `agent/<missionId>`.
 - Worker Runner sanitizes handler results before persistence so raw token, password, API key, secret, authorization, session, and credential values do not leak through wrapper output, child resources, artifacts, or events.
+- Blocked and manual-action Codex outcomes are recorded as safe wrapper/action-result summaries and do not advance Missions to ready/released success states.
+- The default `codex.real` handler returns manual action unless a Codex runner is explicitly injected for this phase, so it cannot spawn a real Codex executable by default.
+- Child MissionEvent persistence failures are not swallowed; the wrapper is marked failed and the error is visible for audit integrity.
 - Tests use injected Codex runners only; no real Codex executable, clone, push, deploy, release transition, or network access is performed.
 
 ## Verification

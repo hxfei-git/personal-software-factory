@@ -28,7 +28,7 @@ import {
   type PlaneDryRunInput,
   type UptimeKumaDryRunInput,
 } from "@psf/integrations";
-import { RealCodexRunner, type CodexExecutionResult, type CodexRunner } from "@psf/codex-worker";
+import type { CodexExecutionResult, CodexExecutionStatus, CodexRunner } from "@psf/codex-worker";
 import {
   AiExploratoryQaRunner,
   runDeterministicPlaywrightQa,
@@ -115,8 +115,93 @@ export function createDefaultJobHandler(cwd = process.cwd(), deps: WorkerJobHand
 }
 
 async function runCodexRealJob(cwd: string, job: QueueWorkerJob, deps: WorkerJobHandlerDependencies): Promise<CodexExecutionResult> {
-  const runner = deps.codexRunner ?? new RealCodexRunner({ env: buildCodexEnv(job) });
-  return runner.run(buildCodexRealInput(cwd, job));
+  const preflightFailure = validateCodexRealQueuedJob(job);
+  if (preflightFailure) {
+    return buildCodexManualActionResult(job, preflightFailure.reason);
+  }
+  if (!deps.codexRunner) {
+    return buildCodexManualActionResult(job, "Worker Runner codex.real requires an injected Codex runner; real execution is not enabled in this phase.");
+  }
+  return deps.codexRunner.run(buildCodexRealInput(cwd, job));
+}
+
+function validateCodexRealQueuedJob(job: QueueWorkerJob): { reason: string } | undefined {
+  const repoUrl = stringValue(job.payload.repoUrl);
+  if (!repoUrl || !isLocalRepoUrl(repoUrl)) {
+    return { reason: "codex.real queued job requires local repoUrl as a local path or file:// URL; remote repository URLs are blocked at Worker Runner." };
+  }
+
+  const branchName = stringValue(job.payload.branchName) ?? `agent/${job.missionId}`;
+  if (!isSafeCodexBranchName(branchName)) {
+    return { reason: "codex.real branchName must be under agent/ and cannot be main or master." };
+  }
+
+  return undefined;
+}
+
+function buildCodexManualActionResult(job: QueueWorkerJob, reason: string): CodexExecutionResult {
+  const timestamp = job.createdAt;
+  const workerRunId = `worker-run-${job.missionId}-codex-worker-runner-manual-action`;
+  const workerRun: WorkerRun = {
+    id: workerRunId,
+    mission_id: job.missionId,
+    worker_type: "codex",
+    status: "skipped",
+    mode: "real",
+    input: {
+      missionId: job.missionId,
+      projectId: job.projectId,
+      mode: "real",
+      branchName: stringValue(job.payload.branchName) ?? `agent/${job.missionId}`,
+    },
+    output: {
+      executed: false,
+      status: "manual_action",
+      reason,
+    },
+    logs: [reason],
+    metadata: {
+      realNetworkCall: false,
+      pushed: false,
+      workerRunnerPreflight: true,
+    },
+    error: reason,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+  return {
+    status: "manual_action",
+    executed: false,
+    reason,
+    workerRun,
+    artifacts: [],
+    events: [buildCodexResultEvent(job, "manual_action", reason, workerRunId, timestamp)],
+    stdout: "",
+    stderr: "",
+  };
+}
+
+function buildCodexResultEvent(
+  job: QueueWorkerJob,
+  status: CodexExecutionStatus,
+  reason: string,
+  workerRunId: string,
+  timestamp: string,
+): MissionEvent {
+  return {
+    id: `event-${job.workerRunId}-codex-real-${status}-${job.id}`,
+    mission_id: job.missionId,
+    type: `codex.real.${status}`,
+    message: reason,
+    payload: {
+      workerRunId,
+      jobId: job.id,
+      jobType: job.type,
+      realNetworkCall: false,
+      pushed: false,
+    },
+    created_at: timestamp,
+  };
 }
 
 function buildWorkflowOptions(cwd: string, job: QueueWorkerJob) {
@@ -302,7 +387,7 @@ function buildCodexRealInput(cwd: string, job: QueueWorkerJob) {
   return {
     missionId: job.missionId,
     projectId: job.projectId,
-    repoUrl: stringValue(payload.repoUrl) ?? passport.repo.url,
+    repoUrl: stringValue(payload.repoUrl) as string,
     defaultBranch: stringValue(payload.defaultBranch) ?? passport.repo.default_branch,
     missionFiles: buildMissionFiles(job),
     ...(safeRecord(payload.passport) ? { passport: safeRecord(payload.passport) as ProjectPassport } : {}),
@@ -430,13 +515,6 @@ function buildPlaneRealInput(job: QueueWorkerJob): PlaneRealInput {
   };
 }
 
-function buildCodexEnv(job: QueueWorkerJob): Record<string, string | undefined> {
-  return {
-    ...process.env,
-    ENABLE_REAL_CODEX: job.payload.enableRealMode === true && process.env.ENABLE_REAL_CODEX === "1" ? "1" : "0",
-  };
-}
-
 function buildPlaywrightEnv(job: QueueWorkerJob): Record<string, string | undefined> {
   return {
     QA_TEST_URL: stringValue(job.payload.targetUrl) ?? process.env.QA_TEST_URL,
@@ -507,6 +585,14 @@ function buildVerificationCommands(payload: Record<string, unknown>) {
     unit: stringArray(commands.unit),
     e2e: stringArray(commands.e2e),
   };
+}
+
+function isLocalRepoUrl(repoUrl: string): boolean {
+  return repoUrl.startsWith("file://") || !/^(?:[a-z][a-z0-9+.-]*:|[^@\s]+@[^:]+:)/i.test(repoUrl);
+}
+
+function isSafeCodexBranchName(branchName: string): boolean {
+  return branchName.startsWith("agent/") && branchName !== "main" && branchName !== "master";
 }
 
 function safeRecord(value: unknown): Record<string, unknown> | undefined {

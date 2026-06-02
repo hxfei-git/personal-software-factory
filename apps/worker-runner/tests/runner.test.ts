@@ -737,7 +737,7 @@ describe("worker runner", () => {
   it.each([
     {
       type: "codex.real" as const,
-      payload: {},
+      payload: { repoUrl: "/tmp/ai-novelist.git", branchName: "agent/mission-real" },
       expectedSummary: "Mock codex real handler completed.",
       deps: {
         codexRunner: {
@@ -892,7 +892,7 @@ describe("worker runner", () => {
       workerRunId: "worker-run-wrapper",
       type: "codex.real",
       mode: "real",
-      payload: {},
+      payload: { repoUrl: "/tmp/ai-novelist.git", branchName: "agent/mission-real" },
       createdAt: "2026-05-31T00:00:00.000Z",
     });
 
@@ -1008,6 +1008,154 @@ describe("worker runner", () => {
   });
 
   it.each([
+    [{ passport: projectPassport() }, "missing local repoUrl"],
+    [{ repoUrl: "https://github.com/example/ai-novelist.git" }, "remote repoUrl"],
+    [{ repoUrl: "git@github.com:example/ai-novelist.git" }, "scp-style remote repoUrl"],
+  ])("blocks codex.real %s before calling injected runner", async (payload, _label) => {
+    let runnerCalls = 0;
+    const storage = createInMemoryMissionStorage({
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload,
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        codexRunner: {
+          run: async () => {
+            runnerCalls += 1;
+            return codexResult("succeeded", "Should not run.");
+          },
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(runnerCalls).toBe(0);
+    expect(wrapper.output).toMatchObject({
+      status: "manual_action",
+      manualActionRequired: true,
+    });
+    expect(String(wrapper.output.reason)).toContain("codex.real queued job requires local repoUrl");
+  });
+
+  it.each(["main", "master", "feature/mission-real"])("blocks unsafe codex.real branch %s before calling injected runner", async (branchName) => {
+    let runnerCalls = 0;
+    const storage = createInMemoryMissionStorage({
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload: { repoUrl: "/tmp/ai-novelist.git", branchName },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        codexRunner: {
+          run: async () => {
+            runnerCalls += 1;
+            return codexResult("succeeded", "Should not run.");
+          },
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(runnerCalls).toBe(0);
+    expect(wrapper.output).toMatchObject({
+      status: "manual_action",
+      manualActionRequired: true,
+    });
+    expect(String(wrapper.output.reason)).toContain("codex.real branchName must be under agent/");
+  });
+
+  it("returns manual_action for codex.real default handler when no injected Codex runner is configured", async () => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-real", MissionStatus.fixing)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload: { repoUrl: "/tmp/ai-novelist.git", branchName: "agent/mission-real" },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd()),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(wrapper.output).toMatchObject({
+      status: "manual_action",
+      manualActionRequired: true,
+    });
+    expect(String(wrapper.output.reason)).toContain("requires an injected Codex runner");
+    await expect(storage.getMission("mission-real")).resolves.toMatchObject({ status: MissionStatus.fixing });
+  });
+
+  it("fails the wrapper when codex.real child event persistence fails", async () => {
+    const storage = createInMemoryMissionStorage({
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const originalAppendMissionEvent = storage.appendMissionEvent.bind(storage);
+    storage.appendMissionEvent = async (missionEvent) => {
+      if (missionEvent.type === "codex.real.succeeded") {
+        throw new Error("append child event failed");
+      }
+      return originalAppendMissionEvent(missionEvent);
+    };
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload: { repoUrl: "/tmp/ai-novelist.git", branchName: "agent/mission-real" },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    await expect(processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        codexRunner: { run: async () => codexResult("succeeded", "Codex runner completed safely.") },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z", "2026-05-31T00:03:00.000Z"]),
+    })).rejects.toThrow("append child event failed");
+
+    await expect(storage.getWorkerRun("worker-run-wrapper")).resolves.toMatchObject({
+      status: "failed",
+      error: "append child event failed",
+    });
+  });
+
+  it.each([
     ["blocked" as const, "Codex gates blocked execution."],
     ["manual_action" as const, "Manual action is required before Codex can run."],
   ])("does not advance Mission to success states when codex.real returns %s", async (status, reason) => {
@@ -1022,7 +1170,7 @@ describe("worker runner", () => {
       workerRunId: "worker-run-wrapper",
       type: "codex.real",
       mode: "real",
-      payload: {},
+      payload: { repoUrl: "/tmp/ai-novelist.git", branchName: "agent/mission-real" },
       createdAt: "2026-05-31T00:00:00.000Z",
     });
 
@@ -1077,7 +1225,7 @@ describe("worker runner", () => {
       workerRunId: "worker-run-wrapper",
       type: "codex.real",
       mode: "real",
-      payload: {},
+      payload: { repoUrl: "/tmp/ai-novelist.git", branchName: "agent/mission-real" },
       createdAt: "2026-05-31T00:00:00.000Z",
     });
 
