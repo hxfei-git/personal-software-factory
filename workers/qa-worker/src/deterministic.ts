@@ -199,7 +199,10 @@ export async function runDeterministicPlaywrightQa(input: DeterministicQaInput):
   const realPlaywrightEnabled = resolveRealPlaywrightEnabled(input.env);
   const scenarios = buildDeterministicScenarios(input);
   const unverifiedScenarios = scenarios.filter((entry) => entry.selectorStatus === "unverified");
-  if (input.execute !== undefined && unverifiedScenarios.length > 0) {
+  const hasProjectQaContext = input.passport !== undefined || input.qaCharter !== undefined || input.missionFiles !== undefined;
+  const shouldBlockUnverifiedScenarios = unverifiedScenarios.length > 0
+    && ((input.execute !== undefined && hasProjectQaContext) || (input.execute === undefined && realPlaywrightEnabled));
+  if (shouldBlockUnverifiedScenarios) {
     const scenarioEvidence = unverifiedScenarios.map((entry): ScenarioExecutionEvidence => ({
       scenarioId: entry.id,
       status: "blocked",
