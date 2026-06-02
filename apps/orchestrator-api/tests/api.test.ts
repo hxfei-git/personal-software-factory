@@ -172,8 +172,8 @@ describe("orchestrator api", () => {
       "quality_gates:",
       "  require_build: true",
       "core_flows:",
-      "  - id: review_chapter",
-      "    name: 自动审稿",
+      "  - id: open_home",
+      "    name: 打开首页",
       "    priority: P0",
       "",
     ].join("\n"));
@@ -202,12 +202,13 @@ describe("orchestrator api", () => {
       "  run_staging: pnpm dev",
       "urls:",
       "  production: \"\"",
+      "  local: \"\"",
       "  staging: \"\"",
       "quality_gates:",
       "  require_build: true",
       "core_flows:",
-      "  - id: review_chapter",
-      "    name: 自动审稿",
+      "  - id: open_home",
+      "    name: 打开首页",
       "    priority: P0",
       "",
     ].join("\n"));
@@ -852,6 +853,87 @@ describe("orchestrator api", () => {
           code: "NOT_FOUND",
           message: "ProjectPassport not found: ai-novelist",
         });
+      });
+    } finally {
+      await rm(registryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("queues qa-playwright with Project Passport, QA charter, targetUrl, mission files, and e2e command metadata", async () => {
+    const registryRoot = await createAiNovelistRegistryRoot();
+    const injectedSecret = "qa-playwright-api-secret-value";
+    try {
+      await withEnv({
+        PSF_ACTION_EXECUTION_MODE: "queued",
+        PSF_ENABLE_REAL_QA_PLAYWRIGHT: "true",
+        PSF_API_TOKEN: injectedSecret,
+      }, async () => {
+        const workerRuntime = new InProcessWorkerRuntime();
+        const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime, registryRoot });
+        await seedDemoMission(storage);
+
+        const response = await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/actions/qa-playwright`,
+          payload: { targetUrl: "http://127.0.0.1:8999/app" },
+        });
+
+        expect(response.statusCode).toBe(202);
+        const jobs = await workerRuntime.listJobs();
+        expect(jobs).toHaveLength(1);
+        expect(jobs[0]?.job).toMatchObject({
+          missionId: EXAMPLE_MISSION_ID,
+          projectId: "ai-novelist",
+          type: "qa.playwright",
+          mode: "real",
+          payload: expect.objectContaining({
+            enableRealMode: true,
+            targetUrl: "http://127.0.0.1:8999/app",
+            qaCharter: expect.stringContaining("QA Charter"),
+            passport: expect.objectContaining({
+              id: "ai-novelist",
+              core_flows: expect.arrayContaining([expect.objectContaining({ id: "open_home" })]),
+            }),
+            missionFiles: expect.objectContaining({
+              "mission.md": expect.stringContaining("Mission"),
+              "acceptance.md": expect.stringContaining("Acceptance"),
+              "technical-notes.md": expect.any(String),
+              "risk-notes.md": expect.any(String),
+            }),
+            e2eCommandMetadata: expect.objectContaining({
+              commands: expect.any(Array),
+              executionPolicy: "review-only",
+            }),
+          }),
+        });
+        expect(JSON.stringify(response.json())).not.toContain(injectedSecret);
+        expect(JSON.stringify(jobs[0]?.job.payload)).not.toContain(injectedSecret);
+      });
+    } finally {
+      await rm(registryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("blocks qa-playwright preflight when request and passport target URLs are absent", async () => {
+    const registryRoot = await createAiNovelistRegistryRootWithoutQaTarget();
+    try {
+      await withEnv({ PSF_ACTION_EXECUTION_MODE: "queued", PSF_ENABLE_REAL_QA_PLAYWRIGHT: "true" }, async () => {
+        const workerRuntime = new InProcessWorkerRuntime();
+        const { server } = await createTestServer({ auth: { disabled: true }, workerRuntime, registryRoot });
+        const mission = await createMission(server, "QA missing target URL");
+
+        const response = await server.inject({
+          method: "POST",
+          url: `/missions/${mission.id}/actions/qa-playwright`,
+          payload: {},
+        });
+
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toMatchObject({
+          code: "MISSION_ACTION_PREFLIGHT_BLOCKED",
+          details: expect.objectContaining({ action: "qa-playwright", missingTargetUrl: true }),
+        });
+        expect(response.json().message).toContain("target URL");
       });
     } finally {
       await rm(registryRoot, { recursive: true, force: true });
