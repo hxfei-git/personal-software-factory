@@ -1,12 +1,12 @@
 export function isSensitiveKey(key: string): boolean {
-  return /token|password|secret|api[_-]?key/i.test(key);
+  return /token|password|secret|api[_-]?key|authorization/i.test(key);
 }
 
 export function redactDisplayValue(value: string): string {
   return value
     .replace(/\b(Bearer\s+)[^\s,;)]+/gi, "$1[redacted]")
-    .replace(/\b(token|password|api_key|apikey|secret|authorization)=([^&\s,;)]+)/gi, (_match, key: string) => key + "=[redacted]")
-    .replace(/([?&](?:token|password|api_key|secret)=)[^&#\s]+/gi, "$1[redacted]");
+    .replace(/\b(token|password|api[_-]?key|apikey|secret|authorization)=([^&\s,;)]+)/gi, (_match, key: string) => key + "=[redacted]")
+    .replace(/([?&](?:token|password|api[_-]?key|secret)=)[^&#\s]+/gi, "$1[redacted]");
 }
 
 export function redactJsonForDisplay(value: unknown): unknown {

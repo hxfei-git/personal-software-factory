@@ -477,8 +477,8 @@ const dashboard: DashboardResponse = {
         tracePath: "artifacts/missions/mission-0001/worker-run-qa/qa/trace.zip",
         logPath: "artifacts/missions/mission-0001/worker-run-qa/qa/run.log",
         scenarioId: "duplicate-click",
-        note: "Bearer raw-secret token=raw-token password=raw-password api_key=raw-api-key apikey=raw-apikey authorization=raw-auth",
-        url: "https://example.test/qa-report?token=raw-token&password=raw-password&api_key=raw-api-key&secret=raw-secret",
+        note: "Bearer raw-secret token=raw-token password=raw-password api_key=raw-api-key apikey=raw-apikey authorization=raw-auth api-key=raw-api-dash-key",
+        url: "https://example.test/qa-report?token=raw-token&password=raw-password&api_key=raw-api-key&secret=raw-secret&api-key=raw-api-dash-key",
       },
       created_at: now,
       updated_at: now,
@@ -533,7 +533,8 @@ const dashboard: DashboardResponse = {
         path: "artifacts/missions/mission-0001/worker-run-qa/qa/qa-report.md",
         scenarioId: "duplicate-click",
         note: "Bearer raw-secret token=raw-token password=raw-password api_key=raw-api-key apikey=raw-apikey authorization=raw-auth",
-        url: "https://example.test/qa-report?token=raw-token&password=raw-password&api_key=raw-api-key&secret=raw-secret",
+        url: "https://example.test/qa-report?token=raw-token&password=raw-password&api_key=raw-api-key&secret=raw-secret&api-key=raw-api-dash-key",
+        authorization: "raw-auth-header",
       },
       created_at: now,
     },
@@ -1463,6 +1464,7 @@ describe("Hub render helpers", () => {
     expect(text).toContain("api_key=[redacted]");
     expect(text).toContain("apikey=[redacted]");
     expect(text).toContain("authorization=[redacted]");
+    expect(text).toContain("api-key=[redacted]");
     expect(text).toContain("secret=[redacted]");
     expect(text).toContain("screenshot");
     expect(text).toContain("name duplicate-click.png");
@@ -1480,6 +1482,8 @@ describe("Hub render helpers", () => {
     expect(text).not.toContain("raw-api-key");
     expect(text).not.toContain("raw-apikey");
     expect(text).not.toContain("raw-auth");
+    expect(text).not.toContain("raw-auth-header");
+    expect(text).not.toContain("raw-api-dash-key");
     expect(text).not.toContain("raw-output-token");
   });
 
