@@ -7,7 +7,7 @@ import { MissionStatus, projectExample, projectPassportExample } from "@psf/miss
 import { createDeterministicMissionPlan } from "@psf/mission-planner";
 import { buildWorkerJob, InProcessWorkerRuntime, type QueuedJobRecord, type QueueStats, type QueueWorkerJob, type WorkerRuntime } from "@psf/worker-runtime";
 import type { ApiAuthOptions } from "../src/auth.js";
-import type { ActionExecutionMode } from "../src/actions.js";
+import { buildQueuedRealActionJob, type ActionExecutionMode } from "../src/actions.js";
 import { buildServer } from "../src/server.js";
 import { createInMemoryMissionStorage } from "../src/storage.js";
 
@@ -1101,6 +1101,33 @@ describe("orchestrator api", () => {
         missingApprovalTypes: ["SECURITY_RISK"],
       });
       expect(response.json().policyFailures).toContain("Codex real execution missing approvals: SECURITY_RISK.");
+    });
+  });
+
+  it("protects real action reserved payload fields from queued context", () => {
+    const job = buildQueuedRealActionJob({
+      action: "codex-real",
+      missionId: EXAMPLE_MISSION_ID,
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-reserved-context",
+      body: { approvalId: "approval-approved" },
+      context: {
+        enableRealMode: false,
+        approvalIds: ["bad"],
+        approvalRecordIds: ["bad"],
+        requestedApprovalId: "bad",
+        missionFiles: { "mission.md": "# Mission" },
+      },
+      approvalRecordIds: ["approval-approved"],
+      approvalGrantIds: ["real_codex_execution"],
+    });
+
+    expect(job.payload).toMatchObject({
+      enableRealMode: true,
+      approvalRecordIds: ["approval-approved"],
+      approvalIds: ["real_codex_execution"],
+      requestedApprovalId: "approval-approved",
+      missionFiles: { "mission.md": "# Mission" },
     });
   });
 

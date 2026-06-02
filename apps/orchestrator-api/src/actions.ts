@@ -164,15 +164,15 @@ export function buildQueuedRealActionJob(input: BuildQueuedRealActionJobInput): 
   });
   const contract = gatedRealActionContracts[input.action];
   const payload = {
-    enableRealMode: true,
-    approvalRecordIds: input.approvalRecordIds ?? [],
-    approvalIds: input.approvalGrantIds ?? [],
     ...(input.context ?? {}),
-    ...(parsedBody.approvalId ? { requestedApprovalId: parsedBody.approvalId } : {}),
     ...(parsedBody.targetUrl ? { targetUrl: parsedBody.targetUrl } : {}),
     ...(parsedBody.repoUrl ? { repoUrl: parsedBody.repoUrl } : {}),
     ...(parsedBody.branchName ? { branchName: parsedBody.branchName } : {}),
     ...(parsedBody.workspaceRoot ? { workspaceRoot: parsedBody.workspaceRoot } : {}),
+    enableRealMode: true,
+    approvalRecordIds: input.approvalRecordIds ?? [],
+    approvalIds: input.approvalGrantIds ?? [],
+    ...(parsedBody.approvalId ? { requestedApprovalId: parsedBody.approvalId } : {}),
   };
 
   return buildWorkerJob({
