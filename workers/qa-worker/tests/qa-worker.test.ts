@@ -4,6 +4,7 @@ vi.setConfig({ testTimeout: 45_000 });
 import { BugReportSchema, QAReportSchema, type BugReport, type ProjectPassport } from "@psf/mission-schema";
 import {
   AiExploratoryQaRunner,
+  buildDeterministicScenarios,
   createQaDryRun,
   createSkippedPlaywrightSummary,
   runDeterministicPlaywrightQa,
@@ -106,6 +107,24 @@ describe("QA Worker dry-run", () => {
 
 
 describe("Deterministic Playwright QA runner", () => {
+  it("builds fallback scenarios without passport or QA charter", () => {
+    const scenarios = buildDeterministicScenarios({});
+
+    expect(scenarios.map((scenario) => scenario.id)).toEqual([
+      "smoke_home",
+      "create_or_start_novel",
+      "generate_or_wait_for_content",
+      "review_or_report_visible",
+      "duplicate_click_or_loading_guard",
+    ]);
+    expect(scenarios).toHaveLength(5);
+    expect(scenarios[0]).toMatchObject({
+      sourceFlowIds: ["open_home"],
+      charterReferences: [],
+      selectorStatus: "unverified",
+    });
+  });
+
   it("builds ai-novelist scenarios from passport and QA charter and blocks unverified selectors", async () => {
     let executorCalled = false;
 
@@ -127,58 +146,95 @@ describe("Deterministic Playwright QA runner", () => {
     expect(executorCalled).toBe(false);
     expect(result.files["qa-report.md"]).toContain("smoke_home");
     expect(result.files["qa-report.md"]).toContain("create_or_start_novel");
+    expect(result.files["qa-report.md"]).toContain("manualActionScenarios");
     expect(result.files["qa-report.md"].toLowerCase()).toContain("manual action");
+    expect(JSON.parse(result.files["bugs.json"])).toEqual({ bugs: [] });
+    expect(JSON.parse(result.files["qa-summary.json"])).toMatchObject({
+      scenarioCount: 5,
+      manualActionScenarios: [
+        "smoke_home",
+        "create_or_start_novel",
+        "generate_or_wait_for_content",
+        "review_or_report_visible",
+        "duplicate_click_or_loading_guard",
+      ],
+    });
+    expect(result.workerRun.output).toMatchObject({
+      evidence: {
+        scenarioCount: 5,
+        manualActionScenarios: [
+          "smoke_home",
+          "create_or_start_novel",
+          "generate_or_wait_for_content",
+          "review_or_report_visible",
+          "duplicate_click_or_loading_guard",
+        ],
+      },
+    });
+  });
+
+  it("blocks injected deterministic execution with fallback scenarios when project QA context is missing", async () => {
+    let executorCalled = false;
+
+    const result = await runDeterministicPlaywrightQa({
+      missionId: input.missionId,
+      projectId: input.projectId,
+      targetUrl: "http://127.0.0.1:8000",
+      now: input.now,
+      execute: async () => {
+        executorCalled = true;
+        return {
+          status: "passed",
+          passed: 1,
+          failed: 0,
+        };
+      },
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.manualActionRequired).toBe(true);
+    expect(executorCalled).toBe(false);
+    expect(result.files["qa-report.md"]).toContain("smoke_home");
+    expect(result.files["qa-report.md"]).toContain("duplicate_click_or_loading_guard");
+    expect(result.files["qa-report.md"]).toContain("manualActionScenarios");
     expect(JSON.parse(result.files["bugs.json"])).toEqual({ bugs: [] });
   });
 
-  it("records scenario evidence paths for a failing injected deterministic flow", async () => {
+  it("records scenario evidence paths when unverified scenarios block injected deterministic flow", async () => {
+    let executorCalled = false;
+
     const result = await runDeterministicPlaywrightQa({
       missionId: input.missionId,
       projectId: input.projectId,
       targetUrl: "http://127.0.0.1:4173",
       now: input.now,
-      execute: async (execution) => ({
-        status: "failed",
-        passed: 1,
-        failed: 1,
-        logs: ["duplicate click guard failed", "token=scenario-secret-token"],
-        failures: [
-          {
-            title: "Duplicate click or loading guard failed",
-            severity: "P1",
-            reproductionSteps: ["Open the configured target URL.", "Trigger the guarded submit action twice quickly."],
-            expectedResult: "Only one request is submitted while loading state is active.",
-            actualResult: "A second click can be submitted before the loading guard is enforced.",
-            evidence: {
-              scenarioId: "duplicate_click_or_loading_guard",
-              screenshotPath: `${execution.artifacts.screenshotsDir}/duplicate-click.png`,
-              tracePath: execution.artifacts.tracePath,
-              logPath: execution.artifacts.logPath,
-              token: "scenario-secret-token",
-            },
-          },
-        ],
+      execute: async () => {
+        executorCalled = true;
+        return {
+          status: "failed",
+          passed: 1,
+          failed: 1,
+          logs: ["duplicate click guard failed", "token=scenario-secret-token"],
+        };
+      },
+    });
+
+    const output = result.workerRun.output as { evidence?: { scenarios?: Array<Record<string, unknown>> } };
+    const scenarios = output.evidence?.scenarios ?? [];
+
+    expect(result.status).toBe("blocked");
+    expect(result.qaRun.status).toBe("skipped");
+    expect(executorCalled).toBe(false);
+    expect(JSON.parse(result.files["bugs.json"])).toEqual({ bugs: [] });
+    expect(scenarios).toHaveLength(5);
+    expect(scenarios).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        scenarioId: "duplicate_click_or_loading_guard",
+        screenshotPath: expect.stringContaining("/duplicate_click_or_loading_guard.png"),
+        tracePath: result.qaRun.trace_path,
+        logPath: expect.stringContaining("deterministic.log"),
       }),
-    });
-
-    const bug = result.bugs[0]!;
-    const bugsJson = JSON.parse(result.files["bugs.json"]);
-
-    expect(result.status).toBe("failed");
-    expect(result.qaRun.status).toBe("failed");
-    expect(bugsJson.bugs).toHaveLength(1);
-    expect(bug.evidence).toMatchObject({
-      scenarioId: "duplicate_click_or_loading_guard",
-      screenshotPath: expect.stringContaining("/duplicate-click.png"),
-      tracePath: result.qaRun.trace_path,
-      logPath: expect.stringContaining("deterministic.log"),
-    });
-    expect(bugsJson.bugs[0].evidence).toMatchObject({
-      scenarioId: "duplicate_click_or_loading_guard",
-      screenshotPath: expect.stringContaining("/duplicate-click.png"),
-      tracePath: result.qaRun.trace_path,
-      logPath: expect.stringContaining("deterministic.log"),
-    });
+    ]));
     expect(result.files["bugs.json"]).not.toContain("scenario-secret-token");
     expect(result.artifacts.map((artifact) => artifact.type)).toEqual(expect.arrayContaining(["screenshot", "playwright_trace", "log"]));
   });
@@ -200,85 +256,74 @@ describe("Deterministic Playwright QA runner", () => {
     expect(QAReportSchema.parse(result.qaRun).mode).toBe("deterministic");
   });
 
-  it("creates a QARun, QA report, summary, and artifacts for a passing injected run", async () => {
+  it("creates a skipped QARun, QA report, summary, and artifacts for a blocked injected run", async () => {
+    let executorCalled = false;
+
     const result = await runDeterministicPlaywrightQa({
       missionId: input.missionId,
       projectId: input.projectId,
       targetUrl: "http://127.0.0.1:4173",
       now: input.now,
-      execute: async () => ({
-        status: "passed",
-        passed: 3,
-        failed: 0,
-        logs: ["loaded simple-app fixture", "token=secret_fixture_token"],
-        evidence: {
-          fixture: "workers/qa-worker/tests/fixtures/simple-app.html",
-          screenshotPath: "artifacts/missions/mission-0001-ai-novelist-chapter-review/worker-run-mission-0001-ai-novelist-chapter-review-qa-deterministic/qa/home.png",
-        },
-      }),
+      execute: async () => {
+        executorCalled = true;
+        return {
+          status: "passed",
+          passed: 3,
+          failed: 0,
+          logs: ["loaded simple-app fixture", "token=secret_fixture_token"],
+        };
+      },
     });
 
-    expect(result.status).toBe("passed");
+    expect(result.status).toBe("blocked");
     expect(result.browserOpened).toBe(false);
     expect(result.files["qa-report.md"]).toContain("deterministic");
-    expect(result.files["qa-summary.json"]).toContain('"status": "passed"');
+    expect(result.files["qa-summary.json"]).toContain('"status": "blocked"');
     expect(result.files["qa-summary.json"]).not.toContain("secret_fixture_token");
-    expect(result.qaRun.status).toBe("passed");
-    expect(result.qaRun.passed).toBe(3);
+    expect(result.qaRun.status).toBe("skipped");
+    expect(result.qaRun.passed).toBe(0);
+    expect(executorCalled).toBe(false);
     expect(result.bugs).toEqual([]);
     expect(result.artifacts.map((artifact) => artifact.type)).toEqual(expect.arrayContaining(["qa_report", "bugs_json", "other", "screenshot", "playwright_trace", "log"]));
     expect(result.artifacts.every((artifact) => artifact.path.startsWith("artifacts/missions/"))).toBe(true);
-    expect(QAReportSchema.parse(result.qaRun).status).toBe("passed");
+    expect(QAReportSchema.parse(result.qaRun).status).toBe("skipped");
   });
 
-  it("turns a failing injected assertion into schema-valid bugs.json and BugReport evidence", async () => {
+  it("keeps bugs.json empty and redacted when unverified scenarios block a failing injected assertion", async () => {
+    let executorCalled = false;
+
     const result = await runDeterministicPlaywrightQa({
       missionId: input.missionId,
       projectId: input.projectId,
       targetUrl: "http://127.0.0.1:4173",
       now: input.now,
-      execute: async () => ({
-        status: "failed",
-        passed: 2,
-        failed: 1,
-        logs: ["expected title to contain Dashboard", "password=hunter2"],
-        failures: [
-          {
-            title: "Home page title mismatch",
-            severity: "P1",
-            reproductionSteps: ["Open the fixture app", "Read the page heading"],
-            expectedResult: "The heading shows Dashboard.",
-            actualResult: "The heading shows Simple App.",
-            evidence: {
-              assertion: "expected heading text",
-              screenshotPath: "artifacts/missions/mission-0001-ai-novelist-chapter-review/worker-run-mission-0001-ai-novelist-chapter-review-qa-deterministic/qa/title-mismatch.png",
-              tracePath: "artifacts/missions/mission-0001-ai-novelist-chapter-review/worker-run-mission-0001-ai-novelist-chapter-review-qa-deterministic/qa/trace.zip",
-              token: "raw_secret_token",
+      execute: async () => {
+        executorCalled = true;
+        return {
+          status: "failed",
+          passed: 2,
+          failed: 1,
+          logs: ["expected title to contain Dashboard", "password=hunter2"],
+          failures: [
+            {
+              title: "Home page title mismatch",
+              severity: "P1",
+              reproductionSteps: ["Open the fixture app", "Read the page heading"],
+              expectedResult: "The heading shows Dashboard.",
+              actualResult: "The heading shows Simple App.",
+              evidence: { token: "raw_secret_token" },
             },
-          },
-        ],
-      }),
+          ],
+        };
+      },
     });
 
-    const bug = result.bugs[0]!;
-    const bugsJson = JSON.parse(result.files["bugs.json"]);
-
-    expect(result.status).toBe("failed");
-    expect(result.qaRun.status).toBe("failed");
-    expect(bugsJson.bugs).toHaveLength(1);
+    expect(result.status).toBe("blocked");
+    expect(result.qaRun.status).toBe("skipped");
+    expect(executorCalled).toBe(false);
+    expect(JSON.parse(result.files["bugs.json"])).toEqual({ bugs: [] });
     expect(result.files["bugs.json"]).not.toContain("hunter2");
     expect(result.files["bugs.json"]).not.toContain("raw_secret_token");
-    expect(BugReportSchema.parse(bug)).toMatchObject({
-      title: "Home page title mismatch",
-      expected_result: "The heading shows Dashboard.",
-      actual_result: "The heading shows Simple App.",
-    });
-    expect(bug.reproduction_steps).toEqual(["Open the fixture app", "Read the page heading"]);
-    expect(bug.evidence).toMatchObject({
-      source: "deterministic-playwright",
-      browserOpened: false,
-      stagingVisited: true,
-    });
   });
 
   it("redacts injected runner summary from all visible outputs", async () => {

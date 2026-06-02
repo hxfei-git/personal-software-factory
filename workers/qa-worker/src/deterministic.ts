@@ -118,10 +118,6 @@ const DEFAULT_NOW = "2026-05-31T10:00:00.000Z";
 class RealPlaywrightUnavailableError extends Error {}
 
 export function buildDeterministicScenarios(input: Pick<DeterministicQaInput, "passport" | "qaCharter">): DeterministicScenario[] {
-  if (input.passport === undefined && input.qaCharter === undefined) {
-    return [];
-  }
-
   const flowIds = new Set((input.passport?.core_flows ?? []).map((flow) => flow.id));
   const charter = input.qaCharter ?? "";
   return [
@@ -372,6 +368,11 @@ function buildResult(input: BuildResultInput): DeterministicQaResult {
   const manualActionScenarios = scenarioEvidence
     .filter((entry) => entry.status === "blocked")
     .map((entry) => entry.scenarioId);
+  const evidence = redactJson({
+    ...(input.evidence ?? {}),
+    scenarioCount: scenarioEvidence.length,
+    manualActionScenarios,
+  });
   const bugs = input.failures.map((failure, index) => createBugReport(input, failure, index));
   const summary: DeterministicQaSummary = redactJson({
     missionId: input.input.missionId,
@@ -435,7 +436,7 @@ function buildResult(input: BuildResultInput): DeterministicQaResult {
       stagingVisited: input.stagingVisited,
       scenarioCount: scenarioEvidence.length,
       manualActionScenarios,
-      evidence: input.evidence ?? {},
+      evidence,
     }),
     error: input.status === "failed" ? "Deterministic QA failed." : "",
     logs,
@@ -502,6 +503,7 @@ function renderQaReport(input: BuildResultInput, bugs: BugReport[], targetUrl: s
     `- Failed: ${input.failed}`,
     `- Manual action required: ${input.manualActionRequired ? "yes" : "no"}`,
     `- Scenario count: ${extractScenarioEvidence(input.evidence).length}`,
+    `- manualActionScenarios: ${formatManualActionScenarios(input)}`,
     "",
     "## Scenarios",
     renderScenarioSection(input),
@@ -513,6 +515,13 @@ function renderQaReport(input: BuildResultInput, bugs: BugReport[], targetUrl: s
     logs.length === 0 ? "- none" : logs.map((line) => `- ${line}`).join("\n"),
     "",
   ].join("\n");
+}
+
+function formatManualActionScenarios(input: BuildResultInput): string {
+  const manualActionScenarios = extractScenarioEvidence(input.evidence)
+    .filter((entry) => entry.status === "blocked")
+    .map((entry) => entry.scenarioId);
+  return manualActionScenarios.length === 0 ? "none" : manualActionScenarios.join(", ");
 }
 
 function renderScenarioSection(input: BuildResultInput): string {
