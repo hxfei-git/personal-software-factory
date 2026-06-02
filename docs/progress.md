@@ -2,10 +2,11 @@
 
 ## Latest Update
 
-Phase 18 documents Hub as an API-backed control plane for core resources and Mission creation, generic Mission dry-run action preflight, Approval decision recording, and WorkerRunner Mission action result/status events while preserving the default dry-run safety boundary.
+Batch 03/04 Task 5 connects queued `qa.playwright` Worker Runner jobs to deterministic QA payload passthrough, child resource persistence, and guarded Mission status transitions while preserving the no-network default safety boundary.
 
 Detailed phase rollups:
 
+- `docs/progress/batch-03-04-qa-and-local-codex.md`
 - `docs/progress/phase-18-hub-control-plane-and-generic-actions.md`
 - `docs/progress/phase-real-execution-and-integrations.md`
 

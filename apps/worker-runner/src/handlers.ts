@@ -58,6 +58,7 @@ export interface WorkerJobHandlerResult {
 export interface WorkerJobHandlerDependencies {
   codexRunner?: CodexRunner;
   deterministicQaExecute?: DeterministicQaInput["execute"];
+  deterministicQaRunner?: (input: DeterministicQaInput) => Promise<DeterministicQaResult>;
   aiExploratoryQaExecute?: AiExploratoryQaExecutor;
 }
 
@@ -87,8 +88,10 @@ export function createDefaultJobHandler(cwd = process.cwd(), deps: WorkerJobHand
         return toIntegrationHandlerResult(runIntegrationDryRun(resolveIntegrationName(job), buildIntegrationInput(job)));
       case "codex.real":
         return toCodexRealHandlerResult(await runCodexRealJob(cwd, job, deps));
-      case "qa.playwright":
-        return toDeterministicQaHandlerResult(await runDeterministicPlaywrightQa(buildDeterministicQaInput(job, deps)));
+      case "qa.playwright": {
+        const deterministicQaRunner = deps.deterministicQaRunner ?? runDeterministicPlaywrightQa;
+        return toDeterministicQaHandlerResult(await deterministicQaRunner(buildDeterministicQaInput(job, deps)));
+      }
       case "qa.ai_exploratory":
         return toAiExploratoryQaHandlerResult(await AiExploratoryQaRunner.real({
           env: buildAiExploratoryEnv(job),
@@ -304,10 +307,18 @@ function buildCodexRealInput(cwd: string, job: QueueWorkerJob) {
 
 function buildDeterministicQaInput(job: QueueWorkerJob, deps: WorkerJobHandlerDependencies): DeterministicQaInput {
   const targetUrl = stringValue(job.payload.targetUrl) ?? stringValue(job.payload.stagingUrl);
+  const passport = safeRecord(job.payload.passport);
+  const missionFiles = stringRecord(job.payload.missionFiles);
+  const qaCharter = stringValue(job.payload.qaCharter);
+  const e2eCommandMetadata = safeRecord(job.payload.e2eCommandMetadata);
   return {
     missionId: job.missionId,
     projectId: job.projectId,
     ...(targetUrl ? { targetUrl } : {}),
+    ...(passport ? { passport: passport as ProjectPassport } : {}),
+    ...(qaCharter ? { qaCharter } : {}),
+    ...(missionFiles ? { missionFiles } : {}),
+    ...(e2eCommandMetadata ? { e2eCommandMetadata } : {}),
     env: buildPlaywrightEnv(job),
     ...(deps.deterministicQaExecute ? { execute: deps.deterministicQaExecute } : {}),
   };
@@ -496,6 +507,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function stringRecord(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const entries = Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string");
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function stringArray(value: unknown): string[] {

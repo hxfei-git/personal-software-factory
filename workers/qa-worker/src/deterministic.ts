@@ -74,6 +74,7 @@ export interface DeterministicQaInput {
   passport?: ProjectPassport;
   qaCharter?: string;
   missionFiles?: Record<string, string>;
+  e2eCommandMetadata?: Record<string, unknown>;
   now?: string;
   env?: Env;
   execute?: (input: DeterministicQaExecutionInput) => Promise<DeterministicQaExecutionResult>;

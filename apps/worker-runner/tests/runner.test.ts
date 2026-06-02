@@ -3,8 +3,17 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildWorkerJob } from "@psf/worker-runtime";
-import { MissionStatus, type Artifact, type BugReport, type Mission, type MissionEvent, type WorkerRun } from "@psf/mission-schema";
+import {
+  MissionStatus,
+  type Artifact,
+  type BugReport,
+  type Mission,
+  type MissionEvent,
+  type ProjectPassport,
+  type WorkerRun,
+} from "@psf/mission-schema";
 import { createInMemoryMissionStorage } from "@psf/orchestrator-api/storage";
+import { runDeterministicPlaywrightQa, type DeterministicQaInput } from "@psf/qa-worker";
 import { createDefaultJobHandler } from "../src/handlers.js";
 import { processWorkerJob } from "../src/runner.js";
 
@@ -507,6 +516,113 @@ describe("worker runner", () => {
   });
 
 
+  it("persists qa.playwright child resources and passes enriched payload to deterministic QA", async () => {
+    let capturedInput: DeterministicQaInput | undefined;
+    const passport = projectPassport();
+    const missionFiles = {
+      "mission.md": "# Mission\n\nReview the ai-novelist home flow.\n",
+      "acceptance.md": "# Acceptance\n\n- Report deterministic failures.\n",
+      "technical-notes.md": "# Technical Notes\n\nUse injected QA runner only.\n",
+      "risk-notes.md": "# Risk Notes\n\nNo network or real browser.\n",
+    };
+    const e2eCommandMetadata = {
+      commands: ["pnpm test:e2e"],
+      executionPolicy: "review-only",
+    };
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-qa-playwright-resources", MissionStatus.qa_running)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-qa-playwright-resources", "qa.playwright", "job-qa-playwright")],
+    });
+    const job = buildWorkerJob({
+      id: "job-qa-playwright",
+      missionId: "mission-qa-playwright-resources",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "qa.playwright",
+      mode: "real",
+      payload: {
+        targetUrl: "https://example.test/app",
+        passport,
+        qaCharter: "QA Charter: cover open_home without external calls.",
+        missionFiles,
+        e2eCommandMetadata,
+      },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        deterministicQaRunner: async (input) => {
+          capturedInput = input;
+          return runDeterministicPlaywrightQa({
+            missionId: input.missionId,
+            projectId: input.projectId,
+            targetUrl: input.targetUrl ?? "",
+            now: "2026-05-31T00:01:30.000Z",
+            execute: async (executionInput) => ({
+              status: "failed",
+              passed: 0,
+              failed: 1,
+              logs: [`Injected deterministic QA visited ${executionInput.targetUrl}`],
+              browserOpened: false,
+              stagingVisited: true,
+              failures: [{
+                title: "Home flow did not render",
+                severity: "P1",
+                reproductionSteps: ["Open the target URL.", "Run the deterministic home flow."],
+                expectedResult: "The home flow renders.",
+                actualResult: "The home flow did not render.",
+                evidence: { scenarioId: "smoke_home", screenshotPath: executionInput.artifacts.screenshotsDir },
+              }],
+            }),
+          });
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(capturedInput).toMatchObject({
+      missionId: "mission-qa-playwright-resources",
+      projectId: "ai-novelist",
+      targetUrl: "https://example.test/app",
+      passport,
+      qaCharter: "QA Charter: cover open_home without external calls.",
+      missionFiles,
+      e2eCommandMetadata,
+    });
+    expect(wrapper.output).toMatchObject({
+      childWorkerRunIds: ["worker-run-mission-qa-playwright-resources-qa-deterministic"],
+      childQARunIds: ["qa-run-mission-qa-playwright-resources-deterministic"],
+      childBugReportIds: ["bug-mission-qa-playwright-resources-deterministic-1-home-flow-did-not-render"],
+    });
+    await expect(storage.getWorkerRun("worker-run-mission-qa-playwright-resources-qa-deterministic")).resolves.toMatchObject({
+      status: "failed",
+      worker_type: "qa",
+    });
+    await expect(storage.getQARun("qa-run-mission-qa-playwright-resources-deterministic")).resolves.toMatchObject({
+      status: "failed",
+      target_url: "https://example.test/app",
+    });
+    await expect(storage.getBug("bug-mission-qa-playwright-resources-deterministic-1-home-flow-did-not-render")).resolves.toMatchObject({
+      status: "open",
+      title: "Home flow did not render",
+    });
+    expect((await storage.listMissionArtifacts("mission-qa-playwright-resources")).map((artifact) => artifact.type)).toEqual(
+      expect.arrayContaining(["qa_report", "bugs_json", "screenshot", "playwright_trace", "log"]),
+    );
+    await expect(storage.getMission("mission-qa-playwright-resources")).resolves.toMatchObject({ status: MissionStatus.bugs_found });
+    expect(await storage.listMissionEvents("mission-qa-playwright-resources")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "qa.completed" }),
+      expect.objectContaining({
+        type: "mission.status.auto_transition",
+        payload: expect.objectContaining({ from: MissionStatus.qa_running, to: MissionStatus.bugs_found }),
+      }),
+    ]));
+  });
+
+
   it.each([
     {
       type: "codex.real" as const,
@@ -755,5 +871,37 @@ function bug(id: string): BugReport {
     source: "qa-worker",
     created_at: "2026-05-31T00:00:00.000Z",
     updated_at: "2026-05-31T00:00:00.000Z",
+  };
+}
+
+function projectPassport(): ProjectPassport {
+  return {
+    id: "ai-novelist",
+    name: "AI Novelist",
+    description: "Deterministic QA fixture passport.",
+    repo: {
+      url: "https://example.invalid/ai-novelist.git",
+      default_branch: "main",
+    },
+    runtime: { kind: "web" },
+    commands: {
+      install: "pnpm install --lockfile-only",
+      test: "pnpm test",
+      build: "pnpm build",
+      run_staging: "pnpm dev",
+      e2e: ["pnpm test:e2e"],
+    },
+    urls: {
+      production: "",
+      local: "http://127.0.0.1:5173",
+      staging: "https://example.test/app",
+    },
+    quality_gates: {
+      require_build: true,
+      require_unit_tests: true,
+      require_e2e_tests: true,
+      require_pr_review: true,
+    },
+    core_flows: [{ id: "open_home", name: "Open home", priority: "P1" }],
   };
 }
