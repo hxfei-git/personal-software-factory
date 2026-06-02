@@ -2,6 +2,7 @@ import type { IntegrationEnv } from "./types.js";
 
 const REDACTED = "[REDACTED]";
 const URL_PATTERN = /https?:\/\/[^\s"\x27<>)]+/g;
+const AUTHORIZATION_VALUE_PATTERN = /\b(authorization\b\s*[:=]\s*)(?:Bearer\s+)?[^\r\n,;)]+/gi;
 const SECRET_ASSIGNMENT_PATTERN = /\b(token|password|secret|cookie|credential|authorization|apiKey|api_key|api-key|privateKey|private_key|accessKey|access_key)\b(\s*[:=]\s*)([^&\s,;]+)/gi;
 
 export function isSecretLikeName(name: string): boolean {
@@ -49,7 +50,9 @@ function scrubUrl(candidate: string): string {
 }
 
 function scrubSecretAssignments(value: string): string {
-  return value.replace(SECRET_ASSIGNMENT_PATTERN, (_match, key: string, separator: string) => `${key}${separator}${REDACTED}`);
+  return value
+    .replace(AUTHORIZATION_VALUE_PATTERN, (_match, prefix: string) => `${prefix}${REDACTED}`)
+    .replace(SECRET_ASSIGNMENT_PATTERN, (_match, key: string, separator: string) => `${key}${separator}${REDACTED}`);
 }
 
 export function redactText(value: string, env: IntegrationEnv = {}): string {

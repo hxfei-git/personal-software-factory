@@ -560,6 +560,80 @@ describe("worker runner", () => {
     expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "mission.status.auto_transition" })]));
   });
 
+  it("does not auto-transition qa.ai_exploratory blocked manual-action results", async () => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-qa-ai-blocked", MissionStatus.qa_running)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-qa-ai-blocked", "qa.ai_exploratory", "job-qa-ai")],
+    });
+    const job = buildWorkerJob({
+      id: "job-qa-ai",
+      missionId: "mission-qa-ai-blocked",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "qa.ai_exploratory",
+      mode: "real",
+      payload: { targetUrl: "https://example.test/app" },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd()),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(wrapper.status).toBe("succeeded");
+    expect(wrapper.output).toMatchObject({
+      status: "blocked",
+      manualActionRequired: true,
+    });
+    await expect(storage.getMission("mission-qa-ai-blocked")).resolves.toMatchObject({ status: MissionStatus.qa_running });
+    const events = await storage.listMissionEvents("mission-qa-ai-blocked");
+    expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "mission.status.auto_transition" })]));
+  }, 15_000);
+
+  it("keeps child event persistence idempotent when deterministic QA is retried", async () => {
+    const storage = createInMemoryMissionStorage({
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-qa-idempotent", "qa.playwright", "job-qa-idempotent")],
+    });
+    const seenEventIds = new Set<string>();
+    const originalAppend = storage.appendMissionEvent.bind(storage);
+    storage.appendMissionEvent = async (event) => {
+      if (seenEventIds.has(event.id)) {
+        throw new Error(`duplicate event ${event.id}`);
+      }
+      seenEventIds.add(event.id);
+      return originalAppend(event);
+    };
+    const job = buildWorkerJob({
+      id: "job-qa-idempotent",
+      missionId: "mission-qa-idempotent",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "qa.playwright",
+      mode: "real",
+      payload: {},
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd()),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+    const secondWrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd()),
+      now: sequenceNow(["2026-05-31T00:03:00.000Z", "2026-05-31T00:04:00.000Z"]),
+    });
+
+    expect(secondWrapper.status).toBe("succeeded");
+    expect(secondWrapper.output).toMatchObject({ status: "blocked", manualActionRequired: true });
+  });
+
   it("passes project context to real deterministic QA and blocks unverified scenarios without executing browser", async () => {
     let executeCalled = false;
     const storage = createInMemoryMissionStorage({
@@ -759,7 +833,7 @@ describe("worker runner", () => {
     {
       type: "qa.playwright" as const,
       payload: { targetUrl: "https://example.test/app" },
-      expectedSummary: "Deterministic QA passed through injected runner.",
+      expectedSummary: "manual action required",
       deps: {
         deterministicQaExecute: async () => ({
           status: "passed" as const,

@@ -92,8 +92,12 @@ export function createDefaultJobHandler(cwd = process.cwd(), deps: WorkerJobHand
       case "codex.real":
         return toCodexRealHandlerResult(await runCodexRealJob(cwd, job, deps));
       case "qa.playwright": {
+        const deterministicQaInput = buildDeterministicQaInput(job, deps);
+        if (!hasQueuedQaProjectContext(job.payload)) {
+          return toDeterministicQaHandlerResult(await runDeterministicPlaywrightQa(withFallbackQaProjectContext(deterministicQaInput)));
+        }
         const deterministicQaRunner = deps.deterministicQaRunner ?? runDeterministicPlaywrightQa;
-        return toDeterministicQaHandlerResult(await deterministicQaRunner(buildDeterministicQaInput(job, deps)));
+        return toDeterministicQaHandlerResult(await deterministicQaRunner(deterministicQaInput));
       }
       case "qa.ai_exploratory":
         return toAiExploratoryQaHandlerResult(await AiExploratoryQaRunner.real({
@@ -295,6 +299,9 @@ function toAiExploratoryQaHandlerResult(result: AiExploratoryQaResult): WorkerJo
       : result.status === "failed"
         ? "Review AI exploratory findings and convert reproducible bugs into deterministic regressions."
         : "Review AI exploratory QA artifacts and continue the Mission.",
+    status: result.status,
+    manualActionRequired: result.manualActionRequired,
+    reason: result.summary.logs[0] ?? result.qaRun.summary,
     childWorkerRuns: [result.workerRun],
     childQARuns: [result.qaRun],
     childArtifacts: result.artifacts,
@@ -418,6 +425,24 @@ function buildDeterministicQaInput(job: QueueWorkerJob, deps: WorkerJobHandlerDe
     ...(e2eCommandMetadata ? { e2eCommandMetadata } : {}),
     env: buildPlaywrightEnv(job),
     ...(deps.deterministicQaExecute ? { execute: deps.deterministicQaExecute } : {}),
+  };
+}
+
+function hasQueuedQaProjectContext(payload: Record<string, unknown>): boolean {
+  return safeRecord(payload.passport) !== undefined
+    || stringValue(payload.qaCharter) !== undefined
+    || stringRecord(payload.missionFiles) !== undefined;
+}
+
+function withFallbackQaProjectContext(input: DeterministicQaInput): DeterministicQaInput {
+  return {
+    ...input,
+    missionFiles: input.missionFiles ?? {
+      "mission.md": `# ${input.missionId}\n\nQueue QA job did not include project mission context.`,
+      "acceptance.md": "# Acceptance\n\n- Manual selector verification is required before deterministic QA can pass.",
+      "technical-notes.md": "# Technical Notes\n\n- Orchestrator must enqueue qa.playwright with passport, qaCharter, and missionFiles.",
+      "risk-notes.md": "# Risk Notes\n\n- Do not mark QA passed without project QA context and verified selectors.",
+    },
   };
 }
 

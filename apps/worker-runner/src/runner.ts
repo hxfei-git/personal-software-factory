@@ -143,7 +143,7 @@ function automaticTransitionPath(
   }
 
   if (jobType.startsWith("qa.") && currentStatus === MissionStatus.qa_running) {
-    if (isBlockedQaPlaywrightResult(jobType, result)) {
+    if (isBlockedQaResult(jobType, result)) {
       return [];
     }
     const nextStatus = hasBugs ? MissionStatus.bugs_found : MissionStatus.ready_for_review;
@@ -161,8 +161,9 @@ function automaticTransitionPath(
   return [];
 }
 
-function isBlockedQaPlaywrightResult(jobType: string, result: WorkerJobHandlerResult): boolean {
-  return jobType === "qa.playwright" && (result.manualActionRequired === true || result.status === "blocked");
+function isBlockedQaResult(jobType: string, result: WorkerJobHandlerResult): boolean {
+  return jobType.startsWith("qa.")
+    && (result.manualActionRequired === true || result.status === "blocked" || result.status === "manual_action");
 }
 
 function hasBugReports(result: WorkerJobHandlerResult): boolean {
@@ -323,8 +324,14 @@ async function persistChildResources(
       });
     }
   }
-  for (const event of result.childEvents ?? []) {
-    await storage.appendMissionEvent(event);
+  if ((result.childEvents?.length ?? 0) > 0) {
+    const existingEventIds = new Set((await storage.listMissionEvents(job.missionId)).map((event) => event.id));
+    for (const event of result.childEvents ?? []) {
+      if (!existingEventIds.has(event.id)) {
+        await storage.appendMissionEvent(event);
+        existingEventIds.add(event.id);
+      }
+    }
   }
 }
 
