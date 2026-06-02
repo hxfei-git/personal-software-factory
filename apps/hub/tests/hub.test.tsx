@@ -472,7 +472,12 @@ const dashboard: DashboardResponse = {
       reproduction_steps: ["Open mission detail"],
       expected_result: "Ready status is visible",
       actual_result: "Status is hidden",
-      evidence: {},
+      evidence: {
+        screenshotPath: "artifacts/missions/mission-0001/worker-run-qa/qa/screenshots/duplicate-click.png",
+        tracePath: "artifacts/missions/mission-0001/worker-run-qa/qa/trace.zip",
+        logPath: "artifacts/missions/mission-0001/worker-run-qa/qa/run.log",
+        scenarioId: "duplicate-click",
+      },
       created_at: now,
       updated_at: now,
     },
@@ -502,6 +507,10 @@ const dashboard: DashboardResponse = {
       mode: "mock",
       status: "failed",
       summary: "Failed QA.",
+      report_path: "artifacts/missions/mission-0001/worker-run-qa/qa/qa-report.md",
+      screenshots_dir: "artifacts/missions/mission-0001/worker-run-qa/qa/screenshots",
+      trace_path: "artifacts/missions/mission-0001/worker-run-qa/qa/trace.zip",
+      bugs_json_path: "artifacts/missions/mission-0001/worker-run-qa/qa/bugs.json",
       passed: 3,
       failed: 1,
       bugs: [],
@@ -517,7 +526,47 @@ const dashboard: DashboardResponse = {
       path: "missions/mission-0001-ai-novelist-chapter-review/qa-report.md",
       content: "# QA Report",
       size: 11,
-      metadata: {},
+      metadata: {
+        name: "qa-report.md",
+        path: "artifacts/missions/mission-0001/worker-run-qa/qa/qa-report.md",
+        scenarioId: "duplicate-click",
+      },
+      created_at: now,
+    },
+    {
+      id: "artifact-screenshot",
+      mission_id: "mission-0001-ai-novelist-chapter-review",
+      type: "screenshot",
+      path: "artifacts/missions/mission-0001/worker-run-qa/qa/screenshots/duplicate-click.png",
+      size: 2048,
+      metadata: { name: "duplicate-click.png", scenarioId: "duplicate-click", secretToken: "hidden-token-value" },
+      created_at: now,
+    },
+    {
+      id: "artifact-trace",
+      mission_id: "mission-0001-ai-novelist-chapter-review",
+      type: "playwright_trace",
+      path: "artifacts/missions/mission-0001/worker-run-qa/qa/trace.zip",
+      size: 4096,
+      metadata: { name: "trace.zip", scenarioId: "duplicate-click" },
+      created_at: now,
+    },
+    {
+      id: "artifact-log",
+      mission_id: "mission-0001-ai-novelist-chapter-review",
+      type: "log",
+      path: "artifacts/missions/mission-0001/worker-run-qa/qa/run.log",
+      size: 512,
+      metadata: { name: "run.log", scenarioId: "duplicate-click" },
+      created_at: now,
+    },
+    {
+      id: "artifact-generated-test",
+      mission_id: "mission-0001-ai-novelist-chapter-review",
+      type: "generated_test",
+      path: "artifacts/missions/mission-0001/worker-run-qa/qa/generated/duplicate-click.spec.ts",
+      size: 1024,
+      metadata: { name: "duplicate-click.spec.ts", scenarioId: "duplicate-click" },
       created_at: now,
     },
   ],
@@ -580,9 +629,12 @@ const missionSummary: MissionSummaryResponse = {
       output: {
         jobId: "job-queued-123",
         jobType: "qa.dry_run",
+        status: "blocked",
+        manualActionRequired: true,
+        reason: "Target URL unavailable for QA",
         childWorkerRunIds: ["worker-run-dashboard"],
         childQARunIds: ["qa-run-dashboard"],
-        childArtifactIds: ["artifact-qa"],
+        childArtifactIds: ["artifact-qa", "artifact-screenshot", "artifact-trace", "artifact-log", "artifact-generated-test"],
         childBugReportIds: ["bug-dashboard-p1"],
         recommendedNextAction: "Refresh Mission Summary after Worker Runner processes the job",
       },
@@ -1372,9 +1424,36 @@ describe("Hub render helpers", () => {
     expect(text).toContain("Queue wrapper");
     expect(text).toContain("job-queued-123");
     expect(text).toContain("qa.dry_run");
+    expect(text).toContain("output status blocked");
+    expect(text).toContain("manualActionRequired true");
+    expect(text).toContain("Target URL unavailable for QA");
     expect(text).toContain("Child WorkerRuns");
     expect(text).toContain("worker-run-dashboard");
+    expect(text).toContain("Child QARuns");
+    expect(text).toContain("qa-run-dashboard");
+    expect(text).toContain("Child Artifacts");
+    expect(text).toContain("artifact-qa");
+    expect(text).toContain("Child Bugs");
+    expect(text).toContain("bug-dashboard-p1");
     expect(text).toContain("Unit test failed");
+    expect(text).toContain("artifacts/missions/mission-0001/worker-run-qa/qa/screenshots");
+    expect(text).toContain("artifacts/missions/mission-0001/worker-run-qa/qa/trace.zip");
+    expect(text).toContain("artifacts/missions/mission-0001/worker-run-qa/qa/bugs.json");
+    expect(text).toContain("artifacts/missions/mission-0001/worker-run-qa/qa/screenshots/duplicate-click.png");
+    expect(text).toContain("artifacts/missions/mission-0001/worker-run-qa/qa/run.log");
+    expect(text).toContain("scenarioId duplicate-click");
+    expect(text).toContain("metadata name qa-report.md");
+    expect(text).toContain("metadata path artifacts/missions/mission-0001/worker-run-qa/qa/qa-report.md");
+    expect(text).toContain("screenshot");
+    expect(text).toContain("name duplicate-click.png");
+    expect(text).toContain("playwright_trace");
+    expect(text).toContain("name trace.zip");
+    expect(text).toContain("log");
+    expect(text).toContain("name run.log");
+    expect(text).toContain("generated_test");
+    expect(text).toContain("name duplicate-click.spec.ts");
+    expect(text).toContain("artifacts/missions/mission-0001/worker-run-qa/qa/generated/duplicate-click.spec.ts");
+    expect(text).not.toContain("hidden-token-value");
   });
 
   it("renders real-mode readiness, blockers, links, statuses, and guarded real actions without secrets", () => {
