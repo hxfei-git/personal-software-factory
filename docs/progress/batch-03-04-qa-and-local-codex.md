@@ -26,6 +26,14 @@
 - Branch names for real Codex are rejected when they target `main`, `master`, or anything outside `agent/`.
 - API responses and queued payload assertions cover secret-value redaction while preserving `realNetworkCall: false` and avoiding any real Codex execution, clone, push, or provider call.
 
+## Task 8 Worker Runner Codex Integration
+
+- `codex.real` Worker Runner jobs now pass the queued Codex context through to the injected or real Codex runner input: Project Passport, mission files, AGENTS.md context, repo/default branch, `agent/*` branch, workspace root, commands, approval grant IDs, and approval record IDs.
+- Codex runner results are adapted without copying Codex Worker business logic: child WorkerRun, Artifact, and MissionEvent resources are persisted beneath the queue wrapper, and wrapper output plus `mission.action_result` record child IDs, safe summary, recommended next action, status, and reason.
+- Blocked and manual-action Codex outcomes are recorded as safe wrapper/action-result summaries and do not advance Missions to ready/released success states.
+- Worker Runner sanitizes handler results before persistence so raw token, password, API key, secret, authorization, session, and credential values do not leak through wrapper output, child resources, artifacts, or events.
+- Tests use injected Codex runners only; no real Codex executable, clone, push, deploy, release transition, or network access is performed.
+
 ## Verification
 
 ```bash

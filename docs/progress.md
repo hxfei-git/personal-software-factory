@@ -2,7 +2,7 @@
 
 ## Latest Update
 
-Batch 03/04 Task 6 adds a Codex Worker fixture proof for gated local real mode: local mirror, `agent/*` worktree, no `main` mutation, no push/provider calls, and redacted Codex artifacts, while real Codex remains disabled by default.
+Batch 03/04 Task 8 connects queued `codex.real` Worker Runner jobs to injected/real Codex runners while preserving default gates: enriched payload context is passed through, child resources are persisted under the wrapper WorkerRun, outputs are redacted, and no push, deploy, release transition, real Codex executable, clone, or network call is performed by default.
 
 Detailed phase rollups:
 

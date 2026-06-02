@@ -14,6 +14,7 @@ import {
 } from "@psf/mission-schema";
 import { createInMemoryMissionStorage } from "@psf/orchestrator-api/storage";
 import { runDeterministicPlaywrightQa, type DeterministicQaInput } from "@psf/qa-worker";
+import type { CodexExecutionRequest } from "@psf/codex-worker";
 import { createDefaultJobHandler } from "../src/handlers.js";
 import { processWorkerJob } from "../src/runner.js";
 
@@ -876,7 +877,255 @@ describe("worker runner", () => {
     );
   }, 15_000);
 
+  it("persists codex.real child resources and records wrapper status and reason", async () => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-real", MissionStatus.fixing)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const childRun = workerRun("worker-run-mission-real-codex", "codex", "failed", "real");
+    const childArtifact = artifact("artifact-mission-codex-dev-summary", childRun.id, "dev_summary");
+    const childEvent = event("codex.real.failed");
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload: {},
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        codexRunner: {
+          run: async () => ({
+            status: "failed",
+            executed: false,
+            reason: "Codex runner failed safely.",
+            workerRun: childRun,
+            artifacts: [childArtifact],
+            events: [childEvent],
+            stdout: "",
+            stderr: "safe failure",
+          }),
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(wrapper.output).toMatchObject({
+      childWorkerRunIds: [childRun.id],
+      childArtifactIds: [childArtifact.id],
+      summary: "Codex runner failed safely.",
+      recommendedNextAction: "Inspect Codex worker stderr and artifacts before retrying.",
+      status: "failed",
+      reason: "Codex runner failed safely.",
+    });
+    await expect(storage.getWorkerRun(childRun.id)).resolves.toMatchObject({ id: childRun.id, worker_type: "codex" });
+    await expect(storage.getArtifact(childArtifact.id)).resolves.toMatchObject({ id: childArtifact.id, worker_run_id: childRun.id });
+    expect(await storage.listMissionEvents("mission-real")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "codex.real.failed" }),
+      expect.objectContaining({
+        type: "mission.action_result",
+        payload: expect.objectContaining({
+          childWorkerRunIds: [childRun.id],
+          childArtifactIds: [childArtifact.id],
+          status: "failed",
+          reason: "Codex runner failed safely.",
+        }),
+      }),
+    ]));
+  });
+
+  it("passes enriched codex.real payload through to the injected Codex runner", async () => {
+    let capturedInput: CodexExecutionRequest | undefined;
+    const storage = createInMemoryMissionStorage({
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const missionFiles = {
+      "mission.md": "# Mission\n\nImplement the change.\n",
+      "acceptance.md": "# Acceptance\n\n- Tests pass.\n",
+      "technical-notes.md": "# Technical Notes\n\nUse existing adapters.\n",
+      "risk-notes.md": "# Risk Notes\n\nNo push.\n",
+    };
+    const payload = {
+      passport: projectPassport(),
+      missionFiles,
+      projectAgents: "Follow AGENTS.md and do not expose secrets.",
+      repoUrl: "/tmp/ai-novelist.git",
+      defaultBranch: "trunk",
+      branchName: "agent/mission-real",
+      workspaceRoot: "/tmp/psf-workspaces",
+      commands: ["pnpm --filter ai-novelist test"],
+      approvalIds: ["approval-real-codex"],
+      approvalRecordIds: ["approval-record-real-codex"],
+    };
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload,
+      timeoutMs: 123_456,
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        codexRunner: {
+          run: async (input) => {
+            capturedInput = input;
+            return codexResult("succeeded", "Codex runner completed safely.");
+          },
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(capturedInput).toMatchObject({
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      mode: "real",
+      passport: payload.passport,
+      missionFiles,
+      projectAgents: payload.projectAgents,
+      repoUrl: payload.repoUrl,
+      defaultBranch: payload.defaultBranch,
+      branchName: payload.branchName,
+      workspaceRoot: payload.workspaceRoot,
+      commands: payload.commands,
+      approvalIds: payload.approvalIds,
+      approvalRecordIds: payload.approvalRecordIds,
+      timeoutMs: 123_456,
+    });
+  });
+
+  it.each([
+    ["blocked" as const, "Codex gates blocked execution."],
+    ["manual_action" as const, "Manual action is required before Codex can run."],
+  ])("does not advance Mission to success states when codex.real returns %s", async (status, reason) => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-real", MissionStatus.fixing)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload: {},
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        codexRunner: { run: async () => codexResult(status, reason) },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(wrapper.output).toMatchObject({ status, reason, summary: reason });
+    await expect(storage.getMission("mission-real")).resolves.toMatchObject({ status: MissionStatus.fixing });
+    expect(await storage.listMissionEvents("mission-real")).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "mission.status.auto_transition",
+        payload: expect.objectContaining({ to: MissionStatus.ready_for_review }),
+      }),
+      expect.objectContaining({
+        type: "mission.status.auto_transition",
+        payload: expect.objectContaining({ to: "released" }),
+      }),
+    ]));
+  });
+
+  it("redacts secrets from codex.real wrapper output, action result, artifacts, and events", async () => {
+    const storage = createInMemoryMissionStorage({
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const secretText = "token=raw-token password=raw-password apiKey=raw-api-key";
+    const unsafeWorkerRun = {
+      ...workerRun("worker-run-mission-real-codex", "codex", "failed", "real"),
+      output: { reason: secretText },
+      error: secretText,
+      logs: [secretText],
+    };
+    const unsafeArtifact = {
+      ...artifact("artifact-mission-codex-secret", unsafeWorkerRun.id, "dev_summary"),
+      content: secretText,
+      metadata: { token: "raw-token" },
+    };
+    const unsafeEvent = {
+      ...event("codex.real.failed"),
+      message: secretText,
+      payload: { password: "raw-password", nested: { apiKey: "raw-api-key" } },
+    };
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload: {},
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        codexRunner: {
+          run: async () => ({
+            status: "failed",
+            executed: false,
+            reason: secretText,
+            workerRun: unsafeWorkerRun,
+            artifacts: [unsafeArtifact],
+            events: [unsafeEvent],
+            stdout: secretText,
+            stderr: secretText,
+          }),
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    const persistedJson = JSON.stringify({
+      wrapper: await storage.getWorkerRun("worker-run-wrapper"),
+      child: await storage.getWorkerRun(unsafeWorkerRun.id),
+      artifact: await storage.getArtifact(unsafeArtifact.id),
+      events: await storage.listMissionEvents("mission-real"),
+    });
+    expect(persistedJson).not.toMatch(/raw-token|raw-password|raw-api-key/);
+    expect(persistedJson).not.toMatch(/token=raw|password=raw|apiKey=raw/i);
+    expect(persistedJson).toContain("[REDACTED]");
+  });
+
 });
+
+function codexResult(status: "blocked" | "manual_action" | "succeeded" | "failed", reason: string) {
+  return {
+    status,
+    executed: false,
+    reason,
+    workerRun: workerRun("worker-run-mission-real-codex", "codex", status === "succeeded" ? "succeeded" : status === "failed" ? "failed" : "skipped", "real"),
+    artifacts: [artifact("artifact-mission-codex-dev-summary", "worker-run-mission-real-codex", "dev_summary")],
+    events: [event(`codex.real.${status}`)],
+    stdout: "",
+    stderr: "",
+  };
+}
 
 async function createDemoCwd(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "psf-worker-runner-"));

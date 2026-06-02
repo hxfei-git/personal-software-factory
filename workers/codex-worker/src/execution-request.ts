@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ProjectPassport } from "@psf/mission-schema";
 
 export const CodexExecutionModeSchema = z.enum(["dry-run", "mock", "real"]);
 
@@ -15,7 +16,10 @@ export const CodexExecutionRequestSchema = z.object({
   repoUrl: z.string().min(1),
   defaultBranch: z.string().min(1),
   missionFiles: CodexMissionFilesSchema,
+  passport: z.custom<ProjectPassport>().optional(),
+  projectAgents: z.string().optional(),
   approvalIds: z.array(z.string().min(1)).default([]),
+  approvalRecordIds: z.array(z.string().min(1)).default([]),
   commands: z.array(z.string().min(1)).default([]),
   branchName: z.string().min(1).optional(),
   workspaceRoot: z.string().min(1).optional(),

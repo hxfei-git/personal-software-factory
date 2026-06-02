@@ -36,7 +36,7 @@ export async function processWorkerJob(input: ProcessWorkerJobInput): Promise<Wo
   });
 
   try {
-    const result = await input.handler(input.job);
+    const result = sanitizeWorkerJobHandlerResult(await input.handler(input.job));
     const succeededAt = now();
     await persistChildResources(input.storage, input.job, result, succeededAt);
     const latest = await input.storage.getWorkerRun(input.job.workerRunId) ?? running;
@@ -348,6 +348,30 @@ function buildChildEvent(
     },
     created_at: timestamp,
   };
+}
+
+function sanitizeWorkerJobHandlerResult(result: WorkerJobHandlerResult): WorkerJobHandlerResult {
+  return sanitizeJsonValue(result) as WorkerJobHandlerResult;
+}
+
+const secretKeyPattern = /(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|authorization|credential|session|jwt|bearer|cookie)/i;
+
+function sanitizeJsonValue(value: unknown, key = ""): unknown {
+  if (typeof value === "string") {
+    return secretKeyPattern.test(key) ? "[REDACTED]" : redactSecretLikeText(value);
+  }
+  if (typeof value !== "object" || value === null) {
+    return secretKeyPattern.test(key) && value !== undefined ? "[REDACTED]" : value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeJsonValue(item, key));
+  }
+
+  const sanitized: Record<string, unknown> = {};
+  for (const [entryKey, entryValue] of Object.entries(value)) {
+    sanitized[entryKey] = sanitizeJsonValue(entryValue, entryKey);
+  }
+  return sanitized;
 }
 
 function safeErrorSummary(error: unknown): string {
