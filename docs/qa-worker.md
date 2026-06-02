@@ -53,9 +53,10 @@ Inputs:
 
 Behavior:
 
-- If no target URL exists, the result is `status=blocked`, `manualActionRequired=true`, `browserOpened=false`, and the `QARun` is `status=skipped`.
+- If no target URL exists, or the configured target URL is invalid, the result is `status=blocked`, `manualActionRequired=true`, `browserOpened=false`, and the `QARun` is `status=skipped`.
+- If a scenario depends on selectors that cannot be verified by an injected or gated real runner, the result stays blocked/manual-action instead of fabricating `passed`.
 - If a target URL exists but `ENABLE_REAL_PLAYWRIGHT` is not `1`, the real browser path remains blocked unless an injected runner is supplied.
-- Injected runners are used by unit tests and do not open browsers unless the injected implementation explicitly reports that it did.
+- Injected runners are used by unit tests and fixture proof paths. They do not open browsers unless the injected implementation explicitly reports that it did.
 - Real Playwright is dynamically imported only when `ENABLE_REAL_PLAYWRIGHT=1`, a target URL is present, and no injected runner is supplied.
 
 Outputs:
@@ -64,6 +65,7 @@ Outputs:
 - `bugs.json`.
 - `qa-summary.json`.
 - Canonical artifact records under `artifacts/missions/<mission-id>/<worker-run-id>/` using artifact-store path policy.
+- Scenario evidence records include `scenarioId` and may include path-only `screenshotPath`, `tracePath`, and `logPath` values when the runner supplies those files.
 - Failing assertions become schema-valid `BugReport` records with reproduction steps, expected result, actual result, and redacted evidence.
 
 Secrets in logs, summaries, evidence, and artifact content are redacted with `@psf/security` before records are returned.

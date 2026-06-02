@@ -2,7 +2,11 @@
 
 ## Latest Update
 
-Batch 03/04 Task 8 connects queued `codex.real` Worker Runner jobs to injected Codex runners while preserving default gates: Worker Runner requires local repoUrl plus `agent/*` branch preflight, returns manual action without an injected runner, persists child resources under the wrapper WorkerRun, redacts outputs, and fails auditably when child event persistence fails.
+Batch 03/04 is complete for the local QA and local Codex proof surfaces. Orchestrator now queues `qa.playwright` with Project Passport, QA charter, target URL, Mission files, and e2e command metadata, and queues `codex.real` only after local mirror preflight builds a safe payload with Mission files, project `AGENTS.md`, review-only commands, workspace root, default branch, and an `agent/*` branch.
+
+Deterministic QA now records scenario-level evidence, blocks missing or invalid `targetUrl` and unverified selectors as manual action instead of fabricating `passed`, and persists screenshot, trace, log, and scenario IDs when present. Worker Runner persists queued QA child resources and conservative status outcomes under the queue wrapper WorkerRun. Codex fixture proof covers an operator-prepared local mirror, isolated worktree, `agent/*` branch, injected spawn path, generated artifacts, no mirror `main` mutation, no push, and no external provider call.
+
+Worker Runner `codex.real` integration remains default-safe: it requires local `repoUrl` and `agent/*` branch preflight, returns `manual_action` without an injected runner, and only passes queued context to an injected runner in this phase. Hub Mission detail and resource views expose QA evidence paths while display redaction prevents token, password, API key, authorization, session, credential, and secret-like values from rendering.
 
 Detailed phase rollups:
 

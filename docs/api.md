@@ -251,15 +251,25 @@ Blocked response shape:
 }
 ```
 
-When queued mode and the route-specific gate are both enabled, the API creates the existing queue wrapper WorkerRun and enqueues only the mapped whitelisted job type. Required approval types must already exist as approved Approvals on the same Mission; otherwise the route returns `accepted: false`, includes `missingApprovalTypes`, and does not create a WorkerRun or queue job. The queued response has `accepted: true`, `status: queued`, `mode: real` on the wrapper WorkerRun, and `realNetworkCall: false`. Worker Runner handlers for these real/gated job types are intentionally not implemented until Task 9.
+When queued mode and the route-specific gate are both enabled, the API creates the existing queue wrapper WorkerRun and enqueues only the mapped whitelisted job type. Required approval types must already exist as approved Approvals on the same Mission; otherwise the route returns `accepted: false`, includes `missingApprovalTypes`, and does not create a WorkerRun or queue job. The queued response has `accepted: true`, `status: queued`, `mode: real` on the wrapper WorkerRun, and `realNetworkCall: false`. Action responses and queued payloads must continue to redact secret-like values.
 
-Request body is strict and currently accepts only an optional approval reference. This reference is not sufficient by itself; the gate is enforced from stored approved Mission approvals:
+Request body is strict and accepts only the fields needed by the gated contracts. `approvalId` is a reference only; it is not sufficient by itself because the gate is enforced from stored approved Mission approvals:
 
 ```json
 {
-  "approvalId": "approval-123"
+  "approvalId": "approval-123",
+  "targetUrl": "http://127.0.0.1:8999/app",
+  "repoUrl": "/home/user/psf-workspaces/mirrors/ai-novelist.git",
+  "branchName": "agent/mission-123",
+  "workspaceRoot": "/home/user/psf-workspaces"
 }
 ```
+
+`qa-playwright` queued payloads include the Project Passport, QA charter, resolved target URL, Mission files, and e2e command metadata with `executionPolicy: "review-only"`. Missing or invalid target URLs are blocked before a real browser path is attempted; the API must not report a passed QA result from missing context.
+
+`codex-real` queued preflight requires a local repository mirror from the request body or a local `PSF_LOCAL_REPO_<project>` environment fallback. GitHub HTTPS/SSH passport repository URLs are blocked at this stage, because remote clone/update is still manual operator preparation. The queued Codex payload includes the local `repoUrl`, default branch, `agent/*` branch, workspace root, Project Passport, Mission files, project `AGENTS.md`, safe command metadata, approval record IDs, and approval grant IDs. Branch names targeting `main`, `master`, or anything outside `agent/` are rejected.
+
+Worker Runner currently persists `qa.playwright` and `codex.real` child resources for injected or deterministic paths, but default `codex.real` still returns `manual_action` without an injected runner. These routes still do not run Codex, push, create PRs, deploy, call external providers, or set `realNetworkCall` to `true`.
 
 ### POST /demo/ai-novelist
 

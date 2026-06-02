@@ -35,9 +35,11 @@ The runner receives a `CodexExecutionRequest`, validates it with Zod, checks eac
 
 Approval should be required before real Codex execution when a Mission is high-risk, touches secrets, performs destructive operations, changes databases, or could create external cost. Approval still must not automatically imply push, PR creation, deployment, or provider calls.
 
-## Future Integration Shape
+## Queued Integration Shape
 
-A later queued integration can consume the same request shape, call the gated runner, persist WorkerRun/MissionEvent records, and stop before any push or production action unless a later approved phase adds those capabilities.
+Batch 03/04 adds the queued `codex.real` shape through Orchestrator and Worker Runner, but the Worker Runner path still requires an injected runner and otherwise returns `manual_action`. The queued payload must point at an operator-prepared local mirror, use an `agent/*` branch, include approval context, and carry only safe project/Mission context. This proves persistence and gating, not live Codex execution.
+
+A later approved queued integration can wire the default Worker Runner path to the gated runner, persist WorkerRun/MissionEvent records, and still stop before any push or production action unless a later approved phase adds those capabilities.
 
 ## Current Gates
 
@@ -53,4 +55,4 @@ Real mode returns `blocked` or `manual_action` unless all of these are true:
 8. Requested commands pass the shared command policy before workspace leasing.
 9. `timeoutMs` does not exceed `PSF_REAL_CODEX_MAX_RUNTIME_MS`.
 
-The runner persists redacted prompt, command, stdout, stderr, dev summary, diff summary, and local commit summary artifacts through `@psf/artifact-store`. Secret-like environment variable values are included as extra redaction inputs, but the Codex child process itself receives only a strict allowlist of non-secret environment variables plus Mission/Project identifiers. Timed-out executable processes are escalated from `SIGTERM` to `SIGKILL` with a hard fallback. It does not push, deploy, create PRs, or call external APIs.
+The runner persists redacted prompt, command, stdout, stderr, dev summary, diff summary, and local commit summary artifacts through `@psf/artifact-store`. Secret-like environment variable values are included as extra redaction inputs, but the Codex child process itself receives only a strict allowlist of non-secret environment variables plus Mission/Project identifiers. Timed-out executable processes are escalated from `SIGTERM` to `SIGKILL` with a hard fallback. It does not push, deploy, create PRs, or call external APIs. In Worker Runner Task 8, these gates are exercised through fixture/injected-runner paths only; no default real Codex spawn is enabled.
