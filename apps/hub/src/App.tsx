@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactElement } from "react";
 import { createOrchestratorClient, type OrchestratorClient } from "./api/client";
+import { isSensitiveKey, redactDisplayValue } from "./displaySafety";
 import { renderMissionCreationView, renderMissionsView, renderMissionSelectionRequiredView, type MissionCreationField, type MissionCreationSubmitState } from "./views/missions";
 import { renderProjectsView } from "./views/projects";
 import { renderApprovalsView, renderArtifactsView, renderBugsView, renderWorkerRunsView } from "./views/resources";
@@ -899,7 +900,7 @@ function renderWorkerRunList(title: string, workerRuns: WorkerRun[]): ReactEleme
               {childQARunIds.length > 0 ? <span>Child QARuns {childQARunIds.join(", ")}</span> : null}
               {childArtifactIds.length > 0 ? <span>Child Artifacts {childArtifactIds.join(", ")}</span> : null}
               {childBugReportIds.length > 0 ? <span>Child Bugs {childBugReportIds.join(", ")}</span> : null}
-              {run.error ? <span className="error-summary">{run.error}</span> : null}
+              {run.error ? <span className="error-summary">{redactDisplayValue(run.error)}</span> : null}
             </div>
             <span>{run.status}</span>
           </div>
@@ -937,9 +938,8 @@ function renderArtifactList(title: string, artifacts: Artifact[]): ReactElement 
           <div className="artifact-block" key={artifact.id}>
             <strong>{artifact.type}</strong>
             <span>name {artifactName}</span>
-            <code>{artifact.path}</code>
+            <code>{redactDisplayValue(artifact.path)}</code>
             {renderMetadata(metadata)}
-            {artifact.content ? <pre>{artifact.content}</pre> : null}
           </div>
         );
       })}
@@ -962,7 +962,7 @@ function renderArtifactHighlights(data: MissionSummaryResponse): ReactElement {
         <div className="list-row" key={label}>
           <div>
             <strong>{label}</strong>
-            <span>{artifact?.path ?? "missing"}</span>
+            <span>{artifact?.path ? redactDisplayValue(artifact.path) : "missing"}</span>
           </div>
           <span>{artifact?.id ?? "none"}</span>
         </div>
@@ -1048,7 +1048,7 @@ function renderExternalVisibility(data: MissionSummaryResponse): ReactElement {
         <div className="list-row" key={label}>
           <div>
             <strong>{label}</strong>
-            <span>{value ?? "missing"}</span>
+            <span>{value ? redactDisplayValue(value) : "missing"}</span>
           </div>
         </div>
       ))}
@@ -1059,7 +1059,7 @@ function renderExternalVisibility(data: MissionSummaryResponse): ReactElement {
         <div className="subsection-block">
           <strong>Artifact retention</strong>
           {data.artifactRetention.map((entry) => (
-            <span key={entry.artifactId}>{entry.type} / {entry.retentionClass ?? "unclassified"} / {entry.retentionPath ?? entry.path} / missing {String(entry.missing ?? false)}</span>
+            <span key={entry.artifactId}>{entry.type} / {entry.retentionClass ?? "unclassified"} / {redactDisplayValue(entry.retentionPath ?? entry.path)} / missing {String(entry.missing ?? false)}</span>
           ))}
         </div>
       ) : <p className="empty-line">No artifact retention metadata</p>}
@@ -1073,7 +1073,7 @@ function renderExternalStatusRow(title: string, status: MissionSummaryResponse["
       <div>
         <strong>{title}</strong>
         <span>{status?.status ?? "missing"}</span>
-        {status?.url ? <span>{status.url}</span> : null}
+        {status?.url ? <span>{redactDisplayValue(status.url)}</span> : null}
       </div>
       <span>{status?.workerRunId ?? "none"}</span>
     </div>
@@ -1099,7 +1099,7 @@ function renderWorkerRunDetail(workerRuns: WorkerRun[]): ReactElement {
             {renderNamedStringArray(output, "childQARunIds", "Child QARuns")}
             {renderNamedStringArray(output, "childArtifactIds", "Child Artifacts")}
             {renderNamedStringArray(output, "childBugReportIds", "Child Bugs")}
-            {run.logs.length > 0 ? <pre>{run.logs.slice(0, 4).join("\n")}</pre> : null}
+            {run.logs.length > 0 ? <pre>{run.logs.slice(0, 4).map(redactDisplayValue).join("\n")}</pre> : null}
           </div>
         );
       })}
@@ -1117,12 +1117,12 @@ function renderQaRunDetail(qaRuns: QAReport[]): ReactElement {
             <strong>{run.id}</strong>
             <span>{run.mode} / {run.status} / passed {run.passed ?? 0} / failed {run.failed ?? 0}</span>
             <span>{run.summary}</span>
-            {run.report_path ? <span>{run.report_path}</span> : null}
-            {run.screenshots_dir ? <span>{run.screenshots_dir}</span> : null}
-            {run.trace_path ? <span>{run.trace_path}</span> : null}
-            {run.bugs_json_path ? <span>{run.bugs_json_path}</span> : null}
+            {run.report_path ? <span>{redactDisplayValue(run.report_path)}</span> : null}
+            {run.screenshots_dir ? <span>{redactDisplayValue(run.screenshots_dir)}</span> : null}
+            {run.trace_path ? <span>{redactDisplayValue(run.trace_path)}</span> : null}
+            {run.bugs_json_path ? <span>{redactDisplayValue(run.bugs_json_path)}</span> : null}
           </div>
-          <span>{run.target_url || run.staging_url || "no target"}</span>
+          <span>{run.target_url ? redactDisplayValue(run.target_url) : run.staging_url ? redactDisplayValue(run.staging_url) : "no target"}</span>
         </div>
       ))}
     </section>
@@ -1139,7 +1139,7 @@ function renderArtifactDetail(data: MissionSummaryResponse): ReactElement {
           <div className="artifact-block" key={artifact.id}>
             <strong>{artifact.id}</strong>
             <span>{artifact.type} / {artifact.size} bytes</span>
-            <code>{artifact.path}</code>
+            <code>{redactDisplayValue(artifact.path)}</code>
             {renderMetadata(metadata)}
           </div>
         );
@@ -1203,13 +1203,13 @@ function jsonRecordOrEmpty(value: unknown): Record<string, unknown> {
 function readString(record: Record<string, unknown>, key: string): string | undefined {
   if (isSensitiveKey(key)) return undefined;
   const value = record[key];
-  return typeof value === "string" ? value : undefined;
+  return typeof value === "string" ? redactDisplayValue(value) : undefined;
 }
 
 function readStringArray(record: Record<string, unknown>, key: string): string[] {
   if (isSensitiveKey(key)) return [];
   const value = record[key];
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map(redactDisplayValue) : [];
 }
 
 function readBoolean(record: Record<string, unknown>, key: string): boolean | undefined {
@@ -1238,20 +1238,17 @@ function renderMetadata(metadata: Record<string, unknown>): ReactElement | null 
     .filter(([key]) => !isSensitiveKey(key))
     .flatMap(([key, value]) => {
       if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-        return ["metadata " + key + " " + String(value)];
+        return ["metadata " + key + " " + redactDisplayValue(String(value))];
       }
       if (Array.isArray(value)) {
         const values = value.filter((item): item is string => typeof item === "string");
-        return values.length > 0 ? ["metadata " + key + " " + values.join(", ")] : [];
+        return values.length > 0 ? ["metadata " + key + " " + values.map(redactDisplayValue).join(", ")] : [];
       }
       return [];
     });
   return rows.length > 0 ? <>{rows.map((row) => <span key={row}>{row}</span>)}</> : null;
 }
 
-function isSensitiveKey(key: string): boolean {
-  return /token|password|secret|api[_-]?key/i.test(key);
-}
 
 function queueWarningMessage(error: unknown): string {
   return safeQueueMessage(errorMessage(error, "GET /queues/status failed"));
