@@ -388,6 +388,37 @@ describe("orchestrator api", () => {
     expect(response.json()).toEqual({ status: "ok" });
   });
 
+  it("adds CORS headers for Hub browser requests", async () => {
+    const { server } = await createTestServer();
+    const response = await server.inject({
+      method: "GET",
+      url: "/dashboard",
+      headers: { origin: "http://127.0.0.1:5173" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBe("*");
+    expect(response.headers["access-control-allow-methods"]).toContain("GET");
+    expect(response.headers["access-control-allow-headers"]).toContain("authorization");
+  });
+
+  it("handles CORS preflight requests for Hub browser requests", async () => {
+    const { server } = await createTestServer();
+    const response = await server.inject({
+      method: "OPTIONS",
+      url: "/dashboard",
+      headers: {
+        origin: "http://127.0.0.1:5173",
+        "access-control-request-method": "GET",
+      },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-origin"]).toBe("*");
+    expect(response.headers["access-control-allow-methods"]).toContain("GET");
+    expect(response.headers["access-control-allow-headers"]).toContain("authorization");
+  });
+
   it("lists and reads projects", async () => {
     const { server } = await createTestServer();
 

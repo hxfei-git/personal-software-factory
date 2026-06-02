@@ -33,6 +33,17 @@ VITE_ORCHESTRATOR_API_URL=http://127.0.0.1:3000 pnpm dev:hub
 
 For protected buttons, set `VITE_PSF_API_TOKEN` to a local throwaway token matching `PSF_API_TOKEN`, or run the API with local auth disabled.
 
+If the API responds to `curl` but Hub still shows `API unavailable: Failed to fetch`, check browser CORS/preflight behavior. The Orchestrator API returns local development CORS headers by default and handles `OPTIONS` requests. In a stricter environment, set `PSF_CORS_ORIGIN` before starting the API, for example:
+
+```bash
+DATABASE_URL=postgresql://psf:psf_dev_password@localhost:5432/psf?schema=public \
+  PSF_AUTH_DISABLED=true \
+  PSF_CORS_ORIGIN=http://127.0.0.1:5173 \
+  pnpm dev:api
+```
+
+For VSCode forwarded ports with a non-localhost browser origin, local development can leave `PSF_CORS_ORIGIN` unset so the API uses a wildcard CORS origin. Do not use wildcard CORS for shared or production deployments.
+
 ## Artifact Missing
 
 Symptom: Mission detail references are empty or an expected file is absent.

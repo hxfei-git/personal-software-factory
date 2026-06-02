@@ -16,6 +16,13 @@ export interface BuildServerOptions {
 
 export function buildServer(options: BuildServerOptions): FastifyInstance {
   const server = Fastify({ logger: false });
+  server.addHook("onRequest", async (request, reply) => {
+    applyCorsHeaders(reply);
+    if (request.method === "OPTIONS") {
+      return reply.status(204).send();
+    }
+  });
+
   registerApiAuth(server, options.auth ?? {
     ...(process.env.PSF_API_TOKEN === undefined ? {} : { token: process.env.PSF_API_TOKEN }),
     disabled: process.env.PSF_AUTH_DISABLED === "true" || process.env.NODE_ENV === "test",
@@ -204,6 +211,19 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   });
 
   return server;
+}
+
+function applyCorsHeaders(reply: FastifyReply): void {
+  reply.header("Access-Control-Allow-Origin", readCorsOrigin());
+  reply.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  reply.header("Access-Control-Allow-Headers", "authorization,content-type");
+  reply.header("Access-Control-Max-Age", "600");
+}
+
+function readCorsOrigin(): string {
+  const configured = process.env.PSF_CORS_ORIGIN?.trim();
+  if (configured) return configured;
+  return process.env.NODE_ENV === "production" ? "http://127.0.0.1:5173" : "*";
 }
 
 function readActionExecutionMode(value: string | undefined): ActionExecutionMode {
