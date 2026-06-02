@@ -48,6 +48,9 @@ export interface WorkerJobHandlerResult {
   childBugReportIds: string[];
   summary: string;
   recommendedNextAction: string;
+  status?: string;
+  manualActionRequired?: boolean;
+  reason?: string;
   childWorkerRuns?: WorkerRun[];
   childQARuns?: QAReport[];
   childArtifacts?: Artifact[];
@@ -181,6 +184,9 @@ function toDeterministicQaHandlerResult(result: DeterministicQaResult): WorkerJo
       : result.status === "failed"
         ? "Inspect QA bugs and enqueue a fix job after reviewing evidence."
         : "Review deterministic QA artifacts and continue the Mission.",
+    status: result.status,
+    manualActionRequired: result.manualActionRequired,
+    reason: result.summary.logs[0] ?? result.qaRun.summary,
     childWorkerRuns: [result.workerRun],
     childQARuns: [result.qaRun],
     childArtifacts: result.artifacts,

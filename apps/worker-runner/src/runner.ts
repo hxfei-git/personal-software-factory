@@ -84,7 +84,11 @@ async function recordMissionActionResult(
       childQARunIds: result.childQARunIds,
       childArtifactIds: result.childArtifactIds,
       childBugReportIds: result.childBugReportIds,
+      summary: result.summary,
       recommendedNextAction: result.recommendedNextAction,
+      ...(result.status === undefined ? {} : { status: result.status }),
+      ...(result.manualActionRequired === undefined ? {} : { manualActionRequired: result.manualActionRequired }),
+      ...(result.reason === undefined ? {} : { reason: result.reason }),
     },
     created_at: timestamp,
   });
@@ -103,7 +107,7 @@ async function applyAutomaticMissionTransitions(
 
   let currentStatus = mission.status;
   const hasBugs = hasBugReports(result) || await hasOpenMissionBugs(storage, job.missionId);
-  const transitionPath = automaticTransitionPath(currentStatus, job.type, hasBugs);
+  const transitionPath = automaticTransitionPath(currentStatus, job.type, hasBugs, result);
 
   for (const nextStatus of transitionPath) {
     if (!canTransition(currentStatus, nextStatus)) {
@@ -122,6 +126,7 @@ function automaticTransitionPath(
   currentStatus: MissionStatusValue,
   jobType: string,
   hasBugs: boolean,
+  result: WorkerJobHandlerResult,
 ): MissionStatusValue[] {
   if (jobType === "mission.plan") {
     if (
@@ -138,6 +143,9 @@ function automaticTransitionPath(
   }
 
   if (jobType.startsWith("qa.") && currentStatus === MissionStatus.qa_running) {
+    if (isBlockedQaPlaywrightResult(jobType, result)) {
+      return [];
+    }
     const nextStatus = hasBugs ? MissionStatus.bugs_found : MissionStatus.ready_for_review;
     return canTransition(currentStatus, nextStatus) ? [nextStatus] : [];
   }
@@ -151,6 +159,10 @@ function automaticTransitionPath(
   }
 
   return [];
+}
+
+function isBlockedQaPlaywrightResult(jobType: string, result: WorkerJobHandlerResult): boolean {
+  return jobType === "qa.playwright" && (result.manualActionRequired === true || result.status === "blocked");
 }
 
 function hasBugReports(result: WorkerJobHandlerResult): boolean {
@@ -222,6 +234,9 @@ function buildSafeOutput(job: QueueWorkerJob, result: WorkerJobHandlerResult): R
     childBugReportIds: result.childBugReportIds,
     summary: result.summary,
     recommendedNextAction: result.recommendedNextAction,
+    ...(result.status === undefined ? {} : { status: result.status }),
+    ...(result.manualActionRequired === undefined ? {} : { manualActionRequired: result.manualActionRequired }),
+    ...(result.reason === undefined ? {} : { reason: result.reason }),
   };
 }
 

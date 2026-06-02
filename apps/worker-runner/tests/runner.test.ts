@@ -515,6 +515,116 @@ describe("worker runner", () => {
     });
   });
 
+  it("does not auto-transition qa.playwright blocked manual-action results", async () => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-qa-playwright-blocked", MissionStatus.qa_running)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-qa-playwright-blocked", "qa.playwright", "job-qa-playwright")],
+    });
+    const job = buildWorkerJob({
+      id: "job-qa-playwright",
+      missionId: "mission-qa-playwright-blocked",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "qa.playwright",
+      mode: "real",
+      payload: {},
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd()),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(wrapper.status).toBe("succeeded");
+    expect(wrapper.output).toMatchObject({
+      status: "blocked",
+      manualActionRequired: true,
+      summary: "No target_url, QA_TEST_URL, or STAGING_URL was configured.",
+    });
+    await expect(storage.getMission("mission-qa-playwright-blocked")).resolves.toMatchObject({ status: MissionStatus.qa_running });
+    const events = await storage.listMissionEvents("mission-qa-playwright-blocked");
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "mission.action_result",
+        payload: expect.objectContaining({
+          status: "blocked",
+          manualActionRequired: true,
+          summary: "No target_url, QA_TEST_URL, or STAGING_URL was configured.",
+        }),
+      }),
+    ]));
+    expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "mission.status.auto_transition" })]));
+  });
+
+  it("passes project context to real deterministic QA and blocks unverified scenarios without executing browser", async () => {
+    let executeCalled = false;
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-qa-playwright-context-blocked", MissionStatus.qa_running)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-qa-playwright-context-blocked", "qa.playwright", "job-qa-playwright")],
+    });
+    const missionFiles = {
+      "mission.md": "# Mission\n\nReview the ai-novelist home flow.\n",
+      "acceptance.md": "# Acceptance\n\n- Report deterministic failures.\n",
+      "technical-notes.md": "# Technical Notes\n\nUse injected QA runner only.\n",
+      "risk-notes.md": "# Risk Notes\n\nNo network or real browser.\n",
+    };
+    const job = buildWorkerJob({
+      id: "job-qa-playwright",
+      missionId: "mission-qa-playwright-context-blocked",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "qa.playwright",
+      mode: "real",
+      payload: {
+        targetUrl: "https://example.test/app",
+        passport: projectPassport(),
+        qaCharter: "QA Charter: cover open_home without external calls.",
+        missionFiles,
+      },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        deterministicQaExecute: async () => {
+          executeCalled = true;
+          throw new Error("Injected Playwright executor should not run while selectors are unverified.");
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(executeCalled).toBe(false);
+    expect(wrapper.status).toBe("succeeded");
+    expect(wrapper.output).toMatchObject({
+      status: "blocked",
+      manualActionRequired: true,
+      childWorkerRunIds: ["worker-run-mission-qa-playwright-context-blocked-qa-deterministic"],
+      childQARunIds: ["qa-run-mission-qa-playwright-context-blocked-deterministic"],
+      childBugReportIds: [],
+    });
+    expect(String(wrapper.output.summary)).toContain("manual action required");
+    await expect(storage.getWorkerRun("worker-run-mission-qa-playwright-context-blocked-qa-deterministic")).resolves.toMatchObject({
+      status: "skipped",
+      mode: "dry-run",
+    });
+    await expect(storage.getMission("mission-qa-playwright-context-blocked")).resolves.toMatchObject({ status: MissionStatus.qa_running });
+    const events = await storage.listMissionEvents("mission-qa-playwright-context-blocked");
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "qa.completed", payload: expect.objectContaining({ status: "blocked", bugCount: 0 }) }),
+      expect.objectContaining({
+        type: "mission.action_result",
+        payload: expect.objectContaining({ status: "blocked", manualActionRequired: true }),
+      }),
+    ]));
+    expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "mission.status.auto_transition" })]));
+  });
+
 
   it("persists qa.playwright child resources and passes enriched payload to deterministic QA", async () => {
     let capturedInput: DeterministicQaInput | undefined;
