@@ -2,7 +2,7 @@
 
 ## Latest Update
 
-Batch 03/04 Task 5 connects queued `qa.playwright` Worker Runner jobs to deterministic QA payload passthrough, child resource persistence, and guarded Mission status transitions while preserving the no-network default safety boundary.
+Batch 03/04 Task 6 adds a Codex Worker fixture proof for gated local real mode: local mirror, `agent/*` worktree, no `main` mutation, no push/provider calls, and redacted Codex artifacts, while real Codex remains disabled by default.
 
 Detailed phase rollups:
 

@@ -463,6 +463,107 @@ describe("real Codex runner gated mode", () => {
     expect(JSON.stringify(childEnv)).not.toContain("github-token-must-not-reach-child");
   });
 
+  it("proves gated local fixture execution stays on a local agent worktree and writes redacted artifacts", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
+    const repo = await createWorkspaceMirrorRepo(workspaceRoot);
+    const mainHeadBefore = gitOutput(repo, ["rev-parse", "main"]);
+    const mainReadmeBefore = await readFile(path.join(repo, "README.md"), "utf8");
+    const branchName = "agent/ai-novelist-fixture-proof";
+    const rawToken = "fixture-token-value";
+    const rawPassword = "fixture-password-value";
+    const rawApiKey = "fixture-api-key-value";
+    const executable = await createFakeCodexExecutable(0);
+    let spawnCwd = "";
+    let spawnArgs: string[] = [];
+    let spawnEnv: Record<string, string | undefined> = {};
+
+    const runner = new RealCodexRunner({
+      env: {
+        ENABLE_REAL_CODEX: "1",
+        CODEX_EXECUTABLE: executable,
+        CODEX_SANDBOX: "workspace-write",
+        CODEX_APPROVAL_MODE: "on-request",
+        PSF_WORKSPACE_ROOT: workspaceRoot,
+        PSF_REAL_CODEX_MAX_RUNTIME_MS: "10000",
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        GITHUB_TOKEN: rawToken,
+        ADMIN_PASSWORD: rawPassword,
+        PROVIDER_API_KEY: rawApiKey,
+      },
+      spawnCodex: async (spawnInput) => {
+        spawnCwd = spawnInput.cwd;
+        spawnArgs = spawnInput.args;
+        spawnEnv = spawnInput.env;
+        await writeFile(path.join(spawnInput.cwd, "codex-fixture.txt"), "fixture worker output\n", "utf8");
+        git(spawnInput.cwd, ["add", "codex-fixture.txt"]);
+        git(spawnInput.cwd, ["commit", "-m", "fixture local codex work"]);
+        return {
+          exitCode: 0,
+          stdout: `stdout includes ${rawToken} and token=inline-secret-value`,
+          stderr: `stderr includes ${rawPassword} and api_key=${rawApiKey}`,
+        };
+      },
+    });
+
+    const result = await runFromMonorepoRoot(() => runner.run(realRequest({
+      missionId: "fixture-proof",
+      repoUrl: repo,
+      workspaceRoot,
+      branchName,
+      commands: ["pnpm test"],
+      missionFiles: {
+        ...input.missionFiles,
+        "mission.md": `# Mission\nDo local work only. Secret ${rawToken}.`,
+        "technical-notes.md": `# Technical Notes\nPassword ${rawPassword}. API key ${rawApiKey}.`,
+      },
+    })));
+
+    expect(result.status).toBe("succeeded");
+    expect(result.executed).toBe(true);
+    expect(result.workerRun.metadata).toMatchObject({ realNetworkCall: false, pushed: false });
+    expect(result.workspacePath).toBe(spawnCwd);
+    expect(result.workspacePath).toContain(workspaceRoot);
+    expect(result.branchName).toBe(branchName);
+    expect(spawnArgs).toEqual(expect.arrayContaining(["exec", "--sandbox", "workspace-write", "--ask-for-approval", "on-request"]));
+    expect(spawnEnv.GITHUB_TOKEN).toBeUndefined();
+    expect(spawnEnv.ADMIN_PASSWORD).toBeUndefined();
+    expect(spawnEnv.PROVIDER_API_KEY).toBeUndefined();
+    expect(gitOutput(spawnCwd, ["branch", "--show-current"])).toBe(branchName);
+    expect(gitOutput(spawnCwd, ["log", "-1", "--pretty=format:%s"])).toBe("fixture local codex work");
+    expect(await readFile(path.join(spawnCwd, "codex-fixture.txt"), "utf8")).toBe("fixture worker output\n");
+
+    expect(gitOutput(repo, ["rev-parse", "main"])).toBe(mainHeadBefore);
+    expect(await readFile(path.join(repo, "README.md"), "utf8")).toBe(mainReadmeBefore);
+    expect(gitOutput(repo, ["branch", "--show-current"])).toBe("main");
+
+    const artifactTypes = result.artifacts.map((artifact) => artifact.type);
+    expect(artifactTypes).toEqual(expect.arrayContaining([
+      "codex_stdout",
+      "codex_stderr",
+      "dev_summary",
+      "codex_diff_summary",
+      "codex_local_commit_summary",
+    ]));
+
+    expect(JSON.stringify(result)).not.toContain(rawToken);
+    expect(JSON.stringify(result)).not.toContain(rawPassword);
+    expect(JSON.stringify(result)).not.toContain(rawApiKey);
+    expect(JSON.stringify(result)).not.toContain("inline-secret-value");
+
+    for (const artifact of result.artifacts) {
+      const content = await readFile(path.resolve(monorepoRoot(), artifact.path), "utf8");
+      expect(content).not.toContain(rawToken);
+      expect(content).not.toContain(rawPassword);
+      expect(content).not.toContain(rawApiKey);
+      expect(content).not.toContain("inline-secret-value");
+      expect(content).toEqual(artifact.content);
+    }
+
+    expect(result.artifacts.find((artifact) => artifact.type === "codex_local_commit_summary")?.content).toContain("fixture local codex work");
+    expect(result.artifacts.find((artifact) => artifact.type === "codex_diff_summary")?.content).toBe("No local diff.");
+  });
+
   it("refuses to create Codex worktrees from local repositories outside the workspace mirror root", async () => {
     const repo = await createTempGitRepo();
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "psf-workspaces-"));
