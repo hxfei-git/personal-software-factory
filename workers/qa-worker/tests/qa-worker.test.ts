@@ -106,6 +106,83 @@ describe("QA Worker dry-run", () => {
 
 
 describe("Deterministic Playwright QA runner", () => {
+  it("builds ai-novelist scenarios from passport and QA charter and blocks unverified selectors", async () => {
+    let executorCalled = false;
+
+    const result = await runDeterministicPlaywrightQa({
+      ...input,
+      targetUrl: "http://127.0.0.1:8000",
+      execute: async () => {
+        executorCalled = true;
+        return {
+          status: "passed",
+          passed: 2,
+          failed: 0,
+        };
+      },
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.manualActionRequired).toBe(true);
+    expect(executorCalled).toBe(false);
+    expect(result.files["qa-report.md"]).toContain("smoke_home");
+    expect(result.files["qa-report.md"]).toContain("create_or_start_novel");
+    expect(result.files["qa-report.md"].toLowerCase()).toContain("manual action");
+    expect(JSON.parse(result.files["bugs.json"])).toEqual({ bugs: [] });
+  });
+
+  it("records scenario evidence paths for a failing injected deterministic flow", async () => {
+    const result = await runDeterministicPlaywrightQa({
+      missionId: input.missionId,
+      projectId: input.projectId,
+      targetUrl: "http://127.0.0.1:4173",
+      now: input.now,
+      execute: async (execution) => ({
+        status: "failed",
+        passed: 1,
+        failed: 1,
+        logs: ["duplicate click guard failed", "token=scenario-secret-token"],
+        failures: [
+          {
+            title: "Duplicate click or loading guard failed",
+            severity: "P1",
+            reproductionSteps: ["Open the configured target URL.", "Trigger the guarded submit action twice quickly."],
+            expectedResult: "Only one request is submitted while loading state is active.",
+            actualResult: "A second click can be submitted before the loading guard is enforced.",
+            evidence: {
+              scenarioId: "duplicate_click_or_loading_guard",
+              screenshotPath: `${execution.artifacts.screenshotsDir}/duplicate-click.png`,
+              tracePath: execution.artifacts.tracePath,
+              logPath: execution.artifacts.logPath,
+              token: "scenario-secret-token",
+            },
+          },
+        ],
+      }),
+    });
+
+    const bug = result.bugs[0]!;
+    const bugsJson = JSON.parse(result.files["bugs.json"]);
+
+    expect(result.status).toBe("failed");
+    expect(result.qaRun.status).toBe("failed");
+    expect(bugsJson.bugs).toHaveLength(1);
+    expect(bug.evidence).toMatchObject({
+      scenarioId: "duplicate_click_or_loading_guard",
+      screenshotPath: expect.stringContaining("/duplicate-click.png"),
+      tracePath: result.qaRun.trace_path,
+      logPath: expect.stringContaining("deterministic.log"),
+    });
+    expect(bugsJson.bugs[0].evidence).toMatchObject({
+      scenarioId: "duplicate_click_or_loading_guard",
+      screenshotPath: expect.stringContaining("/duplicate-click.png"),
+      tracePath: result.qaRun.trace_path,
+      logPath: expect.stringContaining("deterministic.log"),
+    });
+    expect(result.files["bugs.json"]).not.toContain("scenario-secret-token");
+    expect(result.artifacts.map((artifact) => artifact.type)).toEqual(expect.arrayContaining(["screenshot", "playwright_trace", "log"]));
+  });
+
   it("returns blocked manual action without opening a browser when no target URL is configured", async () => {
     const result = await runDeterministicPlaywrightQa({
       missionId: input.missionId,
