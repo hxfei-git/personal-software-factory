@@ -46,6 +46,12 @@ This file tracks current architecture problems, risks, and improvement items. It
 
 ## Documentation Cleanup Status
 
+## Recently Resolved By Documentation Cleanup
+
+- Active guidance no longer treats `docs/progress/current.md`, `enhance_plan.md`, old brainstorms, or old Superpowers plans/specs as current instructions.
+- Historical material remains available in `docs/archive/` for audit.
+- Active runtime, operations, local-development, and safety docs now describe current default-safe plus gated real contract behavior instead of stale phase-only dry-run wording.
+
 ### Completed So Far
 
 - A new `struct.md` is the current architecture map.

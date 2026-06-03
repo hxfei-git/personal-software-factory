@@ -89,3 +89,13 @@ Use this format for new entries:
 - Fix: replaced the dry-run-only queue sentence with default-safe, dry-run/mock, gated real-mode contract, explicit gates, and injected runner/transport wording without enabling real calls.
 - Verification: rerun the stale queue search, safety-boundary search, targeted `git diff --check`, and `git status --short`.
 - Follow-up: none.
+
+### 2026-06-03 - Documentation Cleanup Validation
+
+- Context: final validation after creating current fact-source docs and archiving historical planning files.
+- Symptom: active docs previously mixed current architecture with stale phase guidance.
+- Scope: `AGENTS.md`, root docs, progress docs, Superpowers docs, runtime/safety docs, and archive paths.
+- Investigation: ran whitespace, stale-phase text, safety-boundary text, and git status checks.
+- Fix: active docs now point to `struct.md`, `summary.md`, and `debug.md`; historical plans are under `docs/archive/`; runtime/safety docs use default-safe plus gated real contract wording.
+- Verification: `git diff --check HEAD~3..HEAD` passed with no output; `git diff --check main...HEAD` passed with no output; `rg -n 'Phase 1: Monorepo Foundation|Phase 11-15 currently|Current Phase' AGENTS.md README.md docs struct.md summary.md debug.md --glob '!docs/archive/**'` only matched active cleanup spec/plan command examples and replacement instructions; `rg -n 'realNetworkCall.*false|realNetworkCall` stays `false|realNetworkCall` remains `false' AGENTS.md README.md docs struct.md summary.md debug.md --glob '!docs/archive/**'` found current safety-boundary wording plus cleanup plan/spec and debug history references; `git status --short --branch` showed `## docs/current-architecture-cleanup`.
+- Follow-up: none.
