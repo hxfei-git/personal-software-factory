@@ -136,6 +136,6 @@ Use this format for new entries:
 - Symptom: `docs/progress/` contained old phase and batch rollups that duplicated `docs/progress.md`, current docs, and debug history.
 - Scope: `docs/progress/**`, `docs/progress.md`, `summary.md`, and `debug.md`.
 - Investigation: searched active references to progress child files and confirmed `docs/progress.md` contains the current capability and verification summary.
-- Fix: deleted progress child rollups and removed active links to them. Progress README now keeps `../progress.md` as the only path reference after child rollup deletion.
+- Fix: deleted progress child rollups and removed active links to them. Progress README now keeps `../progress.md` as the only path reference after child rollup deletion. Progress child rollup deletion also updated the structure check script from old phase files to current fact sources.
 - Verification: run deleted-path search, stale phase search, `git diff --check`, and `git status --short`.
 - Follow-up: record future current progress in `docs/progress.md` unless a new focused current note is explicitly needed.

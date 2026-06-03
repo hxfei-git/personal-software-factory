@@ -15,9 +15,11 @@ const requiredFiles = [
   'docker-compose.yml',
   'docs/README.md',
   'docs/development-standards.md',
+  'struct.md',
+  'summary.md',
+  'debug.md',
+  'docs/progress.md',
   'docs/progress/README.md',
-  'docs/progress/current.md',
-  'docs/progress/phase-01-summary.md',
   'docs/superpowers/README.md',
   'docs/superpowers/plans/README.md',
   'apps/README.md',
@@ -103,12 +105,12 @@ const errors = [
 ];
 
 if (errors.length > 0) {
-  console.error('Phase 1 structure check failed:');
+  console.error('Repository structure check failed:');
   for (const error of errors) {
     console.error(`- ${error}`);
   }
   process.exit(1);
 }
 
-console.log('Phase 1 structure check passed.');
+console.log('Repository structure check passed.');
 console.log(`Validated ${requiredFiles.length} files and ${requiredDirectories.length} directories.`);
