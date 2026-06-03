@@ -48,7 +48,7 @@ This file tracks current architecture problems, risks, and improvement items. It
 
 ## Recently Resolved By Documentation Cleanup
 
-- Low-value archive files from old Superpowers plans/specs, brainstorms, archived enhancement planning, and superseded phase-current notes were removed; retained audit policy now lives in `docs/archive/README.md`.
+- Low-value archive files from old Superpowers plans/specs, brainstorms, archived enhancement planning, and superseded phase-current notes were removed; retained audit policy now lives in `docs/archive/README.md`, and active docs no longer point to the deleted archive paths.
 - Active guidance no longer treats `docs/progress/current.md`, the archived enhancement plan, old brainstorms, or old Superpowers plans/specs as current instructions.
 - Historical material remains available in `docs/archive/` for audit.
 - Active runtime, operations, local-development, and safety docs now describe current default-safe plus gated real contract behavior instead of stale phase-only dry-run wording.

@@ -4,7 +4,7 @@ Date: 2026-06-03
 
 ## Scope
 
-This historical batch note implemented the next local-first control-plane step from the archived reference `../archive/plans/enhance_plan.md`. That archived reference is audit context only, not active current instruction:
+原 enhancement plan 已在激进清理中删除；该 batch note 如仍存在，仅作为当前清理完成前的历史上下文，后续 Task 4 会评估删除 progress 子文件。
 
 - Batch 5: Fix Loop + Regression enforcement.
 - Batch 6: GitHub PR Gate.

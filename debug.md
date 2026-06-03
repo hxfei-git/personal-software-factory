@@ -116,6 +116,6 @@ Use this format for new entries:
 - Symptom: `docs/archive/` still retained completed Superpowers plans/specs, brainstorms, an archived enhancement plan, and a superseded Phase 1 current note that no longer carried unique decision value.
 - Scope: `docs/archive/**`, `docs/README.md`, `summary.md`, and `debug.md`.
 - Investigation: compared archive contents with current fact sources and ADR protection rules.
-- Fix: removed low-value archive files and rewrote `docs/archive/README.md` as a retained-audit policy.
+- Fix: removed low-value archive files, rewrote `docs/archive/README.md` as a retained-audit policy, and corrected active docs that still pointed to deleted archive material.
 - Verification: run archive listing, stale-reference search, `git diff --check`, and `git status --short --branch`.
 - Follow-up: none.
