@@ -431,7 +431,7 @@ Start with the root current fact sources:
 - `../README.md`
 - `progress.md`
 
-Historical phase plans and brainstorms are preserved for audit under `archive/`. Do not treat archived files as current implementation instructions.
+Historical phase plans and brainstorms are scheduled to move under `archive/` in Task 4. Until then, do not treat those historical files as current implementation instructions.
 
 Documentation should stay aligned with the implemented system. Do not describe a capability as enabled unless its gates, tests, and safety boundaries are implemented and verified.
 ```
@@ -457,7 +457,7 @@ Replace the file with:
 
 This directory stores current progress rollups and focused batch summaries.
 
-Use `../progress.md` as the active progress entrypoint. The old `current.md` Phase 1 note has been archived under `../archive/progress/current-phase-1.md` because it no longer represents the repository's current implementation state.
+Use `../progress.md` as the active progress entrypoint. The old `current.md` Phase 1 note is scheduled to move under `../archive/progress/current-phase-1.md` in Task 4 because it no longer represents the repository's current implementation state.
 ```
 
 - [ ] **Step 8: Update Superpowers README files**
@@ -469,7 +469,7 @@ Replace `docs/superpowers/README.md` with:
 
 This directory stores active Superpowers design and planning artifacts for the current workstream.
 
-Completed historical specs, plans, and brainstorms are preserved under `docs/archive/`. Plans in this directory are execution guides, not runtime source code.
+Completed historical specs, plans, and brainstorms are scheduled to move under `docs/archive/` in Task 4. Plans in this directory are execution guides, not runtime source code.
 ```
 
 Replace `docs/superpowers/plans/README.md` with:
@@ -477,7 +477,7 @@ Replace `docs/superpowers/plans/README.md` with:
 ```markdown
 # Superpowers Implementation Plans
 
-This directory is for active implementation plans. Completed historical plans are archived under `docs/archive/superpowers/plans/`.
+This directory is for active implementation plans. Completed historical plans are scheduled to move under `docs/archive/superpowers/plans/` in Task 4.
 
 Use the newest active plan for the current task and ignore archived plans unless researching implementation history.
 ```
