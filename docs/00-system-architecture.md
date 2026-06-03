@@ -112,7 +112,7 @@ Responsibilities:
 
 The Hub is a control surface. It should not contain business workflow rules that belong in the Orchestrator.
 
-Current Phase 11-15 Hub Web is a React/Vite console started with `pnpm dev:hub` at `http://127.0.0.1:5173`. It reads `GET /dashboard`, `GET /missions/:id/summary`, and `GET /integrations`, and uses protected POST integration dry-runs for local operator checks.
+The current Hub Web is a React/Vite console started with `pnpm dev:hub` at `http://127.0.0.1:5173`. It reads Orchestrator API resources such as `GET /dashboard`, `GET /missions/:id/summary`, and `GET /integrations`, and it uses guarded action endpoints for local operator checks.
 
 ### Orchestrator API
 
@@ -228,7 +228,7 @@ Responsibilities:
 
 MVP can use git CLI and optionally GitHub CLI. A GitHub App can wait until the workflow proves stable.
 
-Current Phase 11-15 GitHub support is mock/dry-run only. It can simulate branch, Chinese commit message, PR body, and Issue payloads, but it does not push, open a PR, create an Issue, or call GitHub.
+Current GitHub support defaults to safe gated previews and dry-runs. It can prepare branch, Chinese commit message, PR body, and Issue payload previews, but it does not push, open a PR, create an Issue, or call GitHub unless a later approved task intentionally enables that path.
 
 ### Later Integrations
 
@@ -243,7 +243,7 @@ They should be integrated after the basic loop proves useful:
 - Temporal: durable workflow upgrade;
 - LangGraph: complex AI decision graphs.
 
-Current Phase 11-15 adapters for Coolify, Uptime Kuma, and Plane are mock/dry-run only. `ENABLE_REAL_*="1"` reports `realEnabled: true` but still returns `realNetworkCall: false`.
+Current adapters for Coolify, Uptime Kuma, and Plane expose mock/dry-run behavior plus gated real-adapter contracts. `ENABLE_REAL_*="1"` can report `realEnabled: true`, but responses keep `realNetworkCall: false` by default until real network calls are intentionally implemented and approved.
 
 ## Data Flow
 

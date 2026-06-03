@@ -1,8 +1,8 @@
 # Worker Permissions
 
-## Current Phase 16A/16B/17A Permissions
+## Current Worker Permissions
 
-Current workers and demo actions are dry-run surfaces. They may generate local artifacts under `missions/` and, when the database is available, upsert local demo records for the fixed `ai-novelist` demo Mission.
+Current workers and guarded actions are local-first dry-run surfaces. They may generate local artifacts under `missions/` and, when the database is available, upsert local records through approved dry-run contracts.
 
 They must not execute real Codex, run unmanaged shell commands from the Hub, push to GitHub, create PRs or Issues, deploy through Coolify, create Uptime Kuma monitors, create Plane issues, delete non-demo data, or expose secrets.
 
@@ -21,9 +21,7 @@ Demo commands can sync local PostgreSQL unless `--skip-db` or `PSF_SKIP_DB=1` is
 
 ## API
 
-The Orchestrator API owns protected dry-run action entrypoints. It may persist local demo records and return action metadata, but every action response must keep real execution fields disabled.
-
-Mission-scoped dry-run actions are limited to `mission-0001-ai-novelist-chapter-review` in this batch.
+The Orchestrator API owns protected dry-run and gated action entrypoints. It may persist local records and return action metadata, but default responses must keep real execution fields disabled and must not perform provider calls, pushes, deployments, or unmanaged execution.
 
 ## Hub
 

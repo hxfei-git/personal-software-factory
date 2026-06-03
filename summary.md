@@ -52,6 +52,8 @@ This file tracks current architecture problems, risks, and improvement items. It
 - A new `struct.md` is the current architecture map.
 - A new `summary.md` is the issue and improvement source.
 - A new `debug.md` is the debug record source.
+- Active docs and indexes have been updated toward current implementation guidance.
+- Stale current-phase wording in active reference docs has been corrected while preserving historical phase meaning.
 
 ### Pending
 

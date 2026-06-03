@@ -35,7 +35,7 @@ If the evidence checklist is met for AI decision graph complexity, current handl
 
 LangGraph should be introduced only when explicit workers, policies, and state transitions can no longer represent branching AI decisions clearly.
 
-## Non-Goals For Current Phase
+## Non-Goals For Current Implementation State
 
 - Do not add Temporal or LangGraph dependencies.
 - Do not implement workflows, activities, graphs, or nodes.

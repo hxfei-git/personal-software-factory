@@ -4,7 +4,7 @@
 
 Build a personal AI software factory that turns user requirements into planned Missions, Codex-driven development, Playwright QA, iterative fixes, GitHub PRs, and controlled releases.
 
-## Current Phase Discipline
+## Current Implementation Discipline
 
 - Current active implementation state is documented in `struct.md`, `summary.md`, `debug.md`, `README.md`, and `docs/progress.md`.
 - The repository includes gated real execution contracts and Batch 05/06 fix/regression plus GitHub PR preview work, but the default posture remains local-first, dry-run/mock/manual-action safe.

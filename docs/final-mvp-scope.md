@@ -1,18 +1,19 @@
 # Final MVP Scope
 
-## Current Phase 16A/16B/17A MVP
+## Current Local MVP
 
-The local MVP now demonstrates the ai-novelist dry-run operator loop:
+The local MVP demonstrates a default-safe operator loop with gated real contracts and PR preview/fix-regression readiness:
 
 ```text
 Project Registry
-  -> fixed demo Mission
-  -> deterministic plan
-  -> Codex dry-run artifacts
-  -> QA dry-run artifacts
+  -> local Mission records
+  -> deterministic planning and worker contracts
+  -> Codex dry-run/manual-action artifacts
+  -> QA dry-run and regression artifacts
   -> Auto Fix Loop dry-run artifacts
-  -> API/Hub dry-run action controls
-  -> doctor/reset/report operations
+  -> gated GitHub PR preview contracts
+  -> API/Hub guarded action controls
+  -> doctor/reset/report/readiness operations
 ```
 
 This is a demo and operations hardening MVP, not the final autonomous software factory.
@@ -28,7 +29,9 @@ This is a demo and operations hardening MVP, not the final autonomous software f
 - Codex Worker dry-run artifact generation.
 - QA Worker dry-run artifact generation.
 - Auto Fix Loop dry-run artifact generation.
-- Mock integration status and dry-runs for GitHub, Coolify, Uptime Kuma, and Plane.
+- Gated GitHub PR preview readiness for branch, commit, PR body, and Issue payloads without default push or PR creation.
+- Mock integration status, dry-runs, and gated real-adapter contracts for GitHub, Coolify, Uptime Kuma, and Plane.
+- Batch 05/06 fix-regression readiness surfaces for guarded local verification.
 - Local doctor, scoped demo reset, and demo report generation.
 
 ## Excluded
@@ -36,6 +39,7 @@ This is a demo and operations hardening MVP, not the final autonomous software f
 - Real Codex execution.
 - Real project workspace mutation.
 - GitHub push, PR creation, Issue creation, or comments.
+- Real GitHub, Coolify, Uptime Kuma, or Plane network calls by default.
 - Coolify deploys.
 - Uptime Kuma monitor creation or polling.
 - Plane issue creation or sync.

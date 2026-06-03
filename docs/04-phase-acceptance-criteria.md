@@ -37,7 +37,7 @@ Evidence:
 - `docs/03-risk-and-assumptions.md`
 - `docs/04-phase-acceptance-criteria.md`
 
-## Phase 1: Monorepo Foundation
+## Phase 01 - Monorepo Foundation
 
 Acceptance criteria:
 
