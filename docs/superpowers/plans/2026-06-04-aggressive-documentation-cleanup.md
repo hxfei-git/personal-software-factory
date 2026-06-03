@@ -126,7 +126,7 @@ git branch --contains d6bbff2
 Expected:
 
 - `git status --short --branch` prints `## main...origin/main [ahead 21]` or the same branch with a larger ahead count after the plan commit.
-- `git worktree list` includes `.worktrees/docs-current-architecture-cleanup`.
+- `git worktree list` includes `.worktrees/docs-current-architecture-cleanup` and may also include the current execution worktree `.worktrees/aggressive-documentation-cleanup`.
 - `git branch --contains d6bbff2` includes both `main` and `docs/current-architecture-cleanup`.
 
 - [ ] **Step 2: Remove the merged worktree**
@@ -165,7 +165,7 @@ git status --short --branch
 
 Expected:
 
-- `git worktree list` lists only `/home/ubuntu/1.project/personal-software-factory`.
+- `git worktree list` no longer lists `.worktrees/docs-current-architecture-cleanup`; it may still list the current execution worktree `.worktrees/aggressive-documentation-cleanup`.
 - `test ! -e .worktrees/docs-current-architecture-cleanup` exits 0.
 - Git status is clean.
 
