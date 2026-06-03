@@ -77,9 +77,9 @@ The database may store inline content for small markdown/text review artifacts. 
 
 Current API behavior accepts `content` for `POST /missions/:missionId/artifacts`, but callers are responsible for applying this size and sensitivity policy. Real-mode workers should prefer `saveTextArtifact` for small text artifacts and `savePathArtifact` for binary, large, or externally generated evidence. `saveTextArtifact` redacts content before writing and before returning `Artifact.content`; `savePathArtifact` returns path-only metadata and does not read large source content.
 
-## Current Batch
+## Current Artifact Behavior
 
-The current dry-run batch stores planner and Codex review artifacts as small text records and local mission files. QA screenshots, traces, Playwright reports, and large logs are not implemented yet and should be path-only when added.
+The current dry-run implementation stores planner and Codex review artifacts as small text records and local mission files. QA screenshots, traces, Playwright reports, and large logs are not implemented yet and should be path-only when added.
 
 ## QA Artifacts
 
@@ -91,7 +91,7 @@ Auto Fix Loop dry-run writes `fix-mission.md`, `fix-acceptance.md`, `fix-codex-p
 
 Hub Web reads existing Mission, QA, BugReport, WorkerRun, and Artifact records through `GET /dashboard` and `GET /missions/:id/summary`. It should render artifact metadata and inline text safely, but it must not create a second storage location or copy secrets into browser state.
 
-Integration dry-runs currently return simulated payloads directly from the API/CLI. They do not create durable Artifact records by themselves. If a later phase stores integration preview payloads as artifacts, keep them small, text-based, and redacted:
+Integration dry-runs currently return simulated payloads directly from the API/CLI. They do not create durable Artifact records by themselves. If a later approved task stores integration preview payloads as artifacts, keep them small, text-based, and redacted:
 
 - GitHub PR and Issue preview bodies may be inline markdown only after token and password redaction.
 - Coolify deploy previews should store request summaries, not provider credentials.

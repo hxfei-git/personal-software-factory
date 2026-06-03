@@ -28,7 +28,7 @@ The runtime rejects payload keys that look like tokens, passwords, secrets, API 
 
 API queued mode creates a queue wrapper WorkerRun with `status=queued`. The Worker Runner updates it to `running`, then `succeeded` or `failed`. Cancellation of queued/delayed jobs records `cancelled`; active jobs are cooperative best-effort and can record `cancellationRequested` while remaining `running`.
 
-Child business WorkerRuns remain owned by existing planner, QA, Codex dry-run, Auto Fix Loop, demo workflow, and integration modules. Wrapper output records child IDs instead of forcing a schema-wide parent relation in this phase.
+Child business WorkerRuns remain owned by existing planner, QA, Codex dry-run, Auto Fix Loop, demo workflow, and integration modules. Wrapper output records child IDs without requiring a schema-wide parent relation in the current runtime contract.
 
 ## Runtime Methods
 

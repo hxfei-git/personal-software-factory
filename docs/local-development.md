@@ -107,7 +107,7 @@ Use the preview command to see expired local artifacts without deleting them:
 pnpm psf artifacts:cleanup --dry-run
 ```
 
-Cleanup is preview-only in this phase. Do not manually delete shared artifact directories while a Worker Runner is active.
+Cleanup is currently preview-only. Do not manually delete shared artifact directories while a Worker Runner is active.
 
 ## Token Rotation Locally
 

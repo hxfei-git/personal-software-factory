@@ -146,4 +146,4 @@ Queued dry-run mode remains dry-run/mock only. Gated real-mode handlers are conn
 
 ## Preparing For Future Real Codex Work
 
-The queue gives a controlled place to add timeouts, cancellation, retries, status observation, and WorkerRun audit records. A future real Codex phase still needs workspace isolation, branch protection, command policy, approvals, log/artifact retention, and explicit no-push defaults before any real execution is allowed.
+The queue gives a controlled place to add timeouts, cancellation, retries, status observation, and WorkerRun audit records. Future approved real Codex work still needs workspace isolation, branch protection, command policy, approvals, log/artifact retention, and explicit no-push defaults before any real execution is allowed.
