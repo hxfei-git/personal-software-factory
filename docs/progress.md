@@ -1,31 +1,20 @@
-# Real Execution And Integrations Phase Progress
+# Current Progress
 
 ## Current Fact Sources
 
 The current architecture fact source is `../struct.md`. Current problems and improvement items are tracked in `../summary.md`. Debug notes and investigation records are tracked in `../debug.md`.
 
-Older phase plans and brainstorms are historical references after the documentation cleanup and should not override current fact-source documents.
+Detailed phase and batch rollups have been removed where they duplicated current facts. This file keeps the concise current progress summary.
 
 ## Latest Update
 
 Batch 05/06 is complete for gated fix/regression enforcement and GitHub PR gate preview. `fix-real` queued payloads now carry open bugs, attempts, Project Passport, Mission files, verification commands, regression evidence, branch/workspace context, and approvals. Worker Runner persists accepted BugReport updates only after regression evidence and injected verification succeed, then conservatively transitions through legal Mission states toward `ready_for_review`. `github-pr` now requires approved `EXTERNAL_COST_RISK`, queues a safe PR preview context, and persists a child integration WorkerRun plus PR preview Artifact while defaulting to manual-action/no-network. Focused package tests, `pnpm typecheck`, `pnpm test`, `pnpm build`, and `git diff --check` passed for this batch.
-
-Detailed phase rollup:
-
-- `docs/progress/batch-05-06-brainstorming.md`
-- `docs/progress/batch-05-06-fix-regression-and-pr-gate.md`
 
 Batch 03/04 is complete for the local QA and local Codex proof surfaces. Orchestrator now queues `qa.playwright` with Project Passport, QA charter, target URL, Mission files, and e2e command metadata, and queues `codex.real` only after local mirror preflight builds a safe payload with Mission files, project `AGENTS.md`, review-only commands, workspace root, default branch, and an `agent/*` branch.
 
 Deterministic QA now records scenario-level evidence, blocks missing or invalid `targetUrl` and unverified selectors as manual action instead of fabricating `passed`, and persists screenshot, trace, log, and scenario IDs when present. Worker Runner persists queued QA child resources and conservative status outcomes under the queue wrapper WorkerRun. Codex fixture proof covers an operator-prepared local mirror, isolated worktree, `agent/*` branch, injected spawn path, generated artifacts, no mirror `main` mutation, no push, and no external provider call.
 
 Worker Runner `codex.real` integration remains default-safe: it requires local `repoUrl` and `agent/*` branch preflight, returns `manual_action` without an injected runner, and only passes queued context to an injected runner in this phase. Hub Mission detail and resource views expose QA evidence paths while display redaction prevents token, password, API key, authorization, session, credential, and secret-like values from rendering.
-
-Detailed phase rollups:
-
-- `docs/progress/batch-03-04-qa-and-local-codex.md`
-- `docs/progress/phase-18-hub-control-plane-and-generic-actions.md`
-- `docs/progress/phase-real-execution-and-integrations.md`
 
 ## Phase 18 Documentation
 
@@ -56,7 +45,7 @@ Detailed phase rollups:
 
 - README now distinguishes real-but-disabled abilities from default dry-run/mock behavior.
 - `.env.example` now lists the phase real-mode variables and Orchestrator route gates with empty placeholders/comments for secrets.
-- This progress file and `docs/progress/phase-real-execution-and-integrations.md` summarize changed capabilities, safety boundaries, migrations, test commands, and remaining manual actions.
+- This progress file summarizes changed capabilities, safety boundaries, migrations, test commands, and remaining manual actions.
 - Real external APIs were not called during this documentation task.
 - Final verification passed after the documentation rollup, targeted test-stability commits, and final security-review fixes.
 

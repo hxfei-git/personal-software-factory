@@ -1,5 +1,5 @@
 # Progress Notes
 
-This directory stores current progress rollups and focused batch summaries.
+Use `../progress.md` as the active progress entrypoint.
 
-旧 `current.md` Phase 1 note 已在激进清理中删除；当前进度入口是 `../progress.md`。
+Detailed phase and batch rollups were removed during the aggressive documentation cleanup after their current facts were consolidated into `../progress.md`, `../../summary.md`, `../../debug.md`, current operational docs, or ADRs.

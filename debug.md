@@ -129,3 +129,13 @@ Use this format for new entries:
 - Fix: deleted the completed previous cleanup spec/plan and updated Superpowers README guidance.
 - Verification: run active Superpowers listing, deleted-path search, `git diff --check`, and `git status --short`.
 - Follow-up: remove this aggressive cleanup plan/spec in a later cleanup after this workstream is no longer active.
+
+### 2026-06-04 - Progress Rollups Consolidated
+
+- Context: aggressive cleanup of progress files after current facts moved into root fact sources.
+- Symptom: `docs/progress/` contained old phase and batch rollups that duplicated `docs/progress.md`, current docs, and debug history.
+- Scope: `docs/progress/**`, `docs/progress.md`, `summary.md`, and `debug.md`.
+- Investigation: searched active references to progress child files and confirmed `docs/progress.md` contains the current capability and verification summary.
+- Fix: deleted progress child rollups and removed active links to them.
+- Verification: run deleted-path search, stale phase search, `git diff --check`, and `git status --short`.
+- Follow-up: record future current progress in `docs/progress.md` unless a new focused current note is explicitly needed.
