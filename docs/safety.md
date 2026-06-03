@@ -35,7 +35,7 @@ Do not place real provider credentials in prompts, logs, artifacts, Hub UI, API 
 
 `pnpm psf demo:reset` previews by default. It deletes only scoped demo data when `DEMO_RESET_CONFIRM=1`, and it refuses non-demo Mission IDs. Use `--skip-db` when local PostgreSQL is unavailable or when only file cleanup is intended.
 
-## Queue And Batch 03/04 Safety
+## Queue And Real-Mode Safety
 
 The queue layer is an execution boundary, not permission to run real work. Worker Runner consumes only whitelisted dry-run/mock jobs and gated real-mode contract jobs. Default behavior remains manual-action or injected-runner only unless explicit gates, approvals, and injected runners or transports are configured. Worker Runner does not execute Codex by default, run arbitrary commands, push, create PRs, deploy, create monitors, create Plane issues, or call provider APIs.
 
@@ -47,7 +47,7 @@ Cancel and retry are scoped to a single queue wrapper WorkerRun. There is no API
 
 ## Shared Safety Package
 
-`@psf/security` centralizes the safety checks that later real-execution batches must call before writing prompts, logs, artifacts, API responses, Hub payloads, or worker outputs. It currently provides:
+`@psf/security` centralizes the safety checks that future approved real-execution work must call before writing prompts, logs, artifacts, API responses, Hub payloads, or worker outputs. It currently provides:
 
 - `redactText`, `redactJson`, and `assertNoSecrets` for secret-like keys and explicit secret values.
 - `evaluateCommandPolicy` and `assertCommandAllowed` for conservative command allow/deny checks before any worker command execution.

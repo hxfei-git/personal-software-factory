@@ -156,6 +156,6 @@ Use this format for new entries:
 - Symptom: API, queue, local development, safety, auth, schema, storage, artifacts, worker runtime, and integration docs could read as phase plans instead of current operating guidance.
 - Scope: retained operational docs, `summary.md`, and `debug.md`.
 - Investigation: searched active docs for old phase phrases and checked each retained file against current default-safe and gated real boundaries.
-- Fix: replaced old phase-entry language with current operational wording while preserving `realNetworkCall: false` and gated runner/transport boundaries. Storage queue wording was also corrected from old later-phase/API-MVP language to current optional queue runtime wording. Remaining phase/batch wording in retained operational docs was normalized to task/current-runtime wording.
+- Fix: replaced old phase-entry language with current operational wording while preserving `realNetworkCall: false` and gated runner/transport boundaries. Storage queue wording was also corrected from old later-phase/API-MVP language to current optional queue runtime wording. Remaining phase/batch wording in retained operational docs was normalized to task/current-runtime wording. Safety doc remaining batch wording was normalized to current queue safety and future-approved-task wording.
 - Verification: run stale phase search, safety-boundary search, `git diff --check`, and `git status --short`.
 - Follow-up: none.
