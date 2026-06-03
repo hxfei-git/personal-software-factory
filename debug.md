@@ -56,9 +56,9 @@ Use this format for new entries:
 - Symptom: `docs/progress/current.md` still described Phase 1, while README and progress rollups described gated real execution and Batch 05/06.
 - Scope: root docs, progress docs, AGENTS guidance, historical planning files.
 - Investigation: searched docs for stale phase labels, `enhance_plan.md`, and active references to historical plans.
-- Fix so far: create current fact-source docs. Pending fix: archive misleading historical files in the archive task.
-- Verification: spec and plan are committed before file cleanup begins.
-- Follow-up: implement the cleanup plan and re-run documentation text checks.
+- Fix: created current fact-source docs and archived misleading historical files under `docs/archive/`.
+- Verification: spec and plan were committed before file cleanup, and the archive task moved historical files with `git mv`.
+- Follow-up: re-run documentation text checks after each cleanup pass.
 
 ### 2026-06-03 - Active Stale Phase Wording Found
 
@@ -66,6 +66,6 @@ Use this format for new entries:
 - Symptom: the stale-phase search still matched current-state wording in active reference docs outside the original cleanup spec and plan.
 - Scope: AGENTS guidance, architecture docs, worker permissions, final MVP scope, migration notes, roadmap headings, acceptance criteria headings, summary, and debug records.
 - Investigation: ran the required search excluding `docs/archive/**` and separated intended historical cleanup spec/plan matches from active reference docs that needed wording updates.
-- Fix: renamed current-phase headings, updated active docs to describe current dry-run and gated real contracts, preserved no real execution, no provider call, no push, and no deploy defaults, and left archive-task wording pending.
+- Fix: renamed current-phase headings, updated active docs to describe current dry-run and gated real contracts, preserved no real execution, no provider call, no push, and no deploy defaults, and archived historical files under `docs/archive/`.
 - Verification: rerun the stale-phase search and `git diff --check` for the allowed files.
-- Follow-up: Task 4 may archive remaining historical progress files and cleanup plan/spec material if they should no longer appear in active searches.
+- Follow-up: monitor future cleanup passes for stale active-doc wording.

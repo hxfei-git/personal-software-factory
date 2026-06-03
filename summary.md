@@ -2,7 +2,7 @@
 
 ## Status
 
-This file tracks current architecture problems, risks, and improvement items. It is not a historical phase log. Historical phase material currently remains in progress and planning docs; this cleanup will move misleading historical files under `docs/archive/` in the archive task.
+This file tracks current architecture problems, risks, and improvement items. It is not a historical phase log. Historical phase material now lives under `docs/archive/` as audit reference material, not current implementation instruction.
 
 ## Current Strengths
 
@@ -16,13 +16,12 @@ This file tracks current architecture problems, risks, and improvement items. It
 
 ## Current Problems
 
-1. Documentation phase drift: older documents still refer to Phase 1, Phase 11-15, Phase 16A/16B/17A, or Phase 17B as if they are the current state.
-2. Historical plans are mixed with active guidance: root-level and active docs make some completed plans look current.
-3. Real-mode gate complexity is high: route gates, worker gates, provider gates, approvals, injected transports, and local workspace checks are spread across several documents and code paths.
-4. `ai-novelist` execution is not verified: passport commands, selectors, local URL behavior, and E2E entrypoints require manual verification in a real checkout.
-5. Contract duplication exists between Hub API types, mission schemas, Orchestrator service schemas, worker job schemas, and integration types.
-6. Manual-action UX is useful but not yet ergonomic: operators can see blockers, but the next concrete action is not always obvious.
-7. The archive policy has not been consistently applied, so future agents can read stale phase material as active instruction.
+1. Residual documentation drift risk remains when new active docs reuse old phase language without linking it as history.
+2. Real-mode gate complexity is high: route gates, worker gates, provider gates, approvals, injected transports, and local workspace checks are spread across several documents and code paths.
+3. `ai-novelist` execution is not verified: passport commands, selectors, local URL behavior, and E2E entrypoints require manual verification in a real checkout.
+4. Contract duplication exists between Hub API types, mission schemas, Orchestrator service schemas, worker job schemas, and integration types.
+5. Manual-action UX is useful but not yet ergonomic: operators can see blockers, but the next concrete action is not always obvious.
+6. Archive policy is now applied to completed historical phase material; residual risk is future stale documents being added outside `docs/archive/`.
 
 ## Improvement Backlog
 
@@ -54,7 +53,8 @@ This file tracks current architecture problems, risks, and improvement items. It
 - A new `debug.md` is the debug record source.
 - Active docs and indexes have been updated toward current implementation guidance.
 - Stale current-phase wording in active reference docs has been corrected while preserving historical phase meaning.
+- Misleading historical current-state files have been archived under `docs/archive/`.
 
-### Pending
+### Residual Risk
 
-- Misleading historical current-state files are scheduled for archive in the archive task instead of remaining active guidance.
+- Keep future completed phase material out of active guidance unless it is explicitly marked as current.

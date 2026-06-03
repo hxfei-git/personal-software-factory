@@ -10,6 +10,6 @@ Start with the root current fact sources:
 - `../README.md`
 - `progress.md`
 
-Historical phase plans and brainstorms are scheduled to move under `archive/` by the documentation cleanup archive task. After that move, archived files are audit references, not current implementation instructions.
+Historical phase plans and brainstorms live under `archive/`. Archived files are audit references, not current implementation instructions.
 
 Documentation should stay aligned with the implemented system. Do not describe a capability as enabled unless its gates, tests, and safety boundaries are implemented and verified.
