@@ -53,7 +53,7 @@ This file tracks current architecture problems, risks, and improvement items. It
 - A new `debug.md` is the debug record source.
 - Active docs and indexes have been updated toward current implementation guidance.
 - Stale current-phase wording in active reference docs has been corrected while preserving historical phase meaning.
-- Active runtime, local development, and safety docs now use default-safe plus gated real contract wording instead of old phase-boundary wording.
+- Active runtime, local development, safety, and operations docs now use default-safe plus gated real contract wording instead of old phase-boundary wording.
 - Misleading historical current-state files have been archived under `docs/archive/`.
 
 ### Residual Risk

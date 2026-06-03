@@ -90,7 +90,7 @@ pnpm psf worker-runs:cancel <workerRunId>
 pnpm psf worker-runs:retry <workerRunId>
 ```
 
-Queue mode is still dry-run/mock only. Worker Runner reuses existing dry-run workflows and does not execute Codex, push, create PRs, deploy, or call external providers.
+Queue mode remains default-safe. Worker Runner can route dry-run/mock jobs and gated real-mode contract jobs, but default paths do not execute Codex, push, create PRs, deploy, create monitors, create Plane issues, or call external providers without explicit route, environment, approval, and injected runner or transport gates.
 
 ## Artifact Retention Operations
 

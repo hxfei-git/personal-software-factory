@@ -79,3 +79,13 @@ Use this format for new entries:
 - Fix: replaced old phase-boundary statements with default-safe plus gated real contract wording, without enabling Codex, Playwright, provider, GitHub, Coolify, Uptime Kuma, or Plane real calls.
 - Verification: rerun the stale-sentence search, safety-boundary search, targeted `git diff --check`, and `git status --short`.
 - Follow-up: none.
+
+### 2026-06-03 - Operations Queue Boundary Wording Corrected
+
+- Context: Task 4 quality review found `docs/operations.md` still described queue mode as dry-run/mock only.
+- Symptom: the operations guide did not reflect current default-safe queue behavior with gated real-mode contract jobs.
+- Scope: `docs/operations.md`, `summary.md`, and `debug.md`.
+- Investigation: searched active operations, summary, and debug docs for the stale queue sentence and existing `realNetworkCall: false` safety wording.
+- Fix: replaced the dry-run-only queue sentence with default-safe, dry-run/mock, gated real-mode contract, explicit gates, and injected runner/transport wording without enabling real calls.
+- Verification: rerun the stale queue search, safety-boundary search, targeted `git diff --check`, and `git status --short`.
+- Follow-up: none.
