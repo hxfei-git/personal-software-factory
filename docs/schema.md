@@ -1,6 +1,6 @@
 # Schema
 
-Phase 2 introduces shared runtime schemas in `packages/mission-schema` and persistence models in `packages/db`.
+Shared runtime schemas live in `packages/mission-schema`, and persistence models live in `packages/db`.
 
 ## Shared Zod Schemas
 
@@ -46,7 +46,7 @@ failed
 cancelled
 ```
 
-The list is a plan-compatible superset. The Orchestrator API MVP uses the required Phase 2-4 subset.
+The list is a plan-compatible superset. The Orchestrator API uses the required subset implemented by current routes and workers.
 
 ## Project Passport
 

@@ -5,7 +5,7 @@
 ## Implementations
 
 - `InProcessWorkerRuntime`: used by unit tests and local dry-runs that do not require Redis.
-- `BullMQWorkerRuntime`: optional Phase 17B adapter backed by Redis and BullMQ.
+- `BullMQWorkerRuntime`: optional queue adapter backed by Redis and BullMQ.
 
 BullMQ is an implementation of the runtime interface. It does not replace Orchestrator, Mission storage, demo workflow, QA worker, Codex worker, Auto Fix Loop, or integration adapters.
 

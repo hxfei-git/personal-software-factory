@@ -1,10 +1,10 @@
 # Queue Runtime
 
-Phase 17B adds optional queue-backed execution for safe dry-run actions. The goal is to keep the Orchestrator API responsive while longer dry-run workflows are consumed by a Worker Runner.
+The queue runtime provides optional queue-backed execution for safe dry-run actions and gated real-mode contract jobs. The goal is to keep the Orchestrator API responsive while longer workflows are consumed by a Worker Runner without granting arbitrary execution.
 
 ## Why The Queue Exists
 
-Before Phase 17B, protected action routes could run the dry-run workflow inside the API process. That is acceptable for small demos, but it makes status observation, retry, cancellation, and future long-running worker isolation harder. The queue layer gives the system a durable boundary for accepted work while preserving the existing Mission, Artifact, BugReport, QARun, and WorkerRun models.
+Protected action routes can run short dry-run workflows inside the API process. That is acceptable for small demos, but it makes status observation, retry, cancellation, and future long-running worker isolation harder. The queue layer gives the system a durable boundary for accepted work while preserving the existing Mission, Artifact, BugReport, QARun, and WorkerRun models.
 
 ## Inline Versus Queued
 
@@ -15,7 +15,7 @@ Before Phase 17B, protected action routes could run the dry-run workflow inside 
 
 ## Queue Wrapper WorkerRun
 
-Phase 17B intentionally uses a queue-level wrapper WorkerRun. This wrapper represents the queue job itself, not the planner, QA, Codex dry-run, or fix worker business run.
+The current queue runtime intentionally uses a queue-level wrapper WorkerRun. This wrapper represents the queue job itself, not the planner, QA, Codex dry-run, or fix worker business run.
 
 Wrapper lifecycle:
 
@@ -42,7 +42,7 @@ The existing dry-run workflows keep their current child WorkerRun semantics. The
 }
 ```
 
-If a later phase needs stronger relationships, add `parentWorkerRunId` or `rootWorkerRunId` deliberately. Phase 17B avoids that schema migration.
+If future work needs stronger relationships, add `parentWorkerRunId` or `rootWorkerRunId` deliberately. The current schema avoids that migration.
 
 ## Start Redis, API, Worker Runner, And Hub
 
@@ -130,7 +130,7 @@ Task 9 wires these real/gated job contracts into Worker Runner handlers:
 
 The real/gated handlers preserve queue wrapper output semantics: the wrapper records `childWorkerRunIds`, `childQARunIds`, `childArtifactIds`, `childBugReportIds`, `summary`, and `recommendedNextAction`, while child resources are persisted when the underlying runner returns them. `github.pr` now persists a child integration WorkerRun plus `github-pr-preview.md` Artifact even when the default result is manual-action/no-network.
 
-Phase 18 also records Mission-level audit events from Worker Runner completions. Successful or blocked action handling appends `mission.action_result` with the action outcome, child resource IDs, and safe recommended next action. Worker Runner may also append `mission.status.auto_transition` when the result maps to a conservative legal Mission status transition; if the state machine rejects the transition, the Mission status is left unchanged and the action result event remains the audit record.
+Worker Runner completions also record Mission-level audit events. Successful or blocked action handling appends `mission.action_result` with the action outcome, child resource IDs, and safe recommended next action. Worker Runner may also append `mission.status.auto_transition` when the result maps to a conservative legal Mission status transition; if the state machine rejects the transition, the Mission status is left unchanged and the action result event remains the audit record.
 
 Unknown job types are rejected by the Zod schema before enqueue. Payloads are recursively rejected when keys look like tokens, passwords, secrets, API keys, authorization headers, or credentials.
 

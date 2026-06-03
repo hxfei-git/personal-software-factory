@@ -1,6 +1,6 @@
 # Integrations
 
-Phase 11-15 integrations default to local mock/dry-run adapters for GitHub, Coolify, Uptime Kuma, and Plane. They let the Hub and CLI show what later external actions would look like without mutating any external service. This phase also includes gated real adapter implementations for approved execution paths, but they only run when runtime wiring explicitly selects them.
+Integrations default to local mock/dry-run adapters for GitHub, Coolify, Uptime Kuma, and Plane. They let the Hub and CLI show external-action previews without mutating any external service. Gated real adapter implementations exist for approved execution paths, but they only run when runtime wiring explicitly selects them and injects a controlled transport.
 
 ## Supported Providers
 

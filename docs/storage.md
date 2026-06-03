@@ -1,6 +1,6 @@
 # Storage
 
-Phase 2-4 storage uses Prisma with local PostgreSQL.
+Storage uses Prisma with local PostgreSQL.
 
 ## Local Services
 

@@ -183,7 +183,7 @@ Request body fields are optional:
 
 Protected. Runs local Orchestrator action entrypoints backed by `@psf/demo-workflow` for the fixed demo Mission and controlled generic dry-run responses for other supported Missions. These endpoints are default-safe with dry-run/status routes plus gated real-mode contracts: default responses do not execute shell commands, Codex, external APIs, pushes, PR creation, or deployments, and real execution requires the explicit gates, approvals, injected runner or transport, and route wiring for that action.
 
-In Phase 18, Mission action preflight no longer rejects non-demo Missions solely because the Mission ID is not `mission-0001-ai-novelist-chapter-review`. The API verifies that the Mission exists, the linked Project exists, and the Project Passport is available when an action needs project context. Missing Missions return `404 NOT_FOUND`; missing Projects or unavailable Project Passports return `400 VALIDATION_ERROR` with a specific blocker. Default action responses remain dry-run/manual-action oriented and report `realCodexExecuted: false`, `realExternalCall: false`, `realPush: false`, and `realDeploy: false`.
+Mission action preflight no longer rejects non-demo Missions solely because the Mission ID is not `mission-0001-ai-novelist-chapter-review`. The API verifies that the Mission exists, the linked Project exists, and the Project Passport is available when an action needs project context. Missing Missions return `404 NOT_FOUND`; missing Projects or unavailable Project Passports return `400 VALIDATION_ERROR` with a specific blocker. Default action responses remain dry-run/manual-action oriented and report `realCodexExecuted: false`, `realExternalCall: false`, `realPush: false`, and `realDeploy: false`.
 
 Request body:
 
@@ -228,7 +228,7 @@ Protected routes:
 - `POST /missions/:id/actions/monitor-sync` -> `monitor.uptime_kuma`, gate `PSF_ENABLE_REAL_UPTIME_KUMA_SYNC=true`
 - `POST /missions/:id/actions/plane-sync` -> `plane.sync`, gate `PSF_ENABLE_REAL_PLANE_SYNC=true`
 
-These routes are contracts only in this phase. They never run Codex, Playwright, GitHub, Coolify, Uptime Kuma, Plane, pushes, PR creation, deployments, or arbitrary commands inside the API process. If `PSF_ACTION_EXECUTION_MODE` is not `queued`, or the route-specific gate is not set to exactly `true`, the API returns a blocked/manual payload and creates no WorkerRun or queue job.
+These routes are default-safe contracts. They never run Codex, Playwright, GitHub, Coolify, Uptime Kuma, Plane, pushes, PR creation, deployments, or arbitrary commands inside the API process. If `PSF_ACTION_EXECUTION_MODE` is not `queued`, or the route-specific gate is not set to exactly `true`, the API returns a blocked/manual payload and creates no WorkerRun or queue job.
 
 Blocked response shape:
 
@@ -365,7 +365,7 @@ Protected. Records a decision while the Approval is still `pending` and appends 
 
 `status` may be `approved`, `rejected`, or `cancelled`.
 
-In Phase 18, this route records the decision only. It does not execute Codex, queue real actions, create PRs, deploy, create monitors, sync provider records, or bypass real-action gates.
+This route records the decision only. It does not execute Codex, queue real actions, create PRs, deploy, create monitors, sync provider records, or bypass real-action gates.
 
 ## Worker Runs
 
@@ -527,9 +527,7 @@ Protected. Updates a QA run and appends `qa_run.updated`.
 
 Stable error codes currently include `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_MISSION_TRANSITION`, `UNAUTHORIZED`, and `INTERNAL_SERVER_ERROR`.
 
-## Current Demo And Action Surfaces
-
-Phase 16A is the local ai-novelist dry-run chain. Phase 16B exposes protected Hub/API dry-run actions. Phase 17A adds CLI doctor, reset, report, and operations docs. Phase 18 turns Hub resource pages into Orchestrator API-backed views, adds Hub Mission creation, records Approval decisions from Hub, and generalizes Mission dry-run preflight beyond the fixed demo Mission ID.
+## Current Demo And Control Surfaces
 
 The API surfaces are default-safe with dry-run/status routes plus gated real-mode contracts. Default responses and paths without intentionally injected runners or transports do not execute Codex, run shell commands from the Hub, push, create PRs, deploy, create provider records, or call external services, and they keep `realNetworkCall: false`; real calls or real runners are possible only after explicit gates and approvals are satisfied and the required runner or transport is intentionally wired.
 
@@ -544,9 +542,9 @@ pnpm psf demo:reset --skip-db
 
 Reset is intentionally CLI-only and confirmation-gated.
 
-## Phase 17B Queue Runtime APIs
+## Queue Runtime APIs
 
-Phase 17B adds optional queued execution for protected dry-run action endpoints. The same action routes support two modes:
+Queued execution is optional for protected dry-run action endpoints and gated real-mode contract endpoints. The same action routes support two modes:
 
 - `PSF_ACTION_EXECUTION_MODE=inline`: API executes the existing dry-run workflow and returns the completed dry-run result.
 - `PSF_ACTION_EXECUTION_MODE=queued`: API creates a queue wrapper WorkerRun, enqueues a whitelisted job, and returns accepted metadata without running the long workflow in the API process.

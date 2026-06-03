@@ -149,3 +149,13 @@ Use this format for new entries:
 - Fix: deleted duplicate phase planning docs and updated active references.
 - Verification: run deleted-path search, stale phase search, `git diff --check`, and `git status --short`.
 - Follow-up: create new ADRs or designs for future architecture decisions instead of reviving numbered phase plans.
+
+### 2026-06-04 - Retained Operational Docs Reworded
+
+- Context: active operational docs were preserved but still included old phase-entry wording.
+- Symptom: API, queue, local development, safety, auth, schema, storage, artifacts, worker runtime, and integration docs could read as phase plans instead of current operating guidance.
+- Scope: retained operational docs, `summary.md`, and `debug.md`.
+- Investigation: searched active docs for old phase phrases and checked each retained file against current default-safe and gated real boundaries.
+- Fix: replaced old phase-entry language with current operational wording while preserving `realNetworkCall: false` and gated runner/transport boundaries.
+- Verification: run stale phase search, safety-boundary search, `git diff --check`, and `git status --short`.
+- Follow-up: none.

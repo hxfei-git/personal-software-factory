@@ -29,7 +29,7 @@ For any environment reachable by another user or machine, set `PSF_AUTH_DISABLED
 
 Provider tokens and passwords such as `GITHUB_TOKEN`, `COOLIFY_TOKEN`, `UPTIME_KUMA_PASSWORD`, and `PLANE_API_TOKEN` must not appear in API responses, Hub UI, logs, artifacts, PR bodies, Issue bodies, or comments. Integration adapters may use their presence to report `configured`, but values must be redacted before anything is displayed or persisted.
 
-## Phase 16A/16B/17A Local Demo Auth
+## Local Demo Auth
 
 For the quickest local demo, start the API with:
 

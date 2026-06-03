@@ -15,7 +15,7 @@ The current default boundary is local dry-run/default-safe. Demo workflow, gener
 
 Do not treat the current CLI, API, or Hub surfaces as real Codex automation, PR creation, deployment, monitoring, or Plane sync.
 
-Phase 18 Approval decisions are records only. Recording an approved Approval does not execute real Codex, queue real actions by itself, create PRs, deploy, create monitors, sync provider records, or bypass `PSF_ACTION_EXECUTION_MODE`, `PSF_ENABLE_REAL_*`, worker, provider, injected runner/transport, or explicit operator approval gates.
+Approval decisions are records only. Recording an approved Approval does not execute real Codex, queue real actions by itself, create PRs, deploy, create monitors, sync provider records, or bypass `PSF_ACTION_EXECUTION_MODE`, `PSF_ENABLE_REAL_*`, worker, provider, injected runner/transport, or explicit operator approval gates.
 
 ## Verify Dry-Run Mode
 
@@ -37,9 +37,9 @@ Do not place real provider credentials in prompts, logs, artifacts, Hub UI, API 
 
 ## Queue And Batch 03/04 Safety
 
-The queue layer is an execution boundary, not permission to run real work. Phase 17B Worker Runner consumed only whitelisted dry-run/mock jobs. Batch 03/04 adds whitelisted gated `qa.playwright` and `codex.real` contracts, but default behavior remains manual-action or injected-runner only. Worker Runner does not execute Codex by default, run arbitrary commands, push, create PRs, deploy, create monitors, create Plane issues, or call provider APIs.
+The queue layer is an execution boundary, not permission to run real work. Worker Runner consumes only whitelisted dry-run/mock jobs and gated real-mode contract jobs. Default behavior remains manual-action or injected-runner only unless explicit gates, approvals, and injected runners or transports are configured. Worker Runner does not execute Codex by default, run arbitrary commands, push, create PRs, deploy, create monitors, create Plane issues, or call provider APIs.
 
-Queued `codex.real` requires a local repository mirror, an `agent/*` branch, stored approvals, workspace guards, safe commands, and an injected runner in this phase. Queued `qa.playwright` requires a target URL and a gated real Playwright path or an injected runner; missing/invalid targets and unverified selectors must be blocked/manual-action, not marked passed. Queued `fix.real` requires approved real Codex grant, meaningful regression evidence for reproducible bugs, command policy pass, and injected Codex/test runners before any bug can become `accepted`. Queued `github.pr` requires approved `EXTERNAL_COST_RISK` plus explicit operation gates and injected transport before any PR path can leave preview/manual-action.
+Queued `codex.real` requires a local repository mirror, an `agent/*` branch, stored approvals, workspace guards, safe commands, and an injected runner by default. Queued `qa.playwright` requires a target URL and a gated real Playwright path or an injected runner; missing/invalid targets and unverified selectors must be blocked/manual-action, not marked passed. Queued `fix.real` requires approved real Codex grant, meaningful regression evidence for reproducible bugs, command policy pass, and injected Codex/test runners before any bug can become `accepted`. Queued `github.pr` requires approved `EXTERNAL_COST_RISK` plus explicit operation gates and injected transport before any PR path can leave preview/manual-action.
 
 Queue payloads must not contain token, password, secret, API key, authorization, credential, session, JWT, or bearer values. Runtime and API responses redact secret-like values before returning errors.
 
@@ -58,7 +58,7 @@ This package does not enable real Codex execution, network calls, pushes, pull r
 
 ## Real-Mode Readiness Boundary
 
-`ENABLE_REAL_*` and `PSF_ENABLE_REAL_*` values are readiness signals only in this phase. Doctor warns when they are enabled, and integrations must still return `realNetworkCall: false` until a later approved task intentionally wires real provider calls.
+`ENABLE_REAL_*` and `PSF_ENABLE_REAL_*` values are readiness signals only in current default-safe operation. Doctor warns when they are enabled, and integrations must still return `realNetworkCall: false` until a later approved task intentionally wires real provider calls.
 
 Before any real action is allowed in a future phase, the operator must verify approvals, queue mode, Worker Runner health, artifact/workspace roots, redaction, token rotation procedures, backup/restore procedures, and action-specific provider configuration. Real Codex must use an operator-prepared mirror under `PSF_WORKSPACE_ROOT/mirrors`, and the child process receives only an allowlisted non-secret environment.
 

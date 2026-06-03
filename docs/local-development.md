@@ -65,7 +65,7 @@ Local development is dry-run/mock/manual-action by default. Gated real contract 
 
 ## Optional Queued Mode
 
-Phase 17B supports a queued dry-run path. Keep inline mode for the smallest local loop:
+Queued mode supports a default-safe dry-run path. Keep inline mode for the smallest local loop:
 
 ```bash
 PSF_ACTION_EXECUTION_MODE=inline pnpm dev:api
