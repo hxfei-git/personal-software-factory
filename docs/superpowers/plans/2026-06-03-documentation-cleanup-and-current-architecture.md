@@ -197,7 +197,7 @@ Create `summary.md` with this content:
 
 ## Status
 
-This file tracks current architecture problems, risks, and improvement items. It is not a historical phase log; historical phase material remains pending archive until Task 4 moves it under `docs/archive/`.
+This file tracks current architecture problems, risks, and improvement items. It is not a historical phase log; historical phase material remains pending archival until Task 4 moves it under `docs/archive/`.
 
 ## Current Strengths
 
@@ -245,7 +245,7 @@ This file tracks current architecture problems, risks, and improvement items. It
 - A new `struct.md` is the current architecture map.
 - A new `summary.md` is the issue and improvement source.
 - A new `debug.md` is the debug record source.
-- Misleading historical current-state files are scheduled for archive instead of left as active guidance.
+- Misleading historical current-state files are pending archival instead of left as active guidance.
 ```
 
 - [ ] **Step 2: Write `debug.md`**
@@ -421,7 +421,7 @@ Replace the file with:
 ```markdown
 # Documentation
 
-This directory holds architecture references, API contracts, safety guidance, operations notes, ADRs, progress rollups, and historical planning material scheduled for archive in Task 4 for Personal Software Factory.
+This directory holds architecture references, API contracts, safety guidance, operations notes, ADRs, progress rollups, and historical planning material scheduled for archival in Task 4 for Personal Software Factory.
 
 Start with the root current fact sources:
 
