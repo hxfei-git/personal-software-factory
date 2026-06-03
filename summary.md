@@ -48,6 +48,7 @@ This file tracks current architecture problems, risks, and improvement items. It
 
 ## Recently Resolved By Documentation Cleanup
 
+- Completed prior Superpowers cleanup spec/plan files were removed from the active workflow directory; the current aggressive cleanup spec and plan remain active until this workstream finishes.
 - Low-value archive files from old Superpowers plans/specs, brainstorms, archived enhancement planning, and superseded phase-current notes were removed; retained audit policy now lives in `docs/archive/README.md`, and active docs no longer point to the deleted archive paths.
 - Active guidance no longer treats `docs/progress/current.md`, the archived enhancement plan, old brainstorms, or old Superpowers plans/specs as current instructions.
 - `docs/archive/` now retains only the archive policy README unless future unique audit references are intentionally added.

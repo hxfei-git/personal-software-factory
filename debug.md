@@ -119,3 +119,13 @@ Use this format for new entries:
 - Fix: removed low-value archive files, rewrote `docs/archive/README.md` as a retained-audit policy, and corrected active docs that still pointed to deleted archive material.
 - Verification: run archive listing, stale-reference search, `git diff --check`, and `git status --short --branch`.
 - Follow-up: none.
+
+### 2026-06-04 - Completed Superpowers Cleanup Docs Removed
+
+- Context: active Superpowers directories still contained the completed current-architecture cleanup spec and implementation plan.
+- Symptom: completed workflow artifacts could be mistaken for the active workstream.
+- Scope: `docs/superpowers/**`, `summary.md`, and `debug.md`.
+- Investigation: listed active Superpowers files and separated the completed previous cleanup from the current aggressive cleanup spec/plan.
+- Fix: deleted the completed previous cleanup spec/plan and updated Superpowers README guidance.
+- Verification: run active Superpowers listing, deleted-path search, `git diff --check`, and `git status --short`.
+- Follow-up: remove this aggressive cleanup plan/spec in a later cleanup after this workstream is no longer active.
