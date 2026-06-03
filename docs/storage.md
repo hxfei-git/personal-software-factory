@@ -10,7 +10,7 @@ PostgreSQL and Redis run through `docker-compose.yml`:
 sudo docker compose up -d postgres redis
 ```
 
-Redis is running for later phases. The current API MVP does not enqueue jobs yet.
+Redis backs the optional BullMQ queue runtime when queued mode is enabled. Inline mode remains available for small local loops, and queued jobs stay limited to whitelisted dry-run or gated real-mode contracts.
 
 ## Prisma Commands
 
