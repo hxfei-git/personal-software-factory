@@ -1,5 +1,5 @@
 # Progress Notes
 
-This directory records phase summaries and current project status for Personal Software Factory.
+This directory stores current progress rollups and focused batch summaries.
 
-Each completed phase should document what changed, what was checked, what failed, remaining risks, and the next phase entry conditions.
+Use `../progress.md` as the active progress entrypoint. The old `current.md` Phase 1 note has been archived under `../archive/progress/current-phase-1.md` because it no longer represents the repository's current implementation state.

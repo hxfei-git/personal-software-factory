@@ -234,6 +234,11 @@ pnpm test
 
 ## Documentation
 
+Start with the root current fact sources before reading historical phase plans.
+
+- `struct.md`: current implemented architecture map and module boundaries.
+- `summary.md`: current architecture problems, risks, and improvement backlog.
+- `debug.md`: debug hotspots, focused verification commands, and investigation records.
 - `docs/api.md`: Orchestrator API routes and request shapes.
 - `docs/auth.md`: API token auth and local/dev/test boundaries.
 - `docs/safety.md`: dry-run, queue, and secret safety boundaries.

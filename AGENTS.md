@@ -6,19 +6,23 @@ Build a personal AI software factory that turns user requirements into planned M
 
 ## Current Phase Discipline
 
-- Phase 11-15 currently exposes Hub Web and integration dry-run surfaces only.
-- Do not turn GitHub, Coolify, Uptime Kuma, or Plane adapters into real network callers without an explicit later task and approval.
-- Integration responses must keep `realNetworkCall` false until real external calls are intentionally implemented.
-- Keep changes small, documented, and aligned with `docs/00-system-architecture.md` and `docs/01-execution-roadmap.md`.
+- Current active implementation state is documented in `struct.md`, `summary.md`, `debug.md`, `README.md`, and `docs/progress.md`.
+- The repository includes gated real execution contracts and Batch 05/06 fix/regression plus GitHub PR preview work, but the default posture remains local-first, dry-run/mock/manual-action safe.
+- Do not turn GitHub, Coolify, Uptime Kuma, Plane, Codex, Playwright, or AI exploratory adapters into real external callers or real execution paths without an explicit later task and approval.
+- Integration responses and default gated real-mode responses must keep `realNetworkCall` false until real external calls are intentionally implemented and approved.
+- Keep changes small, documented, and aligned with `struct.md`, `docs/api.md`, `docs/safety.md`, and `docs/queue-runtime.md`.
 
 ## Required Reading Before Major Changes
 
-- `plan.md` for the full project plan.
-- `docs/00-system-architecture.md` for architecture boundaries.
-- `docs/01-execution-roadmap.md` for phase order.
-- `docs/02-mvp-scope.md` for MVP scope.
-- `docs/03-risk-and-assumptions.md` for safety assumptions.
-- `docs/04-phase-acceptance-criteria.md` for phase gates.
+- `struct.md` for the current implemented architecture.
+- `summary.md` for current problems, risks, and improvement backlog.
+- `debug.md` for known debug hotspots and recent investigations.
+- `README.md` for current local setup and capability boundaries.
+- `docs/progress.md` for latest completed batches and verification status.
+- `docs/api.md` for Orchestrator API contracts.
+- `docs/safety.md` for dry-run, real-mode, and secret boundaries.
+- `docs/queue-runtime.md` for queued WorkerRun and Worker Runner behavior.
+- `plan.md` for long-term product vision only; do not treat it as current implementation state.
 
 ## Working Rules
 
@@ -33,6 +37,14 @@ Build a personal AI software factory that turns user requirements into planned M
 - Every task must finish with a focused local git commit and relevant documentation updates, unless the user explicitly says not to commit or a blocker prevents a safe commit. Do not push to GitHub without explicit approval.
 - Every commit must use a Chinese summary as the commit title and include a Chinese description in the commit body.
 - During testing, minimize elapsed time by running the smallest meaningful checks for the changed surface first. Focus on critical test chains, then run broader suites only when phase gates, shared contracts, or risk level require them.
+
+## Documentation Maintenance Rules
+
+- If a change modifies architecture, module boundaries, data flow, state transitions, worker contracts, integration gates, or safety boundaries, update `struct.md` in the same task.
+- If a change adds, resolves, or discovers architecture problems, risks, technical debt, phase status changes, or improvement work, update `summary.md` in the same task.
+- If a change involves debugging, failed checks, unexpected behavior, manual-action output, flaky tests, queue/runtime issues, or incident-like findings, update `debug.md` in the same task.
+- If none of `struct.md`, `summary.md`, or `debug.md` need changes, the final response and commit body must explicitly state why.
+- Do not record secret values in any of these documents.
 
 ## Phase 1 Checks
 

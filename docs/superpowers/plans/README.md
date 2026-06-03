@@ -1,5 +1,5 @@
-# Implementation Plans
+# Superpowers Implementation Plans
 
-This directory contains Superpowers implementation plans for phase-based work.
+This directory is for active implementation plans. Completed historical plans are archived under `docs/archive/superpowers/plans/`.
 
-Each plan should map requirements to concrete files, checks, and stop conditions.
+Use the newest active plan for the current task and ignore archived plans unless researching implementation history.

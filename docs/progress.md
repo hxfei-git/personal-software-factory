@@ -1,5 +1,11 @@
 # Real Execution And Integrations Phase Progress
 
+## Current Fact Sources
+
+The current architecture fact source is `../struct.md`. Current problems and improvement items are tracked in `../summary.md`. Debug notes and investigation records are tracked in `../debug.md`.
+
+Older phase plans and brainstorms are historical references after the documentation cleanup and should not override current fact-source documents.
+
 ## Latest Update
 
 Batch 05/06 is complete for gated fix/regression enforcement and GitHub PR gate preview. `fix-real` queued payloads now carry open bugs, attempts, Project Passport, Mission files, verification commands, regression evidence, branch/workspace context, and approvals. Worker Runner persists accepted BugReport updates only after regression evidence and injected verification succeed, then conservatively transitions through legal Mission states toward `ready_for_review`. `github-pr` now requires approved `EXTERNAL_COST_RISK`, queues a safe PR preview context, and persists a child integration WorkerRun plus PR preview Artifact while defaulting to manual-action/no-network. Focused package tests, `pnpm typecheck`, `pnpm test`, `pnpm build`, and `git diff --check` passed for this batch.
