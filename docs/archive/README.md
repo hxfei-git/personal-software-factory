@@ -1,8 +1,15 @@
 # Documentation Archive
 
-This directory preserves historical plans, brainstorms, specs, and superseded progress notes.
+This directory is reserved for retained audit references that are not current implementation instructions.
 
-Archived files are audit references. They can explain why earlier choices were made, but they are not current implementation instructions. For active architecture and operating guidance, read:
+The current cleanup policy is aggressive:
+
+- Keep current fact sources in the repository root and active `docs/` files.
+- Keep ADRs under `docs/adr/**`.
+- Delete low-value historical plans, brainstorms, completed Superpowers artifacts, and duplicate phase notes once their useful facts are represented in current docs or ADRs.
+- Add files here only when they preserve unique audit context that should not be copied into an ADR, `summary.md`, or `debug.md`.
+
+For active architecture and operating guidance, read:
 
 - `../../struct.md`
 - `../../summary.md`
@@ -12,5 +19,3 @@ Archived files are audit references. They can explain why earlier choices were m
 - `../api.md`
 - `../safety.md`
 - `../queue-runtime.md`
-
-Do not move ADRs, API docs, safety docs, operations docs, provider docs, or verified progress rollups here unless a newer active document explicitly replaces them.

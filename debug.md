@@ -109,3 +109,13 @@ Use this format for new entries:
 - Fix: replaced stale dry-run-boundary and phase-only wording with default-safe dry-run/status plus gated real contract wording, preserved `realNetworkCall: false` defaults until explicit gates, approvals, and injected transports or runners are wired, and changed the progress note to the historical archived enhancement-plan reference.
 - Verification: rerun the stale wording search, current safety/archive wording search, targeted `git diff --check`, and `git status --short`.
 - Follow-up: none.
+
+### 2026-06-04 - Low-Value Archive Files Removed
+
+- Context: aggressive cleanup after current architecture documentation was merged.
+- Symptom: `docs/archive/` still retained completed Superpowers plans/specs, brainstorms, an archived enhancement plan, and a superseded Phase 1 current note that no longer carried unique decision value.
+- Scope: `docs/archive/**`, `docs/README.md`, `summary.md`, and `debug.md`.
+- Investigation: compared archive contents with current fact sources and ADR protection rules.
+- Fix: removed low-value archive files and rewrote `docs/archive/README.md` as a retained-audit policy.
+- Verification: run archive listing, stale-reference search, `git diff --check`, and `git status --short --branch`.
+- Follow-up: none.

@@ -10,6 +10,6 @@ Start with the root current fact sources:
 - `../README.md`
 - `progress.md`
 
-Historical phase plans and brainstorms live under `archive/`. Archived files are audit references, not current implementation instructions.
+Low-value historical plans and brainstorms are removed once their useful facts are represented in current docs or ADRs. `archive/` is reserved for retained audit references only.
 
 Documentation should stay aligned with the implemented system. Do not describe a capability as enabled unless its gates, tests, and safety boundaries are implemented and verified.
