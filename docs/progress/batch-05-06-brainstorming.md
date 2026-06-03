@@ -96,4 +96,3 @@ Defaults must continue to block:
 6. Tests:
    - Add focused tests for `auto-fix-loop`, `integrations`, `orchestrator-api`, and `worker-runner`.
    - Only touch Hub tests if UI code changes.
-
