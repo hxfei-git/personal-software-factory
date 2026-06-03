@@ -61,7 +61,7 @@ pnpm test:scripts
 
 ## Boundaries
 
-Local development remains dry-run only for Phase 16A/16B/17A. It does not execute Codex, push, create PRs, deploy, create monitors, create Plane issues, or call external services.
+Local development is dry-run/mock/manual-action by default. Gated real contract paths require explicit route, environment, approval, and injected runner or transport gates before they can execute Codex, push, create PRs, deploy, create monitors, create Plane issues, or call external services.
 
 ## Optional Queued Mode
 

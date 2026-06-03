@@ -69,3 +69,13 @@ Use this format for new entries:
 - Fix: renamed current-phase headings, updated active docs to describe current dry-run and gated real contracts, preserved no real execution, no provider call, no push, and no deploy defaults, and archived historical files under `docs/archive/`.
 - Verification: rerun the stale-phase search and `git diff --check` for the allowed files.
 - Follow-up: monitor future cleanup passes for stale active-doc wording.
+
+### 2026-06-03 - Runtime Boundary Phase Wording Corrected
+
+- Context: Task 4 quality review found active runtime, local-development, and safety docs still used old phase-boundary wording for current execution safety.
+- Symptom: active docs described runtime and local development as phase-specific dry-run only, which could hide the current gated real contract paths.
+- Scope: `docs/worker-runtime.md`, `docs/local-development.md`, `docs/safety.md`, `summary.md`, and `debug.md`.
+- Investigation: searched the active docs for the exact stale phase sentences and verified existing `realNetworkCall: false` and default-safe safety boundaries.
+- Fix: replaced old phase-boundary statements with default-safe plus gated real contract wording, without enabling Codex, Playwright, provider, GitHub, Coolify, Uptime Kuma, or Plane real calls.
+- Verification: rerun the stale-sentence search, safety-boundary search, targeted `git diff --check`, and `git status --short`.
+- Follow-up: none.

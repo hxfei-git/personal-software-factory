@@ -57,4 +57,4 @@ Ordinary `pnpm test` does not require Redis. Redis-specific checks are optional 
 
 ## Safety
 
-The runtime only handles queue/job/status mechanics. Business handlers live in Worker Runner. Phase 17B jobs remain dry-run/mock only and do not execute Codex, push, create PRs, deploy, or call external providers.
+The runtime only handles queue/job/status mechanics. Business handlers live in Worker Runner. Default runtime paths remain dry-run/mock/manual-action safe. Gated real-mode contract jobs exist only behind explicit route, environment, approval, and injected runner or transport gates.

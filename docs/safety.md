@@ -4,7 +4,7 @@ Current default real capabilities are disabled: Codex execution, GitHub push/PR/
 
 ## Dry-Run Boundary
 
-Phase 16A/16B/17A/18 is local dry-run/default-safe. Demo workflow, generic Mission dry-run preflight, Hub control-plane views, and integration outputs must keep:
+The current default boundary is local dry-run/default-safe. Demo workflow, generic Mission dry-run preflight, Hub control-plane views, and integration outputs must keep:
 
 - `dryRun: true`
 - `realCodexExecuted: false`
