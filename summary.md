@@ -59,6 +59,7 @@ This file tracks current architecture problems, risks, and improvement items. It
 - Progress README now keeps `../progress.md` as the only path reference after child rollup deletion.
 - Progress child rollup deletion also updated the structure check script from old phase files to current fact sources.
 - Duplicate numbered phase planning, MVP scope, acceptance, and Temporal/LangGraph migration notes were removed; current state now relies on root fact sources, operational docs, and ADRs.
+- Aggressive cleanup removed low-value archive files, previous completed workflow docs, old progress rollups, duplicate phase planning docs, and the merged cleanup worktree while preserving current fact sources and ADRs.
 
 ### Completed So Far
 

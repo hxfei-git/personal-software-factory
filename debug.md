@@ -169,3 +169,13 @@ Use this format for new entries:
 - Fix: documented ADR protection and the rule to remove low-value completed plans or stale phase notes after useful facts are captured.
 - Verification: run governance wording search, source-priority check, `git diff --check`, and `git status --short`.
 - Follow-up: none.
+
+### 2026-06-04 - Aggressive Documentation Cleanup Validation
+
+- Context: final validation in the `docs/aggressive-documentation-cleanup` worktree after deleting low-value historical docs, duplicate phase planning files, old progress rollups, and the merged cleanup worktree.
+- Symptom: repository documentation had retained stale phase artifacts, completed workflow documents, and old archive/progress paths after the first cleanup pass.
+- Scope: active root docs, `docs/archive`, `docs/superpowers`, `docs/progress`, retained operational docs, ADRs, and local worktrees.
+- Investigation: ran structural checks, deleted-path checks, stale phase wording checks, safety-boundary checks, and git status checks before writing these final notes.
+- Fix: retained current fact sources and ADRs, removed low-value historical files, kept archive/progress child directories reduced to README policy files, and recorded the cleanup policy and final validation result.
+- Verification: `git status --short --branch` initially showed clean `## docs/aggressive-documentation-cleanup`; `git diff --check` passed with no output; `git worktree list` showed the main worktree and this aggressive cleanup worktree only, with no `.worktrees/docs-current-architecture-cleanup`; active Superpowers contained only the current aggressive cleanup spec/plan and README files; `docs/archive` contained only `docs/archive/README.md`; `docs/progress` contained only `docs/progress/README.md`; `test -d docs/adr` exited 0. Deleted-path search matched cleanup history or commands in `debug.md` and the active aggressive cleanup plan/spec only. Stale phase wording search still matched current repository check labels, retained operational feature labels, current progress/history labels, ADR history, `summary.md`/`debug.md` cleanup records, and active aggressive cleanup plan/spec verification text, but did not show retained operational docs treating deleted phase documents as current instructions. Safety-boundary search found active `realNetworkCall: false`, default-safe, gated real, injected runner, injected transport, and no-external-call guidance across `AGENTS.md`, `README.md`, `struct.md`, `summary.md`, `docs/api.md`, `docs/safety.md`, `docs/queue-runtime.md`, provider docs, worker docs, and cleanup records.
+- Follow-up: none.
