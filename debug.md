@@ -104,7 +104,7 @@ Use this format for new entries:
 
 - Context: final reviewer found remaining active docs with stale dry-run-boundary, old phase-surface, and archived-plan wording.
 - Symptom: API, risk, approval, README, and progress docs could imply provider or Codex surfaces are only historical dry-runs rather than current default-safe contracts with gated real runner or adapter paths.
-- Scope: `README.md`, `docs/api.md`, `docs/03-risk-and-assumptions.md`, `docs/approval-policy.md`, `docs/progress/batch-05-06-brainstorming.md`, `summary.md`, and `debug.md`.
+- Scope: `README.md`, `docs/api.md`, then-active `docs/03-risk-and-assumptions.md`, now deleted in Task 5, `docs/approval-policy.md`, `docs/progress/batch-05-06-brainstorming.md`, `summary.md`, and `debug.md`.
 - Investigation: searched the allowed active docs for exact stale phrases and compared them against existing default-safe, `realNetworkCall: false`, injected transport, injected runner, and historical archive wording.
 - Fix: replaced stale dry-run-boundary and phase-only wording with default-safe dry-run/status plus gated real contract wording, preserved `realNetworkCall: false` defaults until explicit gates, approvals, and injected transports or runners are wired, and changed the progress note to the historical archived enhancement-plan reference.
 - Verification: rerun the stale wording search, current safety/archive wording search, targeted `git diff --check`, and `git status --short`.

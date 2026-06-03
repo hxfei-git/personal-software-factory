@@ -223,7 +223,7 @@ pnpm test
 pnpm build
 ```
 
-Phase 1 check commands remain:
+Baseline check commands from AGENTS.md:
 
 ```bash
 pnpm install --lockfile-only

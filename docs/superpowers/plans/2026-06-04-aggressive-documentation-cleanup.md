@@ -20,6 +20,7 @@
 - Keep `realNetworkCall: false`, default-safe, gated real, injected runner, and injected transport boundaries in active docs.
 - Every tracked-file task must end with a Chinese commit title and Chinese commit body.
 - Update `summary.md` and `debug.md` when files are deleted or active wording changes.
+- Deleted-path references inside this active plan are implementation instructions/history, not current documentation references. Keep task steps intact as the execution record.
 
 ## File Structure
 
