@@ -55,6 +55,7 @@ This file tracks current architecture problems, risks, and improvement items. It
 - Active runtime, operations, local-development, and safety docs now describe current default-safe plus gated real contract behavior instead of stale phase-only dry-run wording.
 - API, risk, approval, README, progress, summary, and debug docs have been corrected so stale dry-run-boundary, old phase, and archived-plan wording are no longer tracked as open issues.
 - Old progress child rollups were removed after the current status, verification posture, and safety boundaries were consolidated into `docs/progress.md`, `summary.md`, and `debug.md`.
+- Progress README now keeps `../progress.md` as the only path reference after child rollup deletion.
 
 ### Completed So Far
 
