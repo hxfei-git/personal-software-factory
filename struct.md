@@ -87,7 +87,7 @@ GitHub, Coolify, Uptime Kuma, and Plane adapters expose dry-run/status behavior 
 
 ## Current Source Priority
 
-Use these documents as active sources before coding:
+After this documentation cleanup is complete, use these documents as active sources before coding. During the cleanup, `summary.md` and `debug.md` are created by the next task; if they are not present yet, continue with `README.md`, `docs/progress.md`, `docs/api.md`, `docs/safety.md`, and `docs/queue-runtime.md`.
 
 1. `AGENTS.md`
 2. `struct.md`
