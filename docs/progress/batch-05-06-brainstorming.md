@@ -4,7 +4,7 @@ Date: 2026-06-03
 
 ## Scope
 
-This batch implements the next local-first control-plane step from `enhance_plan.md`:
+This historical batch note implemented the next local-first control-plane step from the archived reference `../archive/plans/enhance_plan.md`. That archived reference is audit context only, not active current instruction:
 
 - Batch 5: Fix Loop + Regression enforcement.
 - Batch 6: GitHub PR Gate.

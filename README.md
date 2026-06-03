@@ -242,9 +242,9 @@ Start with the root current fact sources before reading historical phase plans.
 - `docs/api.md`: Orchestrator API routes and request shapes.
 - `docs/auth.md`: API token auth and local/dev/test boundaries.
 - `docs/safety.md`: dry-run, queue, and secret safety boundaries.
-- `docs/queue-runtime.md`: Phase 17B queue runtime, wrapper WorkerRun, cancel/retry, and Worker Runner usage.
-- `docs/real-codex-execution-readiness.md`: guardrails required before any future real Codex execution.
-- `docs/worker-permissions.md`: current dry-run worker and Hub/API permission model.
+- `docs/queue-runtime.md`: current default-safe queue runtime, wrapper WorkerRun, cancel/retry, dry-run jobs, and gated real-mode contract jobs.
+- `docs/real-codex-execution-readiness.md`: guardrails required before gated real Codex runner execution.
+- `docs/worker-permissions.md`: default-safe worker and Hub/API permission model with dry-run/status behavior plus gated real-runner contracts.
 - `docs/operations.md`: local startup, doctor, demo report, and reset operations.
 - `docs/troubleshooting.md`: local remedies for common dry-run failures.
 - `docs/local-development.md`: zero-to-local setup path.
@@ -252,15 +252,15 @@ Start with the root current fact sources before reading historical phase plans.
 - `docs/final-mvp-scope.md`: current local MVP scope and exclusions.
 - `docs/next-steps.md`: recommended post-demo hardening path.
 - `docs/hub-web.md`: Hub Web startup, routes, and local demo flow.
-- `docs/integrations.md`: shared Integration dry-run contract and CLI/API commands.
-- `docs/github-integration.md`: GitHub mock PR/Issue dry-run behavior.
-- `docs/coolify-integration.md`: Coolify mock deploy dry-run behavior.
-- `docs/uptime-kuma-integration.md`: Uptime Kuma mock monitor dry-run behavior.
-- `docs/plane-integration.md`: Plane mock Mission/Bug issue dry-run behavior.
+- `docs/integrations.md`: shared Integration dry-run/status behavior plus gated real adapter contracts, default disabled/default-safe.
+- `docs/github-integration.md`: GitHub dry-run PR/Issue behavior plus gated real adapter contract with injected transport.
+- `docs/coolify-integration.md`: Coolify dry-run deploy behavior plus gated real adapter contract with injected transport.
+- `docs/uptime-kuma-integration.md`: Uptime Kuma dry-run monitor behavior plus gated real adapter contract with injected transport.
+- `docs/plane-integration.md`: Plane dry-run Mission/Bug issue behavior plus gated real adapter contract with injected transport.
 - `docs/project-registry.md`: registry scan and DB sync behavior.
 - `docs/project-passport.md`: passport fields and `ai-novelist` caveats.
 - `docs/mission-planner.md`: deterministic planner API and CLI behavior.
-- `docs/codex-worker.md`: Codex Worker dry-run safety boundary.
+- `docs/codex-worker.md`: Codex Worker default-disabled/default-safe boundary with dry-run behavior plus gated real-runner contract.
 - `docs/artifacts.md`: inline and path-only artifact policy.
 - `docs/approval-policy.md`: actions that require approval.
 - `docs/progress.md`: latest batch progress and remaining work.
@@ -292,9 +292,9 @@ QA_TEST_URL=http://127.0.0.1:8000 ENABLE_REAL_PLAYWRIGHT=1 pnpm test:e2e:smoke
 
 Playwright MCP is documented for later AI exploratory QA. It is not installed or run by default. Real Codex execution, remote push, PR creation, external APIs, and production deploy remain disabled unless the explicit real-mode gates, credentials, approvals, queue/runtime wiring, and injected runner/transport paths are deliberately configured.
 
-## Phase 17B Queue Runtime
+## Queue Runtime
 
-Phase 17B adds optional queue-backed dry-run actions. Inline mode remains the default for tests and simple demos:
+The current queue runtime is default-safe. Inline mode remains the default for tests and simple demos, while queued mode can route whitelisted dry-run jobs and gated real-mode contract jobs only when their runtime wiring, gates, approvals, and injected runner or transport requirements are satisfied:
 
 ```bash
 PSF_WORKER_RUNTIME=in-process PSF_ACTION_EXECUTION_MODE=inline pnpm dev:api

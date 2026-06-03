@@ -13,7 +13,7 @@
 - GitHub branch and PR integration can start through git CLI and optionally GitHub CLI.
 - Production deployment requires explicit human approval.
 - External service credentials are not assumed to exist during early phases.
-- Phase 11-15 external integrations are still mock/dry-run only and do not make network calls.
+- External integrations are default-safe: dry-run/status behavior keeps `realNetworkCall` false by default, and real provider paths remain disabled unless explicit gates, approvals, credentials, operation policy, and injected transports are intentionally wired and approved.
 
 ## Key Risks
 
@@ -119,7 +119,7 @@ Mitigation:
 
 Make GitHub PR optional until configured. Treat Coolify, Uptime Kuma, Plane, and n8n as non-core integrations. The core Mission loop should still work locally.
 
-For Phase 11-15, integration status and dry-run commands must remain useful without credentials. Even when `ENABLE_REAL_GITHUB`, `ENABLE_REAL_COOLIFY`, `ENABLE_REAL_UPTIME_KUMA`, or `ENABLE_REAL_PLANE` is set to `"1"`, the adapters must keep `realNetworkCall` false until a later real-integration phase adds reviewed network clients, approval gates, tests, and secret redaction checks.
+Integration status and dry-run commands must remain useful without credentials. Even when `ENABLE_REAL_GITHUB`, `ENABLE_REAL_COOLIFY`, `ENABLE_REAL_UPTIME_KUMA`, or `ENABLE_REAL_PLANE` is set to `"1"`, the adapters must keep `realNetworkCall` false unless the explicit gates, approvals, credentials, operation policy, reviewed tests, secret redaction checks, and injected transport for that provider are intentionally wired and approved.
 
 ### Production Risk
 

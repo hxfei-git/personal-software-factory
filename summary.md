@@ -48,9 +48,10 @@ This file tracks current architecture problems, risks, and improvement items. It
 
 ## Recently Resolved By Documentation Cleanup
 
-- Active guidance no longer treats `docs/progress/current.md`, `enhance_plan.md`, old brainstorms, or old Superpowers plans/specs as current instructions.
+- Active guidance no longer treats `docs/progress/current.md`, the archived enhancement plan, old brainstorms, or old Superpowers plans/specs as current instructions.
 - Historical material remains available in `docs/archive/` for audit.
 - Active runtime, operations, local-development, and safety docs now describe current default-safe plus gated real contract behavior instead of stale phase-only dry-run wording.
+- API, risk, approval, README, progress, summary, and debug docs have been corrected so stale dry-run-boundary, old phase, and archived-plan wording are no longer tracked as open issues.
 
 ### Completed So Far
 
@@ -60,6 +61,7 @@ This file tracks current architecture problems, risks, and improvement items. It
 - Active docs and indexes have been updated toward current implementation guidance.
 - Stale current-phase wording in active reference docs has been corrected while preserving historical phase meaning.
 - Active runtime, local development, safety, and operations docs now use default-safe plus gated real contract wording instead of old phase-boundary wording.
+- Active API, provider, Codex, queue, approval, and progress references now describe dry-run/status behavior plus gated real adapter or runner contracts, with default-disabled/default-safe execution and archived historical plan links.
 - Misleading historical current-state files have been archived under `docs/archive/`.
 
 ### Residual Risk

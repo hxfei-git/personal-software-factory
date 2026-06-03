@@ -33,14 +33,15 @@ Require approval before any of these actions:
 
 ## Codex Worker Gate
 
-Current Codex Worker behavior is dry-run only. Future real execution must require all of the following:
+Codex Worker behavior is default-disabled and default-safe. Any gated real-runner execution must require all of the following:
 
 - `ENABLE_REAL_CODEX=1`;
 - an approved Approval record for the specific Mission/run;
 - current branch is not `main` or `master`;
 - workspace path is isolated under `workspaces/`;
 - command and prompt artifacts are available for review;
-- no secret values are included in prompts or artifacts.
+- no secret values are included in prompts or artifacts;
+- an intentionally injected runner and runtime wiring for the approved real action.
 
 The current dry-run command artifact is not executable and exits without invoking Codex.
 

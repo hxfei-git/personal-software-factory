@@ -76,7 +76,7 @@ The route returns `404 NOT_FOUND` when the Mission or linked Project is missing.
 
 ## Integrations
 
-Integration routes are currently mock/dry-run only. They never call GitHub, Coolify, Uptime Kuma, Plane, or any other external network service.
+Integration routes are default-safe with dry-run/status routes plus gated real-mode contracts. Default responses and any path without an intentionally injected transport keep `realNetworkCall: false`; real provider calls are possible only when the explicit provider gates, approvals, operation gates, credentials, and injected transport are all satisfied and approved.
 
 ### GET /integrations
 
@@ -181,7 +181,7 @@ Request body fields are optional:
 ### POST /missions/:id/actions/fix-dry-run
 ### POST /missions/:id/actions/loop-dry-run
 
-Protected. Runs local Orchestrator action entrypoints backed by `@psf/demo-workflow` for the fixed demo Mission and controlled generic dry-run responses for other supported Missions. These endpoints are dry-run only: they do not execute shell commands, Codex, external APIs, pushes, PR creation, or deployments.
+Protected. Runs local Orchestrator action entrypoints backed by `@psf/demo-workflow` for the fixed demo Mission and controlled generic dry-run responses for other supported Missions. These endpoints are default-safe with dry-run/status routes plus gated real-mode contracts: default responses do not execute shell commands, Codex, external APIs, pushes, PR creation, or deployments, and real execution requires the explicit gates, approvals, injected runner or transport, and route wiring for that action.
 
 In Phase 18, Mission action preflight no longer rejects non-demo Missions solely because the Mission ID is not `mission-0001-ai-novelist-chapter-review`. The API verifies that the Mission exists, the linked Project exists, and the Project Passport is available when an action needs project context. Missing Missions return `404 NOT_FOUND`; missing Projects or unavailable Project Passports return `400 VALIDATION_ERROR` with a specific blocker. Default action responses remain dry-run/manual-action oriented and report `realCodexExecuted: false`, `realExternalCall: false`, `realPush: false`, and `realDeploy: false`.
 
@@ -527,11 +527,11 @@ Protected. Updates a QA run and appends `qa_run.updated`.
 
 Stable error codes currently include `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_MISSION_TRANSITION`, `UNAUTHORIZED`, and `INTERNAL_SERVER_ERROR`.
 
-## Phase 16A/16B/17A/18 Demo Surfaces
+## Current Demo And Action Surfaces
 
 Phase 16A is the local ai-novelist dry-run chain. Phase 16B exposes protected Hub/API dry-run actions. Phase 17A adds CLI doctor, reset, report, and operations docs. Phase 18 turns Hub resource pages into Orchestrator API-backed views, adds Hub Mission creation, records Approval decisions from Hub, and generalizes Mission dry-run preflight beyond the fixed demo Mission ID.
 
-The API surfaces in this batch are still dry-run only. They do not execute Codex, run shell commands from the Hub, push, create PRs, deploy, create provider records, or call external services.
+The API surfaces are default-safe with dry-run/status routes plus gated real-mode contracts. Default responses and paths without intentionally injected runners or transports do not execute Codex, run shell commands from the Hub, push, create PRs, deploy, create provider records, or call external services, and they keep `realNetworkCall: false`; real calls or real runners are possible only after explicit gates and approvals are satisfied and the required runner or transport is intentionally wired.
 
 Related CLI operations are local helpers, not API routes:
 

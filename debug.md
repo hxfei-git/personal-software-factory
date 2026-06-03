@@ -55,7 +55,7 @@ Use this format for new entries:
 - Context: current documentation cleanup planning.
 - Symptom: `docs/progress/current.md` still described Phase 1, while README and progress rollups described gated real execution and Batch 05/06.
 - Scope: root docs, progress docs, AGENTS guidance, historical planning files.
-- Investigation: searched docs for stale phase labels, `enhance_plan.md`, and active references to historical plans.
+- Investigation: searched docs for stale phase labels, archived enhancement-plan references and active references to historical plans.
 - Fix: created current fact-source docs and archived misleading historical files under `docs/archive/`.
 - Verification: spec and plan were committed before file cleanup, and the archive task moved historical files with `git mv`.
 - Follow-up: re-run documentation text checks after each cleanup pass.
@@ -73,7 +73,7 @@ Use this format for new entries:
 ### 2026-06-03 - Runtime Boundary Phase Wording Corrected
 
 - Context: Task 4 quality review found active runtime, local-development, and safety docs still used old phase-boundary wording for current execution safety.
-- Symptom: active docs described runtime and local development as phase-specific dry-run only, which could hide the current gated real contract paths.
+- Symptom: active docs described runtime and local development as phase-specific dry-run-boundary, which could hide the current gated real contract paths.
 - Scope: `docs/worker-runtime.md`, `docs/local-development.md`, `docs/safety.md`, `summary.md`, and `debug.md`.
 - Investigation: searched the active docs for the exact stale phase sentences and verified existing `realNetworkCall: false` and default-safe safety boundaries.
 - Fix: replaced old phase-boundary statements with default-safe plus gated real contract wording, without enabling Codex, Playwright, provider, GitHub, Coolify, Uptime Kuma, or Plane real calls.
@@ -98,4 +98,14 @@ Use this format for new entries:
 - Investigation: ran whitespace, stale-phase text, safety-boundary text, and git status checks.
 - Fix: active docs now point to `struct.md`, `summary.md`, and `debug.md`; historical plans are under `docs/archive/`; runtime/safety docs use default-safe plus gated real contract wording.
 - Verification: `git diff --check HEAD~3..HEAD` passed with no output; `git diff --check main...HEAD` passed with no output; `rg -n 'Phase 1: Monorepo Foundation|Phase 11-15 currently|Current Phase' AGENTS.md README.md docs struct.md summary.md debug.md --glob '!docs/archive/**'` only matched active cleanup spec/plan command examples and replacement instructions; `rg -n 'realNetworkCall.*false|realNetworkCall` stays `false|realNetworkCall` remains `false' AGENTS.md README.md docs struct.md summary.md debug.md --glob '!docs/archive/**'` found current safety-boundary wording plus cleanup plan/spec and debug history references; `git status --short --branch` showed `## docs/current-architecture-cleanup`.
+- Follow-up: none.
+
+### 2026-06-03 - Active Docs Final Safety Wording Corrected
+
+- Context: final reviewer found remaining active docs with stale dry-run-boundary, old phase-surface, and archived-plan wording.
+- Symptom: API, risk, approval, README, and progress docs could imply provider or Codex surfaces are only historical dry-runs rather than current default-safe contracts with gated real runner or adapter paths.
+- Scope: `README.md`, `docs/api.md`, `docs/03-risk-and-assumptions.md`, `docs/approval-policy.md`, `docs/progress/batch-05-06-brainstorming.md`, `summary.md`, and `debug.md`.
+- Investigation: searched the allowed active docs for exact stale phrases and compared them against existing default-safe, `realNetworkCall: false`, injected transport, injected runner, and historical archive wording.
+- Fix: replaced stale dry-run-boundary and phase-only wording with default-safe dry-run/status plus gated real contract wording, preserved `realNetworkCall: false` defaults until explicit gates, approvals, and injected transports or runners are wired, and changed the progress note to the historical archived enhancement-plan reference.
+- Verification: rerun the stale wording search, current safety/archive wording search, targeted `git diff --check`, and `git status --short`.
 - Follow-up: none.
