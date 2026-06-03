@@ -34,7 +34,7 @@ Modify:
 - `docs/README.md`: point active readers to root `struct.md`, `summary.md`, `debug.md`, and `docs/progress.md`.
 - `docs/progress.md`: add a current pointer section and mention the archive move.
 - `docs/progress/README.md`: remove `current.md` as an active current-state pointer.
-- `docs/superpowers/README.md`: explain that current Superpowers specs/plans stay in active folders and older completed artifacts are archived.
+- `docs/superpowers/README.md`: explain that current Superpowers specs/plans stay in active folders and older completed artifacts are scheduled for archive in Task 4.
 - `docs/superpowers/plans/README.md`: explain that this directory is for active implementation plans and completed historical plans live in archive.
 
 Do not modify runtime code, package files, Prisma schema, tests, or `.env.example`.
@@ -197,7 +197,7 @@ Create `summary.md` with this content:
 
 ## Status
 
-This file tracks current architecture problems, risks, and improvement items. It is not a historical phase log; historical phase material is kept under `docs/progress.md` and `docs/archive/`.
+This file tracks current architecture problems, risks, and improvement items. It is not a historical phase log; historical phase material remains pending archive until Task 4 moves it under `docs/archive/`.
 
 ## Current Strengths
 
@@ -245,7 +245,7 @@ This file tracks current architecture problems, risks, and improvement items. It
 - A new `struct.md` is the current architecture map.
 - A new `summary.md` is the issue and improvement source.
 - A new `debug.md` is the debug record source.
-- Misleading historical current-state files are archived instead of left as active guidance.
+- Misleading historical current-state files are scheduled for archive instead of left as active guidance.
 ```
 
 - [ ] **Step 2: Write `debug.md`**
@@ -421,7 +421,7 @@ Replace the file with:
 ```markdown
 # Documentation
 
-This directory holds architecture references, API contracts, safety guidance, operations notes, ADRs, progress rollups, and archived historical planning material for Personal Software Factory.
+This directory holds architecture references, API contracts, safety guidance, operations notes, ADRs, progress rollups, and historical planning material scheduled for archive in Task 4 for Personal Software Factory.
 
 Start with the root current fact sources:
 
@@ -479,7 +479,7 @@ Replace `docs/superpowers/plans/README.md` with:
 
 This directory is for active implementation plans. Completed historical plans are scheduled to move under `docs/archive/superpowers/plans/` in Task 4.
 
-Use the newest active plan for the current task and ignore archived plans unless researching implementation history.
+Use the newest active plan for the current task. After Task 4 completes, ignore archived plans unless researching implementation history.
 ```
 
 - [ ] **Step 9: Verify stale active phase wording is removed from active docs**
@@ -724,7 +724,7 @@ Under `## Recently Resolved By Documentation Cleanup`, add:
 
 ```markdown
 - Active guidance no longer treats `docs/progress/current.md`, `enhance_plan.md`, old brainstorms, or old Superpowers plans/specs as current instructions.
-- Historical material is preserved under `docs/archive/` for audit.
+- Historical material remains available in `docs/archive/` for audit.
 ```
 
 - [ ] **Step 7: Commit final validation notes**
