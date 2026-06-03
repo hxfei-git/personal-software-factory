@@ -249,7 +249,6 @@ Start with the root current fact sources before reading historical phase plans.
 - `docs/troubleshooting.md`: local remedies for common dry-run failures.
 - `docs/local-development.md`: zero-to-local setup path.
 - `docs/health-checks.md`: doctor, API, Hub, and integration health checks.
-- `docs/final-mvp-scope.md`: current local MVP scope and exclusions.
 - `docs/next-steps.md`: recommended post-demo hardening path.
 - `docs/hub-web.md`: Hub Web startup, routes, and local demo flow.
 - `docs/integrations.md`: shared Integration dry-run/status behavior plus gated real adapter contracts, default disabled/default-safe.
@@ -265,7 +264,7 @@ Start with the root current fact sources before reading historical phase plans.
 - `docs/approval-policy.md`: actions that require approval.
 - `docs/progress.md`: latest batch progress and remaining work.
 
-Follow the phase order in `docs/01-execution-roadmap.md` and acceptance gates in `docs/04-phase-acceptance-criteria.md`.
+Use `struct.md`, `summary.md`, `debug.md`, `docs/progress.md`, and ADRs under `docs/adr/` for current implementation state and decision history.
 
 ## QA And Auto Fix Dry Run
 

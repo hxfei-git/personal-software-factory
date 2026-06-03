@@ -1,8 +1,8 @@
 # Development Standards
 
-## Phase Discipline
+## Current Work Discipline
 
-Personal Software Factory is built in explicit phases. Each phase must satisfy its acceptance criteria before the next phase starts, unless the user approves an exception.
+Personal Software Factory tracks current implementation state in root fact sources and ADRs, not in old phase plans. Each task should preserve default-safe boundaries, update the relevant current docs, and finish with focused verification.
 
 ## Safety
 
@@ -12,8 +12,8 @@ Personal Software Factory is built in explicit phases. Each phase must satisfy i
 
 ## Testing
 
-- Phase 1 uses structure checks only.
-- Later phases must add tests close to the behavior they introduce.
+- Documentation-only changes should run reference searches and whitespace checks for the changed surface.
+- Runtime behavior changes must add tests close to the behavior they introduce.
 - Prefer targeted checks that cover the changed behavior before running broad suites.
 - Keep test time low by focusing on critical chains first; document any skipped long-running checks and the reason.
 - Run broader checks when phase gates, shared packages, state machines, database contracts, worker behavior, or release risk require them.
@@ -23,11 +23,11 @@ Personal Software Factory is built in explicit phases. Each phase must satisfy i
 
 - Each task should end with a focused local git commit that groups related changes.
 - Each commit must use a Chinese summary as the commit title and include a Chinese description in the commit body.
-- Each task should update the relevant README, progress note, design doc, plan, or operating guide when behavior, structure, commands, or phase status changes.
+- Each task should update the relevant README, `struct.md`, `summary.md`, `debug.md`, progress note, ADR, or operating guide when behavior, structure, commands, safety boundaries, or current status changes.
 - Do not push commits to GitHub or update protected branches without explicit user approval.
 
 ## Documentation
 
 - Keep README files current when a directory's purpose changes.
-- Record phase completion notes under `docs/progress/`.
-- Keep architecture decisions aligned with `docs/00-system-architecture.md`.
+- Record current progress in `docs/progress.md`.
+- Keep architecture decisions aligned with `struct.md` and ADRs under `docs/adr/`.

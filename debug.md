@@ -139,3 +139,13 @@ Use this format for new entries:
 - Fix: deleted progress child rollups and removed active links to them. Progress README now keeps `../progress.md` as the only path reference after child rollup deletion. Progress child rollup deletion also updated the structure check script from old phase files to current fact sources.
 - Verification: run deleted-path search, stale phase search, `git diff --check`, and `git status --short`.
 - Follow-up: record future current progress in `docs/progress.md` unless a new focused current note is explicitly needed.
+
+### 2026-06-04 - Duplicate Phase Planning Docs Removed
+
+- Context: aggressive cleanup of old numbered phase planning documents.
+- Symptom: roadmap, acceptance, MVP scope, migration sketch, and early architecture planning docs duplicated current fact sources or ADRs.
+- Scope: numbered docs, README documentation links, development standards, next steps, summary, and debug records.
+- Investigation: searched active references to numbered phase docs and replaced them with root fact-source and ADR guidance.
+- Fix: deleted duplicate phase planning docs and updated active references.
+- Verification: run deleted-path search, stale phase search, `git diff --check`, and `git status --short`.
+- Follow-up: create new ADRs or designs for future architecture decisions instead of reviving numbered phase plans.

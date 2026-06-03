@@ -57,6 +57,7 @@ This file tracks current architecture problems, risks, and improvement items. It
 - Old progress child rollups were removed after the current status, verification posture, and safety boundaries were consolidated into `docs/progress.md`, `summary.md`, and `debug.md`.
 - Progress README now keeps `../progress.md` as the only path reference after child rollup deletion.
 - Progress child rollup deletion also updated the structure check script from old phase files to current fact sources.
+- Duplicate numbered phase planning, MVP scope, acceptance, and Temporal/LangGraph migration notes were removed; current state now relies on root fact sources, operational docs, and ADRs.
 
 ### Completed So Far
 
