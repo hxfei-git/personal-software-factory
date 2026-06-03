@@ -35,7 +35,7 @@ Modify:
 - `docs/progress.md`: add a current pointer section and mention the archive move.
 - `docs/progress/README.md`: remove `current.md` as an active current-state pointer.
 - `docs/superpowers/README.md`: explain that current Superpowers specs/plans stay in active folders and older completed artifacts are scheduled for archive in Task 4.
-- `docs/superpowers/plans/README.md`: explain that this directory is for active implementation plans and completed historical plans live in archive.
+- `docs/superpowers/plans/README.md`: explain that this directory is for active implementation plans and completed historical plans are scheduled to move to archive in Task 4.
 
 Do not modify runtime code, package files, Prisma schema, tests, or `.env.example`.
 
