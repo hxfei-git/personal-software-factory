@@ -19,6 +19,9 @@ import {
   type GitHubDryRunInput,
   type GitHubRealInput,
   type GitHubRealResult,
+  type GitHubRealGates,
+  type IntegrationEnv,
+  type IntegrationTransport,
   type CoolifyRealInput,
   type CoolifyRealResult,
   type PlaneRealInput,
@@ -37,7 +40,13 @@ import {
   type DeterministicQaInput,
   type DeterministicQaResult,
 } from "@psf/qa-worker";
-import { runGatedRealAutoFixLoop, type GatedRealAutoFixLoopInput, type GatedRealAutoFixLoopResult } from "@psf/auto-fix-loop";
+import {
+  runGatedRealAutoFixLoop,
+  type GatedRealAutoFixLoopInput,
+  type GatedRealAutoFixLoopResult,
+  type GatedRealCodexRunner,
+  type GatedRealTestRunner,
+} from "@psf/auto-fix-loop";
 import type { Artifact, BugReport, MissionEvent, MissionStatusValue, ProjectPassport, QAReport, WorkerRun } from "@psf/mission-schema";
 import type { QueueWorkerJob } from "@psf/worker-runtime";
 
@@ -63,6 +72,10 @@ export interface WorkerJobHandlerDependencies {
   deterministicQaExecute?: DeterministicQaInput["execute"];
   deterministicQaRunner?: (input: DeterministicQaInput) => Promise<DeterministicQaResult>;
   aiExploratoryQaExecute?: AiExploratoryQaExecutor;
+  autoFixCodexRunner?: GatedRealCodexRunner;
+  autoFixTestRunner?: GatedRealTestRunner;
+  githubTransport?: IntegrationTransport;
+  githubEnv?: IntegrationEnv;
 }
 
 export type WorkerJobHandler = (job: QueueWorkerJob) => Promise<WorkerJobHandlerResult>;
@@ -105,9 +118,9 @@ export function createDefaultJobHandler(cwd = process.cwd(), deps: WorkerJobHand
           ...(deps.aiExploratoryQaExecute ? { execute: deps.aiExploratoryQaExecute } : {}),
         }).run(buildAiExploratoryQaInput(job)));
       case "fix.real":
-        return toAutoFixHandlerResult(await runGatedRealAutoFixLoop(buildAutoFixInput(cwd, job)));
+        return toAutoFixHandlerResult(await runGatedRealAutoFixLoop(buildAutoFixInput(cwd, job, deps)));
       case "github.pr":
-        return toIntegrationRealHandlerResult(await runGitHubReal(buildGitHubRealInput(job)));
+        return toGitHubPrHandlerResult(await runGitHubReal(buildGitHubRealInput(job, deps)), job);
       case "deploy.coolify":
         return toIntegrationRealHandlerResult(await runCoolifyReal(buildCoolifyRealInput(job)));
       case "monitor.uptime_kuma":
@@ -315,11 +328,15 @@ function toAutoFixHandlerResult(result: GatedRealAutoFixLoopResult): WorkerJobHa
     childWorkerRunIds: result.workerRuns.map((workerRun) => workerRun.id),
     childQARunIds: [],
     childArtifactIds: result.artifacts.map((artifact) => artifact.id),
-    childBugReportIds: [],
+    childBugReportIds: result.bugReports.map((bug) => bug.id),
     summary: result.recommendedNextAction,
     recommendedNextAction: result.recommendedNextAction,
+    status: result.decision,
+    manualActionRequired: result.decision === "manual_action" || result.decision === "needs_human" || result.decision === "paused" || result.decision === "blocked",
+    reason: result.errors[0] ?? result.recommendedNextAction,
     childWorkerRuns: result.workerRuns,
     childArtifacts: result.artifacts,
+    childBugReports: result.bugReports,
     childEvents: result.events,
   };
 }
@@ -345,6 +362,129 @@ function toIntegrationRealHandlerResult(result: IntegrationRealHandlerResult): W
     recommendedNextAction: result.safeToRun
       ? "Review real integration result before advancing the Mission."
       : "Complete the listed manual actions before enabling this real integration.",
+  };
+}
+
+function toGitHubPrHandlerResult(result: GitHubRealResult, job: QueueWorkerJob): WorkerJobHandlerResult {
+  const workerRun = createGitHubPrWorkerRun(job, result);
+  const artifact = createGitHubPrPreviewArtifact(job, result);
+  const event = createGitHubPrEvent(job, result, workerRun.id, artifact.id);
+  return {
+    childWorkerRunIds: [workerRun.id],
+    childQARunIds: [],
+    childArtifactIds: [artifact.id],
+    childBugReportIds: [],
+    summary: result.message,
+    recommendedNextAction: result.safeToRun
+      ? "Review GitHub PR result and PR URL before advancing the Mission."
+      : "Review PR preview and complete missing GitHub approval, env, route, operation, or transport gates.",
+    status: result.decision,
+    manualActionRequired: result.decision !== "succeeded",
+    reason: result.message,
+    childWorkerRuns: [workerRun],
+    childArtifacts: [artifact],
+    childEvents: [event],
+  };
+}
+
+function createGitHubPrWorkerRun(job: QueueWorkerJob, result: GitHubRealResult): WorkerRun {
+  return {
+    id: `worker-run-${job.missionId}-github-pr`,
+    mission_id: job.missionId,
+    worker_type: "integration",
+    status: result.decision === "succeeded" ? "succeeded" : result.decision === "failed" || result.decision === "degraded" ? "failed" : "skipped",
+    mode: "real",
+    input: {
+      missionId: job.missionId,
+      projectId: job.projectId,
+      jobId: job.id,
+      jobType: job.type,
+      branchName: result.outputs.branchName,
+      baseBranch: result.outputs.baseBranch,
+      operationGates: safeRecord(job.payload.operationGates) ?? {},
+    },
+    output: {
+      decision: result.decision,
+      message: result.message,
+      status: result.decision,
+      githubPrUrl: result.outputs.pullRequestUrl,
+      pullRequestUrl: result.outputs.pullRequestUrl,
+      pullRequestNumber: result.outputs.pullRequestNumber,
+      qaCommentUrl: result.outputs.qaCommentUrl,
+      branchName: result.outputs.branchName,
+      baseBranch: result.outputs.baseBranch,
+      realNetworkCall: result.realNetworkCall,
+      safeToRun: result.safeToRun,
+      configured: result.configured,
+      missingEnv: result.missingEnv,
+      requests: result.outputs.requests,
+      manualActions: result.outputs.manualActions,
+      pushed: false,
+      realExternalCall: result.realNetworkCall,
+    },
+    logs: [result.message, ...result.logs],
+    metadata: {
+      generatedBy: "worker-runner",
+      provider: "github",
+      jobId: job.id,
+      jobType: job.type,
+      realNetworkCall: result.realNetworkCall,
+      pushed: false,
+    },
+    error: result.errors.join("\n") || undefined,
+    created_at: job.createdAt,
+    updated_at: job.createdAt,
+    ...(result.decision === "succeeded" || result.decision === "failed" || result.decision === "degraded" ? { finished_at: job.createdAt } : {}),
+  };
+}
+
+function createGitHubPrPreviewArtifact(job: QueueWorkerJob, result: GitHubRealResult): Artifact {
+  const preview = safeRecord(job.payload.prPreview);
+  const title = stringValue(preview?.title) ?? `GitHub PR preview for ${job.missionId}`;
+  const body = stringValue(preview?.body) ?? result.message;
+  const content = [
+    "# GitHub PR Preview",
+    "",
+    `- Title: ${title}`,
+    `- Branch: ${result.outputs.branchName}`,
+    `- Base: ${result.outputs.baseBranch}`,
+    `- Decision: ${result.decision}`,
+    `- Real network call: ${result.realNetworkCall}`,
+    `- Pushed: false`,
+    "",
+    body,
+  ].join("\n");
+  return {
+    id: `artifact-${job.missionId}-github-pr-preview`,
+    mission_id: job.missionId,
+    worker_run_id: `worker-run-${job.missionId}-github-pr`,
+    type: "technical_notes",
+    path: `missions/${job.missionId}/github-pr-preview.md`,
+    content,
+    mime_type: "text/markdown",
+    size: Buffer.byteLength(content, "utf8"),
+    metadata: { generatedBy: "worker-runner", provider: "github", realNetworkCall: result.realNetworkCall, pushed: false },
+    created_at: job.createdAt,
+  };
+}
+
+function createGitHubPrEvent(job: QueueWorkerJob, result: GitHubRealResult, workerRunId: string, artifactId: string): MissionEvent {
+  return {
+    id: `event-${job.missionId}-github-pr-${result.decision}-${job.id}`,
+    mission_id: job.missionId,
+    type: `github.pr.${result.decision}`,
+    message: result.message,
+    payload: {
+      workerRunId,
+      artifactId,
+      jobId: job.id,
+      jobType: job.type,
+      decision: result.decision,
+      githubPrUrl: result.outputs.pullRequestUrl,
+      realNetworkCall: result.realNetworkCall,
+      pushed: false,
+    },
+    created_at: job.createdAt,
   };
 }
 
@@ -463,7 +603,7 @@ function buildAiExploratoryQaInput(job: QueueWorkerJob) {
   };
 }
 
-function buildAutoFixInput(cwd: string, job: QueueWorkerJob): GatedRealAutoFixLoopInput {
+function buildAutoFixInput(cwd: string, job: QueueWorkerJob, deps: WorkerJobHandlerDependencies = {}): GatedRealAutoFixLoopInput {
   const payload = job.payload;
   const passport = buildProjectPassport(job);
   const currentAttempt = numberValue(payload.currentAttempt);
@@ -492,20 +632,36 @@ function buildAutoFixInput(cwd: string, job: QueueWorkerJob): GatedRealAutoFixLo
     timeoutMs: job.timeoutMs,
     ...(verificationCommands === undefined ? {} : { verificationCommands }),
     ...(regressionEvidence === undefined ? {} : { regressionEvidence }),
+    ...(deps.autoFixCodexRunner ? { codexRunner: deps.autoFixCodexRunner } : {}),
+    ...(deps.autoFixTestRunner ? { testRunner: deps.autoFixTestRunner } : {}),
   };
 }
 
-function buildGitHubRealInput(job: QueueWorkerJob): GitHubRealInput {
+function buildGitHubRealInput(job: QueueWorkerJob, deps: WorkerJobHandlerDependencies = {}): GitHubRealInput {
   const mission = safeRecord(job.payload.mission);
   const baseBranch = stringValue(job.payload.baseBranch);
+  const sourceSha = stringValue(job.payload.sourceSha);
   const qaComment = stringValue(job.payload.qaComment);
   return {
-    env: {},
+    env: deps.githubEnv ?? {},
     now: job.createdAt,
     ...(mission === undefined ? {} : { mission }),
     ...(baseBranch === undefined ? {} : { baseBranch }),
+    ...(sourceSha === undefined ? {} : { sourceSha }),
     ...(qaComment === undefined ? {} : { qaComment }),
-    gates: { allowNetwork: false, allowPushBranch: false, allowCreatePullRequest: false },
+    ...(deps.githubTransport ? { transport: deps.githubTransport } : {}),
+    gates: buildGitHubGates(job.payload),
+  };
+}
+
+function buildGitHubGates(payload: Record<string, unknown>): GitHubRealGates {
+  const gates = safeRecord(payload.operationGates);
+  return {
+    allowNetwork: gates?.allowNetwork === true,
+    allowPushBranch: gates?.allowPushBranch === true,
+    allowCreatePullRequest: gates?.allowCreatePullRequest === true,
+    allowUpdatePullRequestBody: gates?.allowUpdatePullRequestBody === true,
+    allowPostQaComment: gates?.allowPostQaComment === true,
   };
 }
 

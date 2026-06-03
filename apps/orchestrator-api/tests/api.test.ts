@@ -106,7 +106,7 @@ describe("orchestrator api", () => {
     "qa-playwright": [],
     "qa-ai-exploratory": ["EXTERNAL_COST_RISK"],
     "fix-real": ["SECURITY_RISK"],
-    "github-pr": [],
+    "github-pr": ["EXTERNAL_COST_RISK"],
     "deploy-staging": ["PRODUCTION_DEPLOY"],
     "monitor-sync": [],
     "plane-sync": [],
@@ -1035,6 +1035,163 @@ describe("orchestrator api", () => {
     }
   });
 
+  it("queues fix-real with bugs, attempts, passport, mission files, verification commands, and regression evidence", async () => {
+    const registryRoot = await createAiNovelistRegistryRoot();
+    try {
+      await withEnv({
+        PSF_ACTION_EXECUTION_MODE: "queued",
+        PSF_ENABLE_REAL_FIX: "true",
+        PSF_API_TOKEN: "fix-real-secret-token",
+      }, async () => {
+        const workerRuntime = new InProcessWorkerRuntime();
+        const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime, registryRoot });
+        await seedDemoMission(storage);
+        const approval = await createApprovedApproval(server, EXAMPLE_MISSION_ID, "SECURITY_RISK");
+        await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/bugs`,
+          payload: {
+            title: "连续点击生成按钮会重复提交",
+            severity: "P1",
+            status: "open",
+            reproductionSteps: ["打开首页", "连续点击生成按钮"],
+            expectedResult: "只提交一次。",
+            actualResult: "提交多次。",
+            evidence: { scenarioId: "duplicate_click_or_loading_guard", fixAttempts: 1 },
+            regressionTestPath: "tests/e2e/generated/bug-duplicate-click.spec.ts",
+            suggestedFixDirection: "加入 pending 状态锁。",
+            source: "qa-worker",
+          },
+        });
+        await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/artifacts`,
+          payload: {
+            type: "generated_test",
+            path: "tests/e2e/generated/bug-duplicate-click.spec.ts",
+            content: "import { test } from '@playwright/test';\ntest('连续点击生成按钮会重复提交 regression', async () => {});",
+            metadata: { scenarioId: "duplicate_click_or_loading_guard" },
+          },
+        });
+
+        const response = await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/actions/fix-real`,
+          payload: { approvalId: approval.id, branchName: "agent/ai-novelist-fix-loop" },
+        });
+
+        expect(response.statusCode).toBe(202);
+        const jobs = await workerRuntime.listJobs();
+        expect(jobs).toHaveLength(1);
+        const payload = jobs[0]?.job.payload;
+        expect(payload).toMatchObject({
+          enableRealMode: true,
+          missionStatus: MissionStatus.received,
+          currentAttempt: 0,
+          maxAttempts: 3,
+          maxBugAttempts: 2,
+          branchName: "agent/ai-novelist-fix-loop",
+          currentBranch: "agent/ai-novelist-fix-loop",
+          approvalRecordIds: [approval.id],
+          approvalIds: ["real_codex_execution"],
+          passport: expect.objectContaining({ id: "ai-novelist" }),
+          projectAgents: expect.stringContaining("AGENTS"),
+          missionFiles: expect.objectContaining({
+            "mission.md": expect.stringContaining("Mission"),
+            "acceptance.md": expect.stringContaining("Acceptance"),
+          }),
+          verificationCommands: expect.objectContaining({
+            regression: expect.arrayContaining(["pnpm test:e2e"]),
+            unit: expect.arrayContaining(["pnpm test"]),
+          }),
+          regressionEvidence: expect.objectContaining({
+            existingSpecPath: "tests/e2e/generated/bug-duplicate-click.spec.ts",
+            existingSpecContent: expect.stringContaining("连续点击生成按钮会重复提交"),
+          }),
+        });
+        expect(payload?.bugs).toEqual([expect.objectContaining({
+          title: "连续点击生成按钮会重复提交",
+          status: "open",
+          severity: "P1",
+        })]);
+        expect(payload?.perBugAttempts).toEqual(expect.any(Object));
+        expect(JSON.stringify(payload)).not.toMatch(/fix-real-secret-token|password|api[_-]?key/i);
+        expect(JSON.stringify(response.json())).not.toMatch(/fix-real-secret-token|password|api[_-]?key/i);
+      });
+    } finally {
+      await rm(registryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("blocks github-pr without required approval and queues safe PR preview context when approved", async () => {
+    const registryRoot = await createAiNovelistRegistryRoot();
+    try {
+      await withEnv({
+        PSF_ACTION_EXECUTION_MODE: "queued",
+        PSF_ENABLE_REAL_GITHUB_PR: "true",
+        GITHUB_TOKEN: "github-pr-secret-token",
+        GITHUB_OWNER: "hxfei-git",
+        GITHUB_REPO: "personal-software-factory",
+      }, async () => {
+        const workerRuntime = new InProcessWorkerRuntime();
+        const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime, registryRoot });
+        await seedDemoMission(storage);
+
+        const blocked = await server.inject({ method: "POST", url: `/missions/${EXAMPLE_MISSION_ID}/actions/github-pr`, payload: {} });
+        expect(blocked.statusCode).toBe(200);
+        expect(blocked.json()).toMatchObject({
+          accepted: false,
+          action: "github-pr",
+          missingApprovalTypes: ["EXTERNAL_COST_RISK"],
+          realNetworkCall: false,
+        });
+        expect(await workerRuntime.listJobs()).toHaveLength(0);
+
+        const approval = await createApprovedApproval(server, EXAMPLE_MISSION_ID, "EXTERNAL_COST_RISK");
+        const queued = await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/actions/github-pr`,
+          payload: { branchName: "agent/ai-novelist-pr-preview", baseBranch: "main", sourceSha: "abc123" },
+        });
+
+        expect(queued.statusCode).toBe(202);
+        const jobs = await workerRuntime.listJobs();
+        expect(jobs).toHaveLength(1);
+        const payload = jobs[0]?.job.payload;
+        expect(payload).toMatchObject({
+          enableRealMode: true,
+          branchName: "agent/ai-novelist-pr-preview",
+          baseBranch: "main",
+          sourceSha: "abc123",
+          approvalRecordIds: [approval.id],
+          approvalIds: ["external_cost_risk"],
+          operationGates: {
+            allowNetwork: false,
+            allowPushBranch: false,
+            allowCreatePullRequest: false,
+            allowPostQaComment: false,
+          },
+          mission: expect.objectContaining({
+            missionId: EXAMPLE_MISSION_ID,
+            branchName: "agent/ai-novelist-pr-preview",
+          }),
+          prPreview: expect.objectContaining({
+            title: expect.stringContaining("完成"),
+            body: expect.stringContaining("Dry-run 标记"),
+          }),
+          operationGateSummary: expect.objectContaining({
+            realNetworkCall: false,
+            allowCreatePullRequest: false,
+          }),
+        });
+        expect(JSON.stringify(payload)).not.toMatch(/github-pr-secret-token|authorization|bearer/i);
+        expect(JSON.stringify(queued.json())).not.toMatch(/github-pr-secret-token|authorization|bearer/i);
+      });
+    } finally {
+      await rm(registryRoot, { recursive: true, force: true });
+    }
+  });
+
   it("blocks codex-real preflight instead of using a GitHub HTTPS repo URL when no local mirror is provided", async () => {
     const registryRoot = await createAiNovelistRegistryRoot();
     try {
@@ -1380,7 +1537,7 @@ describe("orchestrator api", () => {
               approvalRecordIds: approvals.map((approval) => approval.id),
               approvalIds: route.path === "codex-real" || route.path === "fix-real"
                 ? ["real_codex_execution"]
-                : route.path === "qa-ai-exploratory"
+                : route.path === "qa-ai-exploratory" || route.path === "github-pr"
                   ? ["external_cost_risk"]
                   : route.path === "deploy-staging"
                     ? ["production_deploy"]

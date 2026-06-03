@@ -32,6 +32,8 @@ export const RealActionRequestSchema = z.object({
   repoUrl: z.string().min(1).optional(),
   branchName: z.string().min(1).optional(),
   workspaceRoot: z.string().min(1).optional(),
+  baseBranch: z.string().min(1).optional(),
+  sourceSha: z.string().min(1).optional(),
 }).strict();
 
 const queuedActionKinds = new Set<QueuedActionKind>(["plan", "codex", "qa", "fix", "loop", "demo"]);
@@ -169,6 +171,8 @@ export function buildQueuedRealActionJob(input: BuildQueuedRealActionJobInput): 
     ...(parsedBody.repoUrl ? { repoUrl: parsedBody.repoUrl } : {}),
     ...(parsedBody.branchName ? { branchName: parsedBody.branchName } : {}),
     ...(parsedBody.workspaceRoot ? { workspaceRoot: parsedBody.workspaceRoot } : {}),
+    ...(parsedBody.baseBranch ? { baseBranch: parsedBody.baseBranch } : {}),
+    ...(parsedBody.sourceSha ? { sourceSha: parsedBody.sourceSha } : {}),
     enableRealMode: true,
     approvalRecordIds: input.approvalRecordIds ?? [],
     approvalIds: input.approvalGrantIds ?? [],

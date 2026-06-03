@@ -549,6 +549,8 @@ describe("gated real integration adapters", () => {
   it.each([
     ["auth failure", 401, "authentication failed"],
     ["permission failure", 403, "permission denied"],
+    ["validation failure", 422, "request failed"],
+    ["provider failure", 500, "provider unavailable"],
     ["timeout/network failure", 0, "network unavailable"],
   ])("returns redacted GitHub %s results", async (_label, status, expectedMessage) => {
     const transport: IntegrationTransport = async () => {

@@ -4,7 +4,7 @@ Phase 11-15 integrations default to local mock/dry-run adapters for GitHub, Cool
 
 ## Supported Providers
 
-- `github`: simulates branch, Chinese commit message, PR body, and Issue body; gated real mode can create a branch, open/update a PR, and post QA comments through injected transport only.
+- `github`: simulates branch, Chinese commit message, PR body, and Issue body; `github-pr` now first produces a PR preview Artifact and requires approved `EXTERNAL_COST_RISK`. Gated real mode can create a branch, open/update a PR, and post QA comments through injected transport only when operation gates are explicitly true.
 - `coolify`: simulates staging or production deploy request payloads; gated real mode can request staging deployments through injected transport, while production still requires approval.
 - `uptime-kuma`: simulates HTTP monitor configuration; gated real mode can create/check monitors through injected transport only.
 - `plane`: simulates Mission and Bug issue payloads; gated real mode can create/update issues through injected transport only.
@@ -52,7 +52,7 @@ POST /integrations/:name/dry-run
 
 Dry-run/mock adapters are the default and never call external APIs. Setting `ENABLE_REAL_GITHUB`, `ENABLE_REAL_COOLIFY`, `ENABLE_REAL_UPTIME_KUMA`, or `ENABLE_REAL_PLANE` to `"1"` only makes real mode eligible; it does not by itself perform a network call.
 
-A real external call can occur only when runtime wiring chooses a real adapter and provides all required credentials/configuration, explicit approval/policy gates, and an injected transport. Normal tests use fake transports and do not call the network. Integration results must keep `realNetworkCall: false` until a gated real adapter actually invokes its injected transport.
+A real external call can occur only when runtime wiring chooses a real adapter and provides all required credentials/configuration, explicit approval/policy gates, explicit operation gates, and an injected transport. Normal tests use fake transports and do not call the network. Integration results must keep `realNetworkCall: false` until a gated real adapter actually invokes its injected transport. `github.pr` default Worker Runner output remains manual-action/no-network and persists only a reviewable PR preview.
 
 Token and password values must not enter API responses, logs, PR bodies, Issue bodies, artifacts, or Hub UI.
 

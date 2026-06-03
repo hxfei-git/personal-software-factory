@@ -154,6 +154,10 @@ function automaticTransitionPath(
     return canTransition(currentStatus, MissionStatus.regression_running) ? [MissionStatus.regression_running] : [];
   }
 
+  if (jobType === "fix.real") {
+    return fixRealTransitionPath(currentStatus, hasBugs, result);
+  }
+
   if (!hasBugs && jobType === "loop.dry_run" && currentStatus !== MissionStatus.ready_for_review) {
     return canTransition(currentStatus, MissionStatus.ready_for_review) ? [MissionStatus.ready_for_review] : [];
   }
@@ -166,8 +170,66 @@ function isBlockedQaResult(jobType: string, result: WorkerJobHandlerResult): boo
     && (result.manualActionRequired === true || result.status === "blocked" || result.status === "manual_action");
 }
 
+function fixRealTransitionPath(
+  currentStatus: MissionStatusValue,
+  hasBugs: boolean,
+  result: WorkerJobHandlerResult,
+): MissionStatusValue[] {
+  if (result.status === "paused" || result.status === "needs_human") {
+    return legalTransitionPath(currentStatus, [MissionStatus.paused]);
+  }
+
+  if (result.status === "fixed" && !hasBugs) {
+    if (currentStatus === MissionStatus.bugs_found) {
+      return legalTransitionPath(currentStatus, [MissionStatus.fixing, MissionStatus.regression_running, MissionStatus.qa_running, MissionStatus.ready_for_review]);
+    }
+    if (currentStatus === MissionStatus.fixing) {
+      return legalTransitionPath(currentStatus, [MissionStatus.regression_running, MissionStatus.qa_running, MissionStatus.ready_for_review]);
+    }
+    if (currentStatus === MissionStatus.regression_running) {
+      return legalTransitionPath(currentStatus, [MissionStatus.qa_running, MissionStatus.ready_for_review]);
+    }
+    if (currentStatus === MissionStatus.qa_running) {
+      return legalTransitionPath(currentStatus, [MissionStatus.ready_for_review]);
+    }
+  }
+
+  if (result.status === "test_failed" || result.status === "fix_failed") {
+    if (currentStatus === MissionStatus.fixing) {
+      return legalTransitionPath(currentStatus, [MissionStatus.regression_running, MissionStatus.qa_running, MissionStatus.bugs_found]);
+    }
+    if (currentStatus === MissionStatus.regression_running) {
+      return legalTransitionPath(currentStatus, [MissionStatus.qa_running, MissionStatus.bugs_found]);
+    }
+    if (currentStatus === MissionStatus.qa_running) {
+      return legalTransitionPath(currentStatus, [MissionStatus.bugs_found]);
+    }
+  }
+
+  return [];
+}
+
+function legalTransitionPath(currentStatus: MissionStatusValue, desiredPath: MissionStatusValue[]): MissionStatusValue[] {
+  const path: MissionStatusValue[] = [];
+  let current = currentStatus;
+  for (const next of desiredPath) {
+    if (current === next) {
+      continue;
+    }
+    if (!canTransition(current, next)) {
+      return [];
+    }
+    path.push(next);
+    current = next;
+  }
+  return path;
+}
+
 function hasBugReports(result: WorkerJobHandlerResult): boolean {
-  return result.childBugReportIds.length > 0 || (result.childBugReports?.length ?? 0) > 0;
+  if ((result.childBugReports?.length ?? 0) > 0) {
+    return result.childBugReports!.some((bug) => !isResolvedBugStatus(bug.status));
+  }
+  return result.childBugReportIds.length > 0;
 }
 
 async function hasOpenMissionBugs(storage: MissionStorage, missionId: string): Promise<boolean> {
@@ -175,7 +237,7 @@ async function hasOpenMissionBugs(storage: MissionStorage, missionId: string): P
   return bugs.some((bug) => !isResolvedBugStatus(bug.status));
 }
 
-const resolvedBugStatuses = new Set<string>(["fixed", "verified", "closed", "wont_fix", "duplicate"]);
+const resolvedBugStatuses = new Set<string>(["fixed", "accepted", "verified", "closed", "wont_fix", "duplicate"]);
 
 function isResolvedBugStatus(status: BugReport["status"]): boolean {
   return resolvedBugStatuses.has(status);
@@ -321,6 +383,11 @@ async function persistChildResources(
       await storage.createBug({
         resource: bug,
         event: buildChildEvent(job, bug.id, "bug.child_recorded", "Child BugReport recorded by queue runner.", timestamp),
+      });
+    } else {
+      await storage.updateBug({
+        resource: bug,
+        event: buildChildEvent(job, bug.id, "bug.child_updated", "Child BugReport updated by queue runner.", timestamp),
       });
     }
   }

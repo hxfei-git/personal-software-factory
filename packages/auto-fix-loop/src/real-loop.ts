@@ -132,6 +132,7 @@ export interface GatedRealAutoFixLoopResult {
   workerRuns: WorkerRun[];
   artifacts: Artifact[];
   events: MissionEvent[];
+  bugReports: BugReport[];
   gates: GatedRealAutoFixLoopGates;
   recommendedNextAction: string;
   regressionCoverage: RegressionCoverageResult;
@@ -389,8 +390,14 @@ export async function runGatedRealAutoFixLoop(input: GatedRealAutoFixLoopInput):
     artifacts: [
       ...redactedCodexResult.artifacts,
       createRegressionArtifact(input, regressionCoverage, now),
+      createFixSummaryArtifact(input, regressionCoverage, testResults, now),
+      createBugStatusSummaryArtifact(input, regressionCoverage, now, extraSecrets),
     ],
-    events: redactedCodexResult.events,
+    events: [
+      ...redactedCodexResult.events,
+      ...createBugStatusEvents(input, regressionCoverage, now, extraSecrets),
+    ],
+    bugReports: createAcceptedBugReports(input, regressionCoverage, now, extraSecrets),
     recommendedNextAction: "Regression, unit, and e2e verification passed through injected runners; return to QA.",
     testResults,
     errors: [],
@@ -559,6 +566,7 @@ interface FinishFields {
   workerRuns?: WorkerRun[] | undefined;
   artifacts?: Artifact[] | undefined;
   events?: MissionEvent[] | undefined;
+  bugReports?: BugReport[] | undefined;
   extraSecrets: string[];
 }
 
@@ -583,6 +591,7 @@ function finish(input: GatedRealAutoFixLoopInput, fields: FinishFields): GatedRe
     workerRuns: [workerRun, ...(fields.workerRuns ?? [])],
     artifacts: fields.artifacts ?? [],
     events,
+    bugReports: fields.bugReports ?? [],
     gates: fields.gates,
     recommendedNextAction: fields.recommendedNextAction,
     regressionCoverage: fields.regressionCoverage,
@@ -645,6 +654,130 @@ function createRegressionArtifact(input: GatedRealAutoFixLoopInput, coverage: Re
     mime_type: "text/markdown",
     size: Buffer.byteLength(content, "utf8"),
     metadata: { generatedBy: "auto-fix-loop", mode: "real-gated", realNetworkCall: false, pathOnly: false },
+    created_at: now,
+  };
+}
+
+function createFixSummaryArtifact(
+  input: GatedRealAutoFixLoopInput,
+  coverage: RegressionCoverageResult,
+  testResults: Array<GatedRealTestRunnerResult & { command: string; group: VerificationCommandGroup }>,
+  now: string,
+): Artifact {
+  const content = [
+    "# Real Fix Summary",
+    "",
+    `- Mission: ${input.missionId}`,
+    `- Project: ${input.projectId}`,
+    `- Attempt: ${(input.currentAttempt ?? 0) + 1} / ${input.maxAttempts ?? DEFAULT_MAX_MISSION_ATTEMPTS}`,
+    `- Bug count: ${input.bugs.length}`,
+    `- Regression present: ${coverage.present}`,
+    `- Regression source: ${coverage.source}`,
+    `- Regression path: ${coverage.path ?? "n/a"}`,
+    "- Real network calls: false",
+    "- Pushed: false",
+    "",
+    "## Test Results",
+    ...testResults.map((result) => `- ${result.group}: ${result.command} -> ${result.status}`),
+    "",
+    "## Recommended Next Action",
+    "Review accepted bug evidence and continue toward ready_for_review only after Mission state transitions allow it.",
+    "",
+  ].join("\n");
+  return {
+    id: `artifact-${input.missionId}-real-fix-summary`,
+    mission_id: input.missionId,
+    type: "dev_summary",
+    path: `missions/${input.missionId}/real-fix-summary.md`,
+    worker_run_id: `worker-run-${input.missionId}-auto-fix-real-gated`,
+    content: redactText(content, input.extraSecrets ?? []),
+    mime_type: "text/markdown",
+    size: Buffer.byteLength(content, "utf8"),
+    metadata: { generatedBy: "auto-fix-loop", mode: "real-gated", realNetworkCall: false, pushed: false, pathOnly: false },
+    created_at: now,
+  };
+}
+
+function createBugStatusSummaryArtifact(input: GatedRealAutoFixLoopInput, coverage: RegressionCoverageResult, now: string, extraSecrets: string[]): Artifact {
+  const accepted = createAcceptedBugReports(input, coverage, now, extraSecrets);
+  const content = [
+    "# Bug Status Change Summary",
+    "",
+    "Bug accepted requires regression evidence; this artifact is generated only after gated Codex and injected verification runners succeed.",
+    "",
+    ...accepted.flatMap((bug) => [
+      `## ${bug.id}`,
+      `- Title: ${bug.title}`,
+      `- New status: ${bug.status}`,
+      `- Regression path: ${coverage.path ?? bug.regression_test_path ?? "n/a"}`,
+      "- Real network calls: false",
+      "- Pushed: false",
+      "",
+    ]),
+  ].join("\n");
+  const redactedContent = redactText(content, extraSecrets);
+  return {
+    id: `artifact-${input.missionId}-real-bug-status-summary`,
+    mission_id: input.missionId,
+    type: "technical_notes",
+    path: `missions/${input.missionId}/real-bug-status-summary.md`,
+    worker_run_id: `worker-run-${input.missionId}-auto-fix-real-gated`,
+    content: redactedContent,
+    mime_type: "text/markdown",
+    size: Buffer.byteLength(redactedContent, "utf8"),
+    metadata: { generatedBy: "auto-fix-loop", mode: "real-gated", realNetworkCall: false, pushed: false, pathOnly: false },
+    created_at: now,
+  };
+}
+
+function createAcceptedBugReports(input: GatedRealAutoFixLoopInput, coverage: RegressionCoverageResult, now: string, extraSecrets: string[]): BugReport[] {
+  if (!coverage.present) {
+    return [];
+  }
+  return input.bugs
+    .filter((bug) => bug.status !== "accepted" && bug.status !== "wont_fix")
+    .map((bug) => redactJson({
+      ...bug,
+      status: "accepted" as const,
+      evidence: {
+        ...bug.evidence,
+        regressionCoverage: {
+          present: coverage.present,
+          source: coverage.source,
+          ...(coverage.path ? { path: coverage.path } : {}),
+        },
+        acceptedBy: "auto-fix-loop",
+        acceptedAt: now,
+        realNetworkCall: false,
+        pushed: false,
+      },
+      ...(coverage.path ? { regression_test_path: coverage.path } : {}),
+      updated_at: now,
+    }, extraSecrets) as BugReport);
+}
+
+function createBugStatusEvents(input: GatedRealAutoFixLoopInput, coverage: RegressionCoverageResult, now: string, extraSecrets: string[]): MissionEvent[] {
+  return createAcceptedBugReports(input, coverage, now, extraSecrets).flatMap((bug) => [
+    createBugStatusEvent(input.missionId, bug.id, "open", "in_progress", now),
+    createBugStatusEvent(input.missionId, bug.id, "in_progress", "fixed", now),
+    createBugStatusEvent(input.missionId, bug.id, "fixed", "accepted", now, { regressionCoverage: bug.evidence.regressionCoverage }),
+  ]);
+}
+
+function createBugStatusEvent(
+  missionId: string,
+  bugId: string,
+  from: BugReport["status"],
+  to: BugReport["status"],
+  now: string,
+  payload: Record<string, unknown> = {},
+): MissionEvent {
+  return {
+    id: `event-${missionId}-bug-status-${bugId}-${from}-${to}`,
+    mission_id: missionId,
+    type: `bug.status.${to}`,
+    message: `Bug ${bugId} status changed from ${from} to ${to}.`,
+    payload: redactJson({ bugId, from, to, ...payload }),
     created_at: now,
   };
 }

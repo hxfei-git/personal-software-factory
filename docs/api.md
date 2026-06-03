@@ -261,13 +261,19 @@ Request body is strict and accepts only the fields needed by the gated contracts
   "targetUrl": "http://127.0.0.1:8999/app",
   "repoUrl": "/home/user/psf-workspaces/mirrors/ai-novelist.git",
   "branchName": "agent/mission-123",
-  "workspaceRoot": "/home/user/psf-workspaces"
+  "workspaceRoot": "/home/user/psf-workspaces",
+  "baseBranch": "main",
+  "sourceSha": "abc123"
 }
 ```
 
 `qa-playwright` queued payloads include the Project Passport, QA charter, resolved target URL, Mission files, and e2e command metadata with `executionPolicy: "review-only"`. Missing or invalid target URLs are blocked before a real browser path is attempted; the API must not report a passed QA result from missing context.
 
 `codex-real` queued preflight requires a local repository mirror from the request body or a local `PSF_LOCAL_REPO_<project>` environment fallback. GitHub HTTPS/SSH passport repository URLs are blocked at this stage, because remote clone/update is still manual operator preparation. The queued Codex payload includes the local `repoUrl`, default branch, `agent/*` branch, workspace root, Project Passport, Mission files, project `AGENTS.md`, safe command metadata, approval record IDs, and approval grant IDs. Branch names targeting `main`, `master`, or anything outside `agent/` are rejected.
+
+`fix-real` queued payloads include Mission status, `currentAttempt`, `maxAttempts`, open bugs, per-bug attempts, `maxBugAttempts`, Project Passport, project `AGENTS.md`, Mission files, verification commands, regression evidence, branch/current branch, workspace root, target URL, approval record IDs, and approval grant IDs. Bug `accepted` is not emitted unless regression evidence exists and injected Codex/test runners pass. Missing regression evidence returns manual-action/needs-human style output and keeps external side effects disabled.
+
+`github-pr` requires an approved `EXTERNAL_COST_RISK` Approval before enqueue. The queued payload includes Mission integration input, `branchName`, `baseBranch`, optional `sourceSha`, QA comment preview, PR preview, approval record IDs, and `operationGates` set to false by default. The API and default Worker Runner do not push, create a PR, or call GitHub; PR preview is persisted as an Artifact for review.
 
 Worker Runner currently persists `qa.playwright` and `codex.real` child resources for injected or deterministic paths, but default `codex.real` still returns `manual_action` without an injected runner. These routes still do not run Codex, push, create PRs, deploy, call external providers, or set `realNetworkCall` to `true`.
 

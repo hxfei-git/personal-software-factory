@@ -878,7 +878,8 @@ describe("worker runner", () => {
       payload: { mission: { missionId: "mission-real", branchName: "agent/mission-real" } },
       expectedSummary: "Manual action required",
       deps: {},
-      expectedChildWorkerRunIds: [],
+      expectedChildWorkerRunIds: ["worker-run-mission-real-github-pr"],
+      expectedChildArtifactIds: ["artifact-mission-real-github-pr-preview"],
     },
     {
       type: "deploy.coolify" as const,
@@ -1269,6 +1270,206 @@ describe("worker runner", () => {
         payload: expect.objectContaining({ to: "released" }),
       }),
     ]));
+  });
+
+  it("persists fix.real child bug updates, artifacts, events, and conservatively reaches ready_for_review", async () => {
+    const existingBug = bug("bug-mission-real-1");
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-real", MissionStatus.bugs_found)],
+      bugs: [existingBug],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "fix.real", "job-fix-real")],
+    });
+    const job = buildWorkerJob({
+      id: "job-fix-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "fix.real",
+      mode: "real",
+      payload: {
+        enableRealMode: true,
+        missionStatus: MissionStatus.bugs_found,
+        currentAttempt: 1,
+        maxAttempts: 3,
+        bugs: [existingBug],
+        passport: projectPassport(),
+        branchName: "agent/mission-real",
+        currentBranch: "agent/mission-real",
+        approvalIds: ["real_codex_execution"],
+        regressionEvidence: {
+          generatedSpec: {
+            path: "tests/e2e/generated/bug-mission-real-1.spec.ts",
+            content: "import { test } from '@playwright/test';\ntest('bug-mission-real-1 Broken flow regression', async () => {});",
+            valid: true,
+          },
+        },
+        verificationCommands: { regression: ["pytest -q"], unit: ["pnpm typecheck"] },
+      },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const originalEnableRealCodex = process.env.ENABLE_REAL_CODEX;
+    process.env.ENABLE_REAL_CODEX = "1";
+    let wrapper: WorkerRun;
+    try {
+      wrapper = await processWorkerJob({
+        job,
+        storage,
+        handler: createDefaultJobHandler(process.cwd(), {
+          autoFixCodexRunner: {
+            run: async () => ({
+              status: "succeeded",
+              executed: false,
+              reason: "Mock fix applied safely.",
+              workerRun: workerRun("worker-run-mission-real-codex-fix", "codex", "succeeded", "mock"),
+              artifacts: [artifact("artifact-mission-real-codex-fix-summary", "worker-run-mission-real-codex-fix", "dev_summary")],
+              events: [event("codex.real.succeeded")],
+              stdout: "fixed",
+              stderr: "",
+              exitCode: 0,
+            }),
+          },
+          autoFixTestRunner: {
+            run: async (input) => ({ status: "passed", exitCode: 0, output: input.command + " passed" }),
+          },
+        }),
+        now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+      });
+    } finally {
+      if (originalEnableRealCodex === undefined) {
+        delete process.env.ENABLE_REAL_CODEX;
+      } else {
+        process.env.ENABLE_REAL_CODEX = originalEnableRealCodex;
+      }
+    }
+
+    expect(wrapper.status).toBe("succeeded");
+    expect(wrapper.output).toMatchObject({
+      jobType: "fix.real",
+      status: "fixed",
+      childWorkerRunIds: expect.arrayContaining(["worker-run-mission-real-auto-fix-real-gated", "worker-run-mission-real-codex-fix"]),
+      childBugReportIds: ["bug-mission-real-1"],
+    });
+    await expect(storage.getBug("bug-mission-real-1")).resolves.toMatchObject({
+      status: "accepted",
+      regression_test_path: "tests/e2e/generated/bug-mission-real-1.spec.ts",
+      evidence: expect.objectContaining({ regressionCoverage: expect.objectContaining({ present: true }) }),
+    });
+    await expect(storage.getMission("mission-real")).resolves.toMatchObject({ status: MissionStatus.ready_for_review });
+    const events = await storage.listMissionEvents("mission-real");
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "bug.status.in_progress" }),
+      expect.objectContaining({ type: "bug.status.fixed" }),
+      expect.objectContaining({ type: "bug.status.accepted" }),
+      expect.objectContaining({ type: "mission.status.auto_transition", payload: expect.objectContaining({ to: MissionStatus.fixing }) }),
+      expect.objectContaining({ type: "mission.status.auto_transition", payload: expect.objectContaining({ to: MissionStatus.regression_running }) }),
+      expect.objectContaining({ type: "mission.status.auto_transition", payload: expect.objectContaining({ to: MissionStatus.qa_running }) }),
+      expect.objectContaining({ type: "mission.status.auto_transition", payload: expect.objectContaining({ to: MissionStatus.ready_for_review }) }),
+    ]));
+    expect((await storage.listMissionArtifacts("mission-real")).map((item) => item.path)).toEqual(expect.arrayContaining([
+      "missions/mission-real/real-fix-summary.md",
+      "missions/mission-real/real-bug-status-summary.md",
+    ]));
+  });
+
+  it("keeps github.pr default manual-action without network and persists a PR preview artifact", async () => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-real", MissionStatus.ready_for_review)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "github.pr", "job-github-pr")],
+    });
+    const job = buildWorkerJob({
+      id: "job-github-pr",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "github.pr",
+      mode: "real",
+      payload: {
+        mission: { missionId: "mission-real", missionTitle: "Review chapter flow", branchName: "agent/mission-real", project: "ai-novelist" },
+        prPreview: { title: "完成 Review chapter flow", body: "## Mission 摘要\nPreview only. token=secret-value" },
+        operationGates: { allowNetwork: false, allowPushBranch: false, allowCreatePullRequest: false },
+      },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd()),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(wrapper.output).toMatchObject({
+      jobType: "github.pr",
+      status: "manual_action",
+      manualActionRequired: true,
+      childWorkerRunIds: ["worker-run-mission-real-github-pr"],
+      childArtifactIds: ["artifact-mission-real-github-pr-preview"],
+    });
+    await expect(storage.getArtifact("artifact-mission-real-github-pr-preview")).resolves.toMatchObject({
+      type: "technical_notes",
+      path: "missions/mission-real/github-pr-preview.md",
+      content: expect.stringContaining("Preview only"),
+    });
+    expect(JSON.stringify(await storage.getArtifact("artifact-mission-real-github-pr-preview"))).not.toContain("secret-value");
+  });
+
+  it("persists github.pr fake transport success with PR URL without exposing tokens", async () => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-real", MissionStatus.ready_for_review)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "github.pr", "job-github-pr")],
+    });
+    const calls: Array<{ url: string; headers?: Record<string, string> }> = [];
+    const job = buildWorkerJob({
+      id: "job-github-pr",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "github.pr",
+      mode: "real",
+      payload: {
+        mission: { missionId: "mission-real", missionTitle: "Review chapter flow", branchName: "agent/mission-real", project: "ai-novelist" },
+        prPreview: { title: "完成 Review chapter flow", body: "## Mission 摘要\nSafe preview." },
+        baseBranch: "main",
+        sourceSha: "abc123",
+        operationGates: { allowNetwork: true, allowPushBranch: true, allowCreatePullRequest: true },
+      },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        githubEnv: {
+          ENABLE_REAL_GITHUB: "1",
+          GITHUB_TOKEN: "ghp_worker_runner_secret",
+          GITHUB_OWNER: "hxfei-git",
+          GITHUB_REPO: "personal-software-factory",
+        },
+        githubTransport: async (request) => {
+          calls.push({ url: request.url, ...(request.headers === undefined ? {} : { headers: request.headers }) });
+          if (request.url.endsWith("/git/refs")) {
+            return { status: 201, ok: true, json: { ref: "refs/heads/agent/mission-real" } };
+          }
+          return { status: 201, ok: true, json: { number: 7, html_url: "https://github.example.test/pull/7" } };
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.headers?.authorization).toContain("ghp_worker_runner_secret");
+    expect(wrapper.output).toMatchObject({
+      jobType: "github.pr",
+      status: "succeeded",
+      childWorkerRunIds: ["worker-run-mission-real-github-pr"],
+      childArtifactIds: ["artifact-mission-real-github-pr-preview"],
+    });
+    await expect(storage.getWorkerRun("worker-run-mission-real-github-pr")).resolves.toMatchObject({
+      output: expect.objectContaining({ githubPrUrl: "https://github.example.test/pull/7", realNetworkCall: true }),
+    });
+    expect(JSON.stringify({ wrapper, child: await storage.getWorkerRun("worker-run-mission-real-github-pr"), events: await storage.listMissionEvents("mission-real") })).not.toContain("ghp_worker_runner_secret");
   });
 
   it("redacts secrets from codex.real wrapper output, action result, artifacts, and events", async () => {

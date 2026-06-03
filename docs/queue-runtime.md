@@ -122,13 +122,13 @@ Task 9 wires these real/gated job contracts into Worker Runner handlers:
 - `codex.real`: maps to the Codex Worker real runner abstraction. `ENABLE_REAL_CODEX` is forced off unless the job payload explicitly opts in and the environment is also enabled; normal runtime returns blocked/manual-action output without spawning Codex.
 - `qa.playwright`: maps to deterministic Playwright QA. A missing target URL returns a blocked/manual-action QA run, and real browser execution still requires an approved runner or explicit real Playwright gate.
 - `qa.ai_exploratory`: maps to the AI exploratory QA runner. `ENABLE_AI_EXPLORATORY_QA` defaults off, so the handler records manual-action artifacts and does not connect to MCP or open a browser.
-- `fix.real`: maps to `runGatedRealAutoFixLoop`. Real mode defaults off, preserving auto-fix WorkerRun and artifact output while recommending manual approval/gate setup.
-- `github.pr`: maps to the gated GitHub real adapter with no transport and network gates disabled by default.
+- `fix.real`: maps to `runGatedRealAutoFixLoop`. Real mode defaults off unless route, approval, env, command policy, regression evidence, and injected runner gates are satisfied. When injected fix and verification runners succeed, child BugReports can be updated to `accepted` and legal Mission transitions can move toward `ready_for_review`.
+- `github.pr`: maps to the gated GitHub real adapter with no transport and operation/network gates disabled by default. Worker Runner persists a PR preview child WorkerRun and Artifact for review; fake transports can exercise success/failure in tests without contacting GitHub.
 - `deploy.coolify`: maps to the gated Coolify real adapter with no transport, no network, and no production deploy approval by default.
 - `monitor.uptime_kuma`: maps to the gated Uptime Kuma real adapter with no transport and network gates disabled by default.
 - `plane.sync`: maps to the gated Plane real adapter with no transport and network gates disabled by default.
 
-The real/gated handlers preserve queue wrapper output semantics: the wrapper records `childWorkerRunIds`, `childQARunIds`, `childArtifactIds`, `childBugReportIds`, `summary`, and `recommendedNextAction`, while child resources are persisted when the underlying runner returns them. Integration handlers currently return safe manual-action summaries and no child resources.
+The real/gated handlers preserve queue wrapper output semantics: the wrapper records `childWorkerRunIds`, `childQARunIds`, `childArtifactIds`, `childBugReportIds`, `summary`, and `recommendedNextAction`, while child resources are persisted when the underlying runner returns them. `github.pr` now persists a child integration WorkerRun plus `github-pr-preview.md` Artifact even when the default result is manual-action/no-network.
 
 Phase 18 also records Mission-level audit events from Worker Runner completions. Successful or blocked action handling appends `mission.action_result` with the action outcome, child resource IDs, and safe recommended next action. Worker Runner may also append `mission.status.auto_transition` when the result maps to a conservative legal Mission status transition; if the state machine rejects the transition, the Mission status is left unchanged and the action result event remains the audit record.
 

@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import {
   listIntegrationStatuses,
   runIntegrationDryRun,
+  runGitHubDryRun,
   isSecretLikeName,
   redactValue,
   type ExternalIntegrationName,
@@ -573,6 +574,32 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
         commands: buildSafeCodexCommands(registryProject),
       });
     }
+    if (action === "fix-real") {
+      const branchName = resolveCodexBranchName(input, mission, registryProject);
+      assertCodexBranchNameAllowed(mission, branchName);
+      const openBugs = (await storage.listMissionBugs(mission.id)).filter((bug) => !isResolvedBugForFixContext(bug.status));
+      return sanitizeApiResponse({
+        missionStatus: mission.status,
+        currentAttempt: mission.current_attempt,
+        maxAttempts: mission.max_attempts,
+        bugs: openBugs,
+        perBugAttempts: buildPerBugAttempts(openBugs),
+        maxBugAttempts: 2,
+        passport: registryProject.passport,
+        projectAgents: await readProjectAgentsContext(registryProject.passportPath),
+        missionFiles,
+        verificationCommands: buildFixVerificationCommands(registryProject),
+        regressionEvidence: await buildRegressionEvidenceContext(mission.id, openBugs),
+        branchName,
+        currentBranch: nonEmptyStringOrUndefined(mission.branch_name) ?? branchName,
+        workspaceRoot: resolveCodexWorkspaceRoot(input, registryProject),
+        targetUrl: resolveRealActionTargetUrl(input, project, registryProject),
+        safetyNotes: "No push, PR creation, deploy, or external provider call is allowed by fix-real default context.",
+      });
+    }
+    if (action === "github-pr") {
+      return sanitizeApiResponse(await buildGithubPrActionContext(mission, project, registryProject, input, missionFiles));
+    }
     return {};
   }
 
@@ -694,6 +721,191 @@ Risk level: ${mission.risk_level}.
       ...normalizeCommandValues(registryProject.passport.commands.e2e),
     ]).filter(isSafeCodexPayloadCommand);
     return commands.length > 0 ? commands : ["pnpm test"];
+  }
+
+  async function buildGithubPrActionContext(
+    mission: Mission,
+    project: MissionProjectLike,
+    registryProject: RegistryProject,
+    input: z.infer<typeof RealActionRequestSchema>,
+    missionFiles: Record<typeof plannerFileNames[number], string>,
+  ): Promise<Record<string, unknown>> {
+    const branchName = resolveCodexBranchName(input, mission, registryProject);
+    assertCodexBranchNameAllowed(mission, branchName);
+    const [artifacts, workerRuns, qaRuns, bugs, approvals] = await Promise.all([
+      storage.listMissionArtifacts(mission.id),
+      storage.listMissionWorkerRuns(mission.id),
+      storage.listMissionQARuns(mission.id),
+      storage.listMissionBugs(mission.id),
+      storage.listMissionApprovals(mission.id),
+    ]);
+    const baseBranch = nonEmptyStringOrUndefined(input.baseBranch) ?? registryProject.passport.repo.default_branch ?? "main";
+    const missionInput = buildGithubMissionInput({ mission, project, branchName, missionFiles, artifacts, workerRuns, qaRuns, bugs, approvals });
+    const preview = runGitHubDryRun({ env: {}, mission: missionInput });
+    return {
+      mission: missionInput,
+      branchName,
+      baseBranch,
+      ...(nonEmptyStringOrUndefined(input.sourceSha) ? { sourceSha: input.sourceSha } : {}),
+      qaComment: buildGithubQaCommentPreview(missionInput),
+      prPreview: preview.outputs.pullRequest,
+      simulatedPullRequest: preview.outputs.simulatedPullRequest,
+      approvalRecordIds: approvedApprovalRecordIdsForAction("github-pr", approvals),
+      operationGates: {
+        allowNetwork: false,
+        allowPushBranch: false,
+        allowCreatePullRequest: false,
+        allowUpdatePullRequestBody: false,
+        allowPostQaComment: false,
+      },
+      operationGateSummary: {
+        realNetworkCall: false,
+        allowNetwork: false,
+        allowPushBranch: false,
+        allowCreatePullRequest: false,
+        allowPostQaComment: false,
+        message: "GitHub PR preview is safe; real push/PR creation remains blocked until operation gates and injected transport are provided.",
+      },
+    };
+  }
+
+  function buildGithubMissionInput(input: {
+    mission: Mission;
+    project: MissionProjectLike;
+    branchName: string;
+    missionFiles: Record<typeof plannerFileNames[number], string>;
+    artifacts: Artifact[];
+    workerRuns: WorkerRun[];
+    qaRuns: QAReport[];
+    bugs: BugReport[];
+    approvals: Approval[];
+  }) {
+    const qaReport = findLatestArtifactContent(input.artifacts, ["qa_report"]);
+    const devSummary = findLatestArtifactContent(input.artifacts, ["dev_summary"]);
+    const fixSummary = findLatestArtifactContent(input.artifacts, ["dev_summary", "technical_notes"], "fix");
+    const riskNotes = input.missionFiles["risk-notes.md"];
+    return {
+      missionId: input.mission.id,
+      missionTitle: input.mission.title,
+      missionSummary: input.mission.mission_markdown || input.mission.raw_request,
+      project: input.project.id,
+      branchName: input.branchName,
+      acceptanceCriteria: extractAcceptanceCriteria(input.missionFiles["acceptance.md"]),
+      devSummary: devSummary ?? "Dev summary is not available yet.",
+      qaReport: qaReport ?? latestQaSummary(input.qaRuns),
+      bugFixSummary: fixSummary ?? summarizeBugsForPr(input.bugs),
+      artifacts: input.artifacts.map((artifact) => artifact.path),
+      workerRuns: input.workerRuns.map((run) => ({
+        id: run.id,
+        worker: run.worker_type,
+        status: run.status,
+        summary: stringFromJson(run.output, "summary") ?? run.error ?? run.logs.at(0) ?? "No summary.",
+      })),
+      risks: extractRiskList(riskNotes),
+      requiresHumanApproval: input.approvals.some((approval) => approval.status === "pending") || input.bugs.some((bug) => !isResolvedBugForFixContext(bug.status)),
+    };
+  }
+
+  function buildGithubQaCommentPreview(mission: ReturnType<typeof buildGithubMissionInput>): string {
+    return [
+      "## QA / Regression Preview",
+      mission.qaReport,
+      "",
+      "## Bug / Fix Summary",
+      mission.bugFixSummary,
+      "",
+      "Dry-run preview only; no GitHub network call has been made.",
+    ].join("\n");
+  }
+
+  function findLatestArtifactContent(artifacts: Artifact[], types: string[], pathHint?: string): string | undefined {
+    return [...artifacts].reverse().find((artifact) => {
+      const typeMatches = types.includes(artifact.type);
+      const pathMatches = pathHint === undefined || artifact.path.toLowerCase().includes(pathHint.toLowerCase());
+      return typeMatches && pathMatches && isNonEmptyString(artifact.content);
+    })?.content;
+  }
+
+  function extractAcceptanceCriteria(content: string): string[] {
+    const items = content.split(/\r?\n/).map((line) => line.trim()).filter((line) => /^[-*]\s+/.test(line)).map((line) => line.replace(/^[-*]\s+/, ""));
+    return items.length > 0 ? items.slice(0, 12) : ["Review acceptance.md before creating a PR."];
+  }
+
+  function latestQaSummary(qaRuns: QAReport[]): string {
+    return [...qaRuns].reverse().find((qaRun) => isNonEmptyString(qaRun.summary))?.summary ?? "QA report is not available yet.";
+  }
+
+  function summarizeBugsForPr(bugs: BugReport[]): string {
+    if (bugs.length === 0) {
+      return "No BugReport is recorded for this Mission.";
+    }
+    return bugs.map((bug) => `- ${bug.id} [${bug.severity}/${bug.status}]: ${bug.title}`).join("\n");
+  }
+
+  function extractRiskList(content: string): string[] {
+    const items = content.split(/\r?\n/).map((line) => line.trim()).filter((line) => /^[-*]\s+/.test(line)).map((line) => line.replace(/^[-*]\s+/, ""));
+    return items.length > 0 ? items.slice(0, 12) : [content.trim() || "Review risk-notes.md before PR creation."];
+  }
+
+  function stringFromJson(value: unknown, key: string): string | undefined {
+    return isRecord(value) && isNonEmptyString(value[key]) ? value[key] : undefined;
+  }
+
+  async function buildRegressionEvidenceContext(missionId: string, bugs: BugReport[]) {
+    const artifacts = await storage.listMissionArtifacts(missionId);
+    const candidate = findRegressionArtifactForBugs(artifacts, bugs);
+    if (candidate?.content) {
+      return { existingSpecPath: candidate.path, existingSpecContent: candidate.content };
+    }
+    const explicitPath = bugs.map((bug) => bug.regression_test_path).find(isNonEmptyString);
+    if (explicitPath) {
+      return { generatedSpec: { path: explicitPath, content: "", valid: false, errors: ["Regression artifact content is missing."] } };
+    }
+    return { generatedSpec: { valid: false, errors: ["Regression evidence is missing for open bugs."] } };
+  }
+
+  function findRegressionArtifactForBugs(artifacts: Artifact[], bugs: BugReport[]): Artifact | undefined {
+    return artifacts.find((artifact) => {
+      if (!isNonEmptyString(artifact.content)) {
+        return false;
+      }
+      if (artifact.type !== "generated_test" && !artifact.path.toLowerCase().includes("regression")) {
+        return false;
+      }
+      const content = artifact.content.toLowerCase();
+      return bugs.length === 0 || bugs.some((bug) => [bug.id, bug.title, ...bug.reproduction_steps].some((signal) => content.includes(signal.toLowerCase())));
+    });
+  }
+
+  function buildPerBugAttempts(bugs: BugReport[]): Record<string, number> {
+    return Object.fromEntries(bugs.map((bug) => [bug.id, numberFromEvidence(bug.evidence, ["fixAttempts", "attempts", "currentAttempt"])]));
+  }
+
+  function numberFromEvidence(evidence: unknown, keys: string[]): number {
+    if (!isRecord(evidence)) {
+      return 0;
+    }
+    for (const key of keys) {
+      const value = evidence[key];
+      if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+        return Math.floor(value);
+      }
+    }
+    return 0;
+  }
+
+  function buildFixVerificationCommands(registryProject: RegistryProject) {
+    const test = normalizeCommandValues(registryProject.passport.commands.test);
+    const e2e = normalizeCommandValues(registryProject.passport.commands.e2e);
+    return {
+      regression: e2e.length > 0 ? e2e : test,
+      unit: test,
+      e2e,
+    };
+  }
+
+  function isResolvedBugForFixContext(status: BugReport["status"]): boolean {
+    return status === "accepted" || status === "wont_fix";
   }
 
   function isSafeCodexPayloadCommand(command: string): boolean {
@@ -1992,7 +2204,7 @@ const readinessDefinitions: Record<ReadinessKey, {
   qaPlaywright: { action: "qa-playwright", requiredApprovalTypes: [] },
   qaAiExploratory: { action: "qa-ai-exploratory", requiredApprovalTypes: ["EXTERNAL_COST_RISK"] },
   fix: { action: "fix-real", requiredApprovalTypes: ["SECURITY_RISK"] },
-  github: { action: "github-pr", integrationName: "github", requiredApprovalTypes: [] },
+  github: { action: "github-pr", integrationName: "github", requiredApprovalTypes: ["EXTERNAL_COST_RISK"] },
   coolify: { action: "deploy-staging", integrationName: "coolify", requiredApprovalTypes: ["PRODUCTION_DEPLOY"] },
   uptimeKuma: { action: "monitor-sync", integrationName: "uptime_kuma", requiredApprovalTypes: [] },
   plane: { action: "plane-sync", integrationName: "plane", requiredApprovalTypes: [] },
@@ -2019,6 +2231,7 @@ function approvalGrantIdsForAction(action: GatedRealActionKind): string[] {
     case "deploy-staging":
       return ["production_deploy"];
     case "github-pr":
+      return ["external_cost_risk"];
     case "qa-playwright":
     case "monitor-sync":
     case "plane-sync":

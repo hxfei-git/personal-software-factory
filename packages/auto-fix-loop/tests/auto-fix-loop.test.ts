@@ -617,5 +617,28 @@ describe("gated real auto-fix loop", () => {
     expect(testCommands).toEqual(["pytest -q", "pnpm typecheck", "pnpm test"]);
     expect(JSON.stringify(result)).not.toContain("secret-value-123");
     expect(result.workerRun.metadata.realNetworkCall).toBe(false);
+    expect(result.artifacts.map((artifact) => artifact.path)).toEqual(expect.arrayContaining([
+      "missions/mission-0001-ai-novelist-chapter-review/real-regression-coverage.md",
+      "missions/mission-0001-ai-novelist-chapter-review/real-fix-summary.md",
+      "missions/mission-0001-ai-novelist-chapter-review/real-bug-status-summary.md",
+    ]));
+    expect(result.bugReports).toEqual([
+      expect.objectContaining({
+        id: "bug-sample",
+        status: "accepted",
+        evidence: expect.objectContaining({
+          regressionCoverage: expect.objectContaining({
+            present: true,
+            source: "generated",
+            path: "tests/e2e/generated/bug-sample.spec.ts",
+          }),
+        }),
+      }),
+    ]);
+    expect(result.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "bug.status.in_progress" }),
+      expect.objectContaining({ type: "bug.status.fixed" }),
+      expect.objectContaining({ type: "bug.status.accepted" }),
+    ]));
   });
 });

@@ -2,6 +2,13 @@
 
 ## Latest Update
 
+Batch 05/06 is complete for gated fix/regression enforcement and GitHub PR gate preview. `fix-real` queued payloads now carry open bugs, attempts, Project Passport, Mission files, verification commands, regression evidence, branch/workspace context, and approvals. Worker Runner persists accepted BugReport updates only after regression evidence and injected verification succeed, then conservatively transitions through legal Mission states toward `ready_for_review`. `github-pr` now requires approved `EXTERNAL_COST_RISK`, queues a safe PR preview context, and persists a child integration WorkerRun plus PR preview Artifact while defaulting to manual-action/no-network. Focused package tests, `pnpm typecheck`, `pnpm test`, `pnpm build`, and `git diff --check` passed for this batch.
+
+Detailed phase rollup:
+
+- `docs/progress/batch-05-06-brainstorming.md`
+- `docs/progress/batch-05-06-fix-regression-and-pr-gate.md`
+
 Batch 03/04 is complete for the local QA and local Codex proof surfaces. Orchestrator now queues `qa.playwright` with Project Passport, QA charter, target URL, Mission files, and e2e command metadata, and queues `codex.real` only after local mirror preflight builds a safe payload with Mission files, project `AGENTS.md`, review-only commands, workspace root, default branch, and an `agent/*` branch.
 
 Deterministic QA now records scenario-level evidence, blocks missing or invalid `targetUrl` and unverified selectors as manual action instead of fabricating `passed`, and persists screenshot, trace, log, and scenario IDs when present. Worker Runner persists queued QA child resources and conservative status outcomes under the queue wrapper WorkerRun. Codex fixture proof covers an operator-prepared local mirror, isolated worktree, `agent/*` branch, injected spawn path, generated artifacts, no mirror `main` mutation, no push, and no external provider call.
