@@ -2,7 +2,7 @@
 
 ## Status
 
-This file tracks current architecture problems, risks, and improvement items. It is not a historical phase log; historical phase material is kept under `docs/progress.md` and `docs/archive/`.
+This file tracks current architecture problems, risks, and improvement items. It is not a historical phase log. Historical phase material currently remains in progress and planning docs; this cleanup will move misleading historical files under `docs/archive/` in the archive task.
 
 ## Current Strengths
 
@@ -45,9 +45,14 @@ This file tracks current architecture problems, risks, and improvement items. It
 - Add a short architecture diagram after the current facts stabilize.
 - Revisit Temporal or LangGraph only after BullMQ/state-machine orchestration shows concrete recovery or long-running workflow pain.
 
-## Recently Resolved By Documentation Cleanup
+## Documentation Cleanup Status
+
+### Completed So Far
 
 - A new `struct.md` is the current architecture map.
 - A new `summary.md` is the issue and improvement source.
 - A new `debug.md` is the debug record source.
-- Misleading historical current-state files are archived instead of left as active guidance.
+
+### Pending
+
+- Misleading historical current-state files are scheduled for archive in the archive task instead of remaining active guidance.

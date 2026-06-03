@@ -56,6 +56,6 @@ Use this format for new entries:
 - Symptom: `docs/progress/current.md` still described Phase 1, while README and progress rollups described gated real execution and Batch 05/06.
 - Scope: root docs, progress docs, AGENTS guidance, historical planning files.
 - Investigation: searched docs for stale phase labels, `enhance_plan.md`, and active references to historical plans.
-- Fix: create current fact-source docs and archive misleading historical files through the documentation cleanup implementation.
+- Fix so far: create current fact-source docs. Pending fix: archive misleading historical files in the archive task.
 - Verification: spec and plan are committed before file cleanup begins.
 - Follow-up: implement the cleanup plan and re-run documentation text checks.
