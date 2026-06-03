@@ -159,3 +159,13 @@ Use this format for new entries:
 - Fix: replaced old phase-entry language with current operational wording while preserving `realNetworkCall: false` and gated runner/transport boundaries. Storage queue wording was also corrected from old later-phase/API-MVP language to current optional queue runtime wording. Remaining phase/batch wording in retained operational docs was normalized to task/current-runtime wording. Safety doc remaining batch wording was normalized to current queue safety and future-approved-task wording.
 - Verification: run stale phase search, safety-boundary search, `git diff --check`, and `git status --short`.
 - Follow-up: none.
+
+### 2026-06-04 - Cleanup Governance Updated
+
+- Context: aggressive cleanup changed the documentation retention policy.
+- Symptom: previous guidance allowed historical docs to remain in archive even when they no longer carried unique audit value.
+- Scope: `AGENTS.md`, `struct.md`, `summary.md`, and `debug.md`.
+- Investigation: compared approved cleanup boundary with current documentation maintenance rules and source priority.
+- Fix: documented ADR protection and the rule to remove low-value completed plans or stale phase notes after useful facts are captured.
+- Verification: run governance wording search, source-priority check, `git diff --check`, and `git status --short`.
+- Follow-up: none.

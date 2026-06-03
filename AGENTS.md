@@ -43,6 +43,8 @@ Build a personal AI software factory that turns user requirements into planned M
 - If a change modifies architecture, module boundaries, data flow, state transitions, worker contracts, integration gates, or safety boundaries, update `struct.md` in the same task.
 - If a change adds, resolves, or discovers architecture problems, risks, technical debt, phase status changes, or improvement work, update `summary.md` in the same task.
 - If a change involves debugging, failed checks, unexpected behavior, manual-action output, flaky tests, queue/runtime issues, or incident-like findings, update `debug.md` in the same task.
+- Preserve ADRs under `docs/adr/**`; do not delete them during cleanup unless the user explicitly asks and a newer ADR supersedes the decision.
+- Remove completed plans, stale phase notes, and low-value historical documents once their useful facts are represented in current docs, ADRs, `summary.md`, or `debug.md`.
 - If none of `struct.md`, `summary.md`, or `debug.md` need changes, the final response and commit body must explicitly state why.
 - Do not record secret values in any of these documents.
 

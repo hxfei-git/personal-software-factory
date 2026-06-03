@@ -73,4 +73,4 @@ This file tracks current architecture problems, risks, and improvement items. It
 
 ### Residual Risk
 
-- Keep future completed phase material out of active guidance unless it is explicitly marked as current.
+- Keep future completed phase material out of active guidance; delete low-value history after current facts are captured, and use ADRs only for durable decisions.
