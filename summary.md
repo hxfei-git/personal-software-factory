@@ -2,7 +2,7 @@
 
 ## Status
 
-This file tracks current architecture problems, risks, and improvement items. It is not a historical phase log. Historical phase material now lives under `docs/archive/` as audit reference material, not current implementation instruction.
+This file tracks current architecture problems, risks, and improvement items. It is not a historical phase log. Historical phase material was removed once represented in current docs or ADRs, and `docs/archive/` is reserved for retained audit references.
 
 ## Current Strengths
 
