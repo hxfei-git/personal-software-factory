@@ -9,6 +9,7 @@ import { buildWorkerJob, InProcessWorkerRuntime, type QueuedJobRecord, type Queu
 import type { ApiAuthOptions } from "../src/auth.js";
 import { buildQueuedRealActionJob, type ActionExecutionMode } from "../src/actions.js";
 import { buildServer } from "../src/server.js";
+import { createMissionServices } from "../src/services.js";
 import { createInMemoryMissionStorage } from "../src/storage.js";
 
 describe("orchestrator api", () => {
@@ -1417,6 +1418,46 @@ describe("orchestrator api", () => {
         }),
       ]));
       expect(response.json().policyFailures).toContain("Codex real execution missing approvals: SECURITY_RISK.");
+    });
+  });
+
+  it("reports missing Worker Runtime in real-mode readiness policy failures", async () => {
+    await withEnv({ PSF_ENABLE_REAL_CODEX: "true" }, async () => {
+      const storage = createInMemoryMissionStorage({ projects: [projectExample] });
+      const services = createMissionServices(storage, { actionExecutionMode: "queued" });
+      await seedDemoMission(storage);
+      const approval = await services.createApproval(EXAMPLE_MISSION_ID, {
+        type: "SECURITY_RISK",
+        reason: "SECURITY_RISK approval for real action.",
+      });
+      await services.decideApproval(approval.id, {
+        status: "approved",
+        decidedBy: "local-user",
+        decision: "Approved for queued real action.",
+      });
+
+      const response = await services.getMissionSummary(EXAMPLE_MISSION_ID);
+
+      const codexReadiness = response.realModeReadiness.codex;
+      expect(codexReadiness).toMatchObject({
+        enabled: true,
+        ready: false,
+        safeToRun: false,
+        requiredApprovalTypes: ["SECURITY_RISK"],
+        approvedApprovalTypes: ["SECURITY_RISK"],
+        missingApprovalTypes: [],
+      });
+      expect(codexReadiness.blockers).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          category: "queue_acceptance",
+          key: "queue_acceptance.worker_runtime_missing",
+          severity: "blocking",
+          blocks: ["queue", "execute"],
+          source: "orchestrator",
+          details: { action: "codex-real" },
+        }),
+      ]));
+      expect(response.policyFailures).toContain("Codex real execution requires a configured Worker Runtime.");
     });
   });
 

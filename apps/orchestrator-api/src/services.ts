@@ -2465,7 +2465,7 @@ function buildPolicyFailures(readiness: RealModeReadiness): string[] {
       if (entry.missingEnv.length > 0) {
         failures.push(entry.label + " missing env: " + entry.missingEnv.join(", ") + ".");
       }
-      if (entry.message.includes("worker runtime configured")) {
+      if (entry.blockers.some((blocker) => blocker.key === "queue_acceptance.worker_runtime_missing")) {
         failures.push(entry.label + " requires a configured Worker Runtime.");
       }
       if (entry.missingApprovalTypes.length > 0) {
