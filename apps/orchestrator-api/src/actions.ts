@@ -11,6 +11,7 @@ import {
 import { buildWorkerJob, type QueueWorkerJob, type WorkerJobType } from "@psf/worker-runtime";
 import { z } from "zod";
 import { badRequest } from "./errors.js";
+import { buildReadinessBlocker, deriveReadinessState, type ReadinessBlocker } from "./readiness.js";
 
 export type ActionExecutionMode = "inline" | "queued";
 export type QueuedActionKind = "plan" | "codex" | "qa" | "fix" | "loop" | "demo";
@@ -84,6 +85,8 @@ export interface GatedRealActionResponseInput {
   missionId: string;
   projectId: string;
   executionMode: ActionExecutionMode;
+  realEnabled?: boolean;
+  blockers?: ReadinessBlocker[];
 }
 
 export interface QueuedRealActionResponseInput extends GatedRealActionResponseInput {
@@ -209,6 +212,20 @@ export function toQueuedActionResponse(input: QueuedActionResponseInput) {
 
 export function toBlockedRealActionResponse(input: GatedRealActionResponseInput) {
   const contract = gatedRealActionContracts[input.action];
+  const defaultBlockers = [buildReadinessBlocker({
+    category: "queue_acceptance",
+    key: "queue_acceptance.route_gate." + contract.gateEnv,
+    message: contract.label + " requires " + contract.gateEnv + "=true and PSF_ACTION_EXECUTION_MODE=queued before Orchestrator can queue it.",
+    recommendedNextAction: "Set " + contract.gateEnv + "=true and PSF_ACTION_EXECUTION_MODE=queued after approvals and worker support are ready.",
+    severity: "blocking",
+    blocks: ["queue", "execute"],
+    source: "orchestrator",
+    details: { action: input.action, gateEnv: contract.gateEnv, executionMode: input.executionMode },
+  })];
+  const routeBlockers = input.executionMode !== "queued" || input.realEnabled !== true ? defaultBlockers : [];
+  const blockers = input.blockers ? [...routeBlockers, ...input.blockers] : defaultBlockers;
+  const readinessState = deriveReadinessState(blockers, "Resolve real-action route blockers before retrying.");
+
   return {
     accepted: false,
     executionMode: input.executionMode,
@@ -218,13 +235,16 @@ export function toBlockedRealActionResponse(input: GatedRealActionResponseInput)
     jobType: contract.jobType,
     status: "blocked" as const,
     dryRun: false,
-    realEnabled: false,
+    realEnabled: input.realEnabled ?? false,
+    canQueue: readinessState.canQueue,
+    canExecute: readinessState.canExecute,
+    blockers: readinessState.blockers,
     realNetworkCall: false,
     realCodexExecuted: false,
     realExternalCall: false,
     realPush: false,
     realDeploy: false,
-    recommendedNextAction: "Set " + contract.gateEnv + "=true and PSF_ACTION_EXECUTION_MODE=queued after approvals and worker support are ready.",
+    recommendedNextAction: readinessState.recommendedNextAction,
   };
 }
 

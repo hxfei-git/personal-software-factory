@@ -965,6 +965,21 @@ describe("orchestrator api", () => {
           code: "MISSION_ACTION_PREFLIGHT_BLOCKED",
           details: expect.objectContaining({ action: "qa-playwright", missingTargetUrl: true }),
         });
+        const details = response.json().details;
+        expect(details).toMatchObject({
+          canQueue: false,
+          canExecute: false,
+        });
+        expect(details.blockers).toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            category: "configuration",
+            key: "configuration.target_url.missing",
+            severity: "blocking",
+            blocks: ["queue", "execute"],
+            source: "orchestrator",
+            details: expect.objectContaining({ action: "qa-playwright", missingTargetUrl: true }),
+          }),
+        ]));
         expect(response.json().message).toContain("target URL");
       });
     } finally {
@@ -1320,7 +1335,8 @@ describe("orchestrator api", () => {
         });
 
         expect(response.statusCode).toBe(200);
-        expect(response.json()).toMatchObject({
+        const body = response.json();
+        expect(body).toMatchObject({
           accepted: false,
           executionMode: "queued",
           missionId: EXAMPLE_MISSION_ID,
@@ -1331,7 +1347,24 @@ describe("orchestrator api", () => {
           realNetworkCall: false,
           realExternalCall: false,
         });
-        expect(response.json().recommendedNextAction).toContain(route.gate);
+        expect(body).toMatchObject({
+          canQueue: false,
+          canExecute: false,
+          realNetworkCall: false,
+          realExternalCall: false,
+          realPush: false,
+          realDeploy: false,
+        });
+        expect(body.blockers).toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            category: "queue_acceptance",
+            key: "queue_acceptance.route_gate." + route.gate,
+            severity: "blocking",
+            blocks: ["queue", "execute"],
+            source: "orchestrator",
+          }),
+        ]));
+        expect(body.recommendedNextAction).toContain(route.gate);
       }
 
       expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(0);
@@ -1352,7 +1385,8 @@ describe("orchestrator api", () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toMatchObject({
+      const body = response.json();
+      expect(body).toMatchObject({
         accepted: false,
         executionMode: "queued",
         missionId: EXAMPLE_MISSION_ID,
@@ -1364,7 +1398,17 @@ describe("orchestrator api", () => {
         realExternalCall: false,
         missingApprovalTypes: ["SECURITY_RISK"],
       });
-      expect(response.json().recommendedNextAction).toContain("SECURITY_RISK");
+      expect(body.blockers).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          category: "approval",
+          key: "approval.SECURITY_RISK.missing",
+          severity: "blocking",
+          blocks: ["queue", "execute"],
+          source: "orchestrator",
+          details: { action: "codex-real", approvalType: "SECURITY_RISK" },
+        }),
+      ]));
+      expect(body.recommendedNextAction).toContain("SECURITY_RISK");
       expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(0);
       expect(await workerRuntime.listJobs()).toHaveLength(0);
     });

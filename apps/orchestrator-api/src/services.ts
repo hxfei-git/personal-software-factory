@@ -460,13 +460,21 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
       return;
     }
     if (!isNonEmptyString(requestedTargetUrl) && !hasQaTargetUrl(project, registryProject)) {
-      throw badRequest("MISSION_ACTION_PREFLIGHT_BLOCKED", `${action} requires a local, staging, or production target URL.`, {
+      throw badRequest("MISSION_ACTION_PREFLIGHT_BLOCKED", `${action} requires a local, staging, or production target URL.`, blockedPreflightDetails(buildReadinessBlocker({
+        category: "configuration",
+        key: "configuration.target_url.missing",
+        message: action + " requires a local, staging, or production target URL.",
+        recommendedNextAction: "Add urls.local, urls.staging, or urls.production to project.passport.yaml before enabling this action.",
+        severity: "blocking",
+        blocks: ["queue", "execute"],
+        source: "orchestrator",
+        details: { action, missingTargetUrl: true },
+      }), {
         projectId: registryProject.project.id,
         passportPath: registryProject.passportPath,
         action,
         missingTargetUrl: true,
-        recommendedNextAction: "Add urls.local, urls.staging, or urls.production to project.passport.yaml before enabling this action.",
-      });
+      }));
     }
   }
 
@@ -527,6 +535,21 @@ export function createMissionServices(storage: MissionStorage, options: MissionS
 
   function isNonEmptyString(value: unknown): value is string {
     return typeof value === "string" && value.trim() !== "";
+  }
+
+  function blockedPreflightDetails(blocker: ReadinessBlocker, extra: Record<string, unknown>) {
+    const readinessState = deriveReadinessState([blocker], blocker.recommendedNextAction);
+    return {
+      ...extra,
+      canQueue: readinessState.canQueue,
+      canExecute: readinessState.canExecute,
+      blockers: readinessState.blockers,
+      recommendedNextAction: readinessState.recommendedNextAction,
+      realNetworkCall: false,
+      realExternalCall: false,
+      realPush: false,
+      realDeploy: false,
+    };
   }
 
   function actionPreflightBlocked(action: QueuedActionKind | GatedRealActionKind, mission: Mission, message: string) {
@@ -972,12 +995,24 @@ Risk level: ${mission.risk_level}.
     const approvals = await storage.listMissionApprovals(mission.id);
     const approvalCoverage = buildActionApprovalCoverage(action, approvals);
     const realEnabled = isGatedRealActionEnabled(action);
+    const approvalBlockers = approvalCoverage.missingApprovalTypes.map((approvalType) => buildReadinessBlocker({
+      category: "approval",
+      key: "approval." + approvalType + ".missing",
+      message: action + " is missing approved Mission approval " + approvalType + ".",
+      recommendedNextAction: "Create and approve a Mission approval of type " + approvalType + " before queueing this action.",
+      severity: "blocking",
+      blocks: ["queue", "execute"],
+      source: "orchestrator",
+      details: { action, approvalType },
+    }));
     if (actionExecutionMode !== "queued" || !realEnabled || approvalCoverage.missingApprovalTypes.length > 0) {
       const blocked = toBlockedRealActionResponse({
         action,
         missionId: mission.id,
         projectId: mission.project_id,
         executionMode: actionExecutionMode,
+        realEnabled,
+        ...(approvalBlockers.length > 0 ? { blockers: approvalBlockers } : {}),
       });
       return sanitizeApiResponse({
         ...blocked,
