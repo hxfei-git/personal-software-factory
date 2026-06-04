@@ -64,6 +64,7 @@
 
 ## 最近已解决的文档问题
 
+- 主要当前事实源 `docs/architecture/structure.md`、`docs/status/progress.md`、`docs/debug/debug.md` 已改为中文主导，避免用户入口仍以英文为主。
 - 保留的运行文档已改为描述当前 queue、API、auth、schema、storage、artifact、safety 和 integration 行为，不再使用旧 phase-entry 作为当前语境。
 - 低价值 archive 文件、低价值旧 Superpowers plans/specs、brainstorm、归档 enhancement planning、已被取代的 phase-current notes 已移除；保留的归档策略位于 `docs/archive/README.md`。
 - 活跃指导不再把历史旧路径 `docs/progress/current.md`、已归档 enhancement plan、旧 brainstorm 或旧 Superpowers plans/specs 当作当前指令。

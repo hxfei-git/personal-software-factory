@@ -6,85 +6,85 @@
 
 ADR 是持久决策历史。低价值历史阶段计划会在有用事实进入当前文档、ADR、`summary.md` 或 `docs/debug/debug.md` 后删除。
 
-## System Purpose
+## 系统目的
 
-Personal Software Factory is a single-user AI software factory control plane. It turns natural-language requirements into structured Missions, planned work, dry-run or gated worker execution, deterministic QA evidence, bug reports, fix-loop records, approval gates, and reviewable release artifacts.
+Personal Software Factory 是单用户 AI 软件工厂控制面。它把自然语言需求转成结构化 Mission、计划任务、dry-run 或 gated worker 执行、确定性 QA evidence、BugReport、fix-loop 记录、approval gate，以及可审阅的 release artifact。
 
-The default product posture is local-first, dry-run/mock/manual-action safe. Real Codex execution, browser execution, provider calls, remote push, PR creation, deployment, monitor creation, and Plane sync remain disabled unless explicit gates, approvals, worker wiring, and injected runners or transports are intentionally configured.
+产品默认姿态是 local-first、dry-run/mock/manual-action safe。真实 Codex 执行、浏览器执行、provider 调用、远端 push、PR 创建、部署、monitor 创建和 Plane sync 都保持禁用，除非后续任务明确配置对应 gate、approval、worker wiring，以及 injected runner 或 injected transport。
 
-## Monorepo Boundaries
+## Monorepo 边界
 
-- `apps/hub`: React/Vite operator console.
-- `apps/orchestrator-api`: Fastify control-plane API.
-- `apps/worker-runner`: BullMQ worker process for queued jobs.
-- `workers/codex-worker`: Codex dry-run and gated real-runner abstractions.
-- `workers/qa-worker`: deterministic Playwright QA and AI exploratory QA abstractions.
-- `packages/mission-schema`: shared Zod schemas and TypeScript contracts.
-- `packages/mission-core`: Mission state machine and transition event builder.
-- `packages/db`: Prisma schema, migrations, seed, and Prisma client wrapper.
-- `packages/project-passport`: Project Passport parser and validator.
-- `packages/project-registry`: scanner for `projects/*/project.passport.yaml`.
-- `packages/mission-planner`: deterministic Mission planner.
-- `packages/artifact-store`: local artifact path and retention helpers.
-- `packages/worker-runtime`: in-process and BullMQ queue facade.
-- `packages/demo-workflow`: local ai-novelist dry-run demo workflow.
-- `packages/integrations`: dry-run and gated real adapters for GitHub, Coolify, Uptime Kuma, and Plane.
-- `packages/security`: redaction, path, command, and approval policy helpers.
-- `packages/auto-fix-loop`: dry-run and gated real fix-loop contracts.
-- `projects/ai-novelist`: first managed project metadata, AGENTS guidance, and QA charter.
-- `missions/`, `artifacts/`, `workspaces/`: generated Mission files, evidence, and worker checkout roots.
+- `apps/hub`: React/Vite operator console。
+- `apps/orchestrator-api`: Fastify control-plane API。
+- `apps/worker-runner`: 用于 queued job 的 BullMQ worker process。
+- `workers/codex-worker`: Codex dry-run 与 gated real-runner 抽象。
+- `workers/qa-worker`: deterministic Playwright QA 与 AI exploratory QA 抽象。
+- `packages/mission-schema`: 共享 Zod schema 和 TypeScript contract。
+- `packages/mission-core`: Mission state machine 和 transition event builder。
+- `packages/db`: Prisma schema、migration、seed 和 Prisma client wrapper。
+- `packages/project-passport`: Project Passport parser 和 validator。
+- `packages/project-registry`: 扫描 `projects/*/project.passport.yaml`。
+- `packages/mission-planner`: deterministic Mission planner。
+- `packages/artifact-store`: local artifact path 与 retention helper。
+- `packages/worker-runtime`: in-process 和 BullMQ queue facade。
+- `packages/demo-workflow`: 本地 ai-novelist dry-run demo workflow。
+- `packages/integrations`: GitHub、Coolify、Uptime Kuma 和 Plane 的 dry-run 与 gated real adapter。
+- `packages/security`: redaction、path、command 和 approval policy helper。
+- `packages/auto-fix-loop`: dry-run 与 gated real fix-loop contract。
+- `projects/ai-novelist`: 第一个 managed project 的 metadata、AGENTS guidance 和 QA charter。
+- `missions/`, `artifacts/`, `workspaces/`: 生成的 Mission 文件、evidence 和 worker checkout root。
 
 ## Hub Web
 
-Hub Web is a control surface, not the source of workflow truth. It reads Orchestrator API data for dashboard metrics, projects, Missions, bugs, WorkerRuns, artifacts, approvals, integrations, queue status, real-mode readiness, external link visibility, and Mission summaries.
+Hub Web 是控制界面，不是 workflow truth source。它从 Orchestrator API 读取 dashboard metrics、projects、Missions、bugs、WorkerRuns、artifacts、approvals、integrations、queue status、real-mode readiness、external link visibility 和 Mission summaries。
 
-Hub write actions are limited to protected Orchestrator API calls such as Mission creation, dry-run actions, integration dry-runs, and Approval decisions. Approval decisions only update records; they do not execute real Codex, queue real work by themselves, create PRs, deploy, create monitors, or sync providers.
+Hub 的写操作只允许通过受保护的 Orchestrator API 调用完成，例如 Mission creation、dry-run actions、integration dry-runs 和 Approval decisions。Approval decisions 只更新记录；它们不会执行真实 Codex、不会自行 queue real work、不会创建 PR、不会部署、不会创建 monitor，也不会同步 provider。
 
 ## Orchestrator API
 
-The Orchestrator API owns the control-plane HTTP surface. `apps/orchestrator-api/src/server.ts` wires Fastify routes, `services.ts` validates requests and builds responses, and `storage.ts` abstracts in-memory and Prisma-backed persistence.
+Orchestrator API 拥有 control-plane HTTP surface。`apps/orchestrator-api/src/server.ts` 负责 Fastify route wiring，`services.ts` 负责 request validation 和 response building，`storage.ts` 抽象 in-memory 与 Prisma-backed persistence。
 
-The API exposes health, dashboard, project registry sync, project passport reads, Mission creation/planning/summary/actions, Approval records, WorkerRun records, Artifact records, BugReport records, QARun records, queue status, and integration dry-run/status routes.
+API 暴露 health、dashboard、project registry sync、Project Passport read、Mission creation/planning/summary/actions、Approval records、WorkerRun records、Artifact records、BugReport records、QARun records、queue status，以及 integration dry-run/status routes。
 
-Write routes require bearer-token auth unless explicitly disabled for local development or tests.
+除非为了本地开发或测试明确关闭，write routes 都要求 bearer-token auth。
 
-## Storage And Events
+## Storage 与 Events
 
-The Prisma model includes `Project`, `Mission`, `MissionEvent`, `WorkerRun`, `QARun`, `Bug`, `Artifact`, `Approval`, `Deployment`, and `Monitor`.
+Prisma model 包含 `Project`, `Mission`, `MissionEvent`, `WorkerRun`, `QARun`, `Bug`, `Artifact`, `Approval`, `Deployment`, 和 `Monitor`。
 
-Every Mission state transition and resource write must be auditable through a `MissionEvent`. Storage implementations are expected to write the resource and event together when a route or worker action mutates state.
+每一次 Mission state transition 和 resource write 都必须能通过 `MissionEvent` 审计。route 或 worker action 修改 state 时，storage implementation 应把 resource 和 event 一起写入。
 
 ## Mission State Machine
 
-`packages/mission-core/src/state-machine.ts` defines legal Mission transitions. Final states do not transition without explicit reopen behavior. Worker Runner only performs conservative automatic transitions when `canTransition` allows the next state.
+`packages/mission-core/src/state-machine.ts` 定义合法 Mission transition。Final states 不会继续 transition，除非显式实现 reopen behavior。Worker Runner 只在 `canTransition` 允许下一状态时执行保守的 automatic transition。
 
-Core states include `received`, `planning`, `planned`, `approval_required`, `dev_queued`, `dev_running`, `build_running`, `test_running`, `staging_deploying`, `staging_ready`, `qa_running`, `bugs_found`, `fixing`, `regression_running`, `ready_for_review`, `release_approval`, `production_deploying`, `released`, `paused`, `blocked`, `needs_human`, `failed`, and `cancelled`.
+核心状态包括 `received`, `planning`, `planned`, `approval_required`, `dev_queued`, `dev_running`, `build_running`, `test_running`, `staging_deploying`, `staging_ready`, `qa_running`, `bugs_found`, `fixing`, `regression_running`, `ready_for_review`, `release_approval`, `production_deploying`, `released`, `paused`, `blocked`, `needs_human`, `failed`, 和 `cancelled`。
 
-## Worker Runtime And Worker Runner
+## Worker Runtime 与 Worker Runner
 
-`@psf/worker-runtime` provides a queue facade with in-process and BullMQ implementations. It accepts only whitelisted job types and rejects payload keys that look like tokens, passwords, secrets, API keys, authorization headers, or credentials.
+`@psf/worker-runtime` 提供 queue facade，并包含 in-process 与 BullMQ implementations。它只接受白名单 job types，并拒绝看起来像 token、password、secret、API key、authorization header 或 credential 的 payload keys。
 
-In queued mode, the API creates a queue wrapper `WorkerRun`, enqueues a validated job, and returns a queued response. `apps/worker-runner` consumes the job, updates the wrapper WorkerRun, executes the mapped handler, persists child resources, records `mission.action_result`, and applies legal automatic Mission transitions.
+在 queued mode 中，API 创建 queue wrapper `WorkerRun`，enqueue 一个已验证 job，并返回 queued response。`apps/worker-runner` 消费该 job、更新 wrapper WorkerRun、执行 mapped handler、持久化 child resources、记录 `mission.action_result`，并按合法规则应用保守的 automatic Mission transition。
 
 ## Worker Contracts
 
-Dry-run jobs include `mission.plan`, `codex.dry_run`, `qa.dry_run`, `qa.dry_run_with_sample_bug`, `fix.dry_run`, `loop.dry_run`, `demo.ai_novelist`, and `integration.dry_run`.
+Dry-run jobs 包括 `mission.plan`, `codex.dry_run`, `qa.dry_run`, `qa.dry_run_with_sample_bug`, `fix.dry_run`, `loop.dry_run`, `demo.ai_novelist`, 和 `integration.dry_run`。
 
-Gated real-mode contract jobs include `codex.real`, `qa.playwright`, `qa.ai_exploratory`, `fix.real`, `github.pr`, `deploy.coolify`, `monitor.uptime_kuma`, and `plane.sync`.
+Gated real-mode contract jobs 包括 `codex.real`, `qa.playwright`, `qa.ai_exploratory`, `fix.real`, `github.pr`, `deploy.coolify`, `monitor.uptime_kuma`, 和 `plane.sync`。
 
-The default Worker Runner path remains safe. Real handlers return blocked or manual-action output unless their full gate chain is intentionally satisfied.
+默认 Worker Runner path 仍保持安全。Real handlers 会返回 blocked 或 manual-action output，除非完整 gate chain 被有意满足。
 
-## Integration Boundaries
+## Integration 边界
 
-GitHub, Coolify, Uptime Kuma, and Plane adapters expose dry-run/status behavior and gated real adapter code paths. Default API, CLI, Hub, tests, and Worker Runner paths do not call external provider APIs.
+GitHub、Coolify、Uptime Kuma 和 Plane adapters 暴露 dry-run/status 行为以及 gated real adapter code paths。默认 API、CLI、Hub、tests 和 Worker Runner paths 不会调用外部 provider API。
 
-`realNetworkCall` must remain `false` unless a gated real adapter actually invokes an injected transport during an explicitly approved run. `realExternalCall`, `realPush`, and `realDeploy` must remain false in default paths.
+`realNetworkCall` 必须保持 `false`，除非 gated real adapter 在明确批准的 run 中实际调用 injected transport。默认路径下 `realExternalCall`、`realPush` 和 `realDeploy` 必须保持 false。
 
 ## ai-novelist Readiness
 
-`projects/ai-novelist/project.passport.yaml` is readiness metadata for the first managed project. Its commands and selectors are marked manual-verification-required because the real repository is not verified in this workspace. Workers must not claim the project is runnable until a human verifies the real checkout, commands, URLs, and deterministic selectors.
+`projects/ai-novelist/project.passport.yaml` 是第一个 managed project 的 readiness metadata。其 commands 和 selectors 标记为 manual-verification-required，因为真实仓库未在此 workspace 中验证。worker 不得声称该项目可运行，直到人工验证真实 checkout、commands、URLs 和 deterministic selectors。
 
-## Current Source Priority
+## 当前 Source Priority
 
 1. `AGENTS.md`
 2. `README.md`

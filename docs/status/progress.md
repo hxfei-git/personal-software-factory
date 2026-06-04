@@ -6,73 +6,73 @@
 
 重复当前事实的详细 phase 和 batch rollup 已删除。本文档只保留简洁的当前进度摘要。
 
-## Latest Update
+## 最新更新
 
-Batch 05/06 is complete for gated fix/regression enforcement and GitHub PR gate preview. `fix-real` queued payloads now carry open bugs, attempts, Project Passport, Mission files, verification commands, regression evidence, branch/workspace context, and approvals. Worker Runner persists accepted BugReport updates only after regression evidence and injected verification succeed, then conservatively transitions through legal Mission states toward `ready_for_review`. `github-pr` now requires approved `EXTERNAL_COST_RISK`, queues a safe PR preview context, and persists a child integration WorkerRun plus PR preview Artifact while defaulting to manual-action/no-network. Focused package tests, `pnpm typecheck`, `pnpm test`, `pnpm build`, and `git diff --check` passed for this batch.
+Batch 05/06 已完成，覆盖 gated fix/regression enforcement 和 GitHub PR gate preview。`fix-real` queued payloads 现在携带 open bugs、attempts、Project Passport、Mission files、verification commands、regression evidence、branch/workspace context 和 approvals。Worker Runner 只有在 regression evidence 与 injected verification 成功后，才持久化 accepted BugReport updates，并通过合法 Mission states 保守 transition 到 `ready_for_review`。`github-pr` 现在要求已批准的 `EXTERNAL_COST_RISK`，会 queue 安全的 PR preview context，并持久化 child integration WorkerRun 和 PR preview Artifact；默认仍是 manual-action/no-network。该 batch 的 focused package tests、`pnpm typecheck`、`pnpm test`、`pnpm build` 和 `git diff --check` 已通过。
 
-Batch 03/04 is complete for the local QA and local Codex proof surfaces. Orchestrator now queues `qa.playwright` with Project Passport, QA charter, target URL, Mission files, and e2e command metadata, and queues `codex.real` only after local mirror preflight builds a safe payload with Mission files, project `AGENTS.md`, review-only commands, workspace root, default branch, and an `agent/*` branch.
+Batch 03/04 已完成，覆盖 local QA 和 local Codex proof surfaces。Orchestrator 现在会用 Project Passport、QA charter、target URL、Mission files 和 e2e command metadata queue `qa.playwright`；只有在 local mirror preflight 构造出安全 payload 后，才会 queue `codex.real`，该 payload 包含 Mission files、project `AGENTS.md`、review-only commands、workspace root、default branch 和 `agent/*` branch。
 
-Deterministic QA now records scenario-level evidence, blocks missing or invalid `targetUrl` and unverified selectors as manual action instead of fabricating `passed`, and persists screenshot, trace, log, and scenario IDs when present. Worker Runner persists queued QA child resources and conservative status outcomes under the queue wrapper WorkerRun. Codex fixture proof covers an operator-prepared local mirror, isolated worktree, `agent/*` branch, injected spawn path, generated artifacts, no mirror `main` mutation, no push, and no external provider call.
+Deterministic QA 现在记录 scenario-level evidence；缺少或无效的 `targetUrl`、未验证 selectors 会被 blocked 为 manual action，而不是伪造 `passed`；存在 screenshot、trace、log 和 scenario IDs 时会持久化这些 evidence。Worker Runner 在 queue wrapper WorkerRun 下持久化 queued QA child resources 和保守 status outcomes。Codex fixture proof 覆盖 operator-prepared local mirror、isolated worktree、`agent/*` branch、injected spawn path、generated artifacts、无 mirror `main` mutation、无 push、无 external provider call。
 
-Worker Runner `codex.real` integration remains default-safe: it requires local `repoUrl` and `agent/*` branch preflight, returns `manual_action` without an injected runner, and only passes queued context to an injected runner in this phase. Hub Mission detail and resource views expose QA evidence paths while display redaction prevents token, password, API key, authorization, session, credential, and secret-like values from rendering.
+Worker Runner `codex.real` integration 仍然 default-safe：它要求 local `repoUrl` 和 `agent/*` branch preflight；没有 injected runner 时返回 `manual_action`；本阶段只把 queued context 传给 injected runner。Hub Mission detail 和 resource views 暴露 QA evidence paths，同时 display redaction 会阻止 token、password、API key、authorization、session、credential 和 secret-like values 被渲染。
 
-## Phase 18 Documentation
+## Phase 18 文档
 
-- Hub resource pages now read Projects, Missions, Bugs, WorkerRuns, Artifacts, and Approvals from Orchestrator API.
-- Hub can create Missions through `/missions/new`, then open the created Mission detail page.
-- Approval decisions can be recorded but do not execute real Codex, PR creation, deploy, monitor sync, or provider sync.
-- Mission dry-run action preflight now checks Mission, Project, and Project Passport availability instead of rejecting non-demo Mission IDs by default.
-- WorkerRunner records `mission.action_result` and conservative `mission.status.auto_transition` events.
-- Real external actions remain disabled by default and integration dry-run/status responses keep `realNetworkCall: false`.
+- Hub resource pages 现在从 Orchestrator API 读取 Projects、Missions、Bugs、WorkerRuns、Artifacts 和 Approvals。
+- Hub 可以通过 `/missions/new` 创建 Missions，然后打开创建后的 Mission detail page。
+- Approval decisions 可以被记录，但不会执行真实 Codex、PR creation、deploy、monitor sync 或 provider sync。
+- Mission dry-run action preflight 现在检查 Mission、Project 和 Project Passport 可用性，而不是默认拒绝非 demo Mission IDs。
+- WorkerRunner 记录 `mission.action_result` 和保守的 `mission.status.auto_transition` events。
+- 真实 external actions 默认仍禁用，integration dry-run/status responses 保持 `realNetworkCall: false`。
 
-## Completed Tasks 1-13
+## 已完成 Tasks 1-13
 
-1. Shared safety package: added safety utilities for redaction, command/path policy, and real-mode guardrails used by worker and integration paths.
-2. Artifact store and retention policy: documented local artifact boundaries and path-only handling for large evidence.
-3. Queue and API real-mode job contracts: added explicit real/gated action contracts instead of arbitrary job submission.
-4. Real Codex runner gated mode: added a real-runner abstraction that stays blocked unless `ENABLE_REAL_CODEX=1`, safe Codex CLI policy, workspace guards, runtime limits, and approvals are satisfied.
-5. Deterministic Playwright QA runner: added a gated real browser path requiring target URL plus `ENABLE_REAL_PLAYWRIGHT=1` or an injected runner.
-6. AI exploratory QA gated mode: added the abstraction and validation path while keeping MCP/browser execution disabled by default.
-7. Real auto-fix loop gated mode: connected the fix loop to gated real contracts while preserving dry-run/manual-action defaults.
-8. Real integration adapters with injected transports: added GitHub, Coolify, Uptime Kuma, and Plane real adapters that require credentials, policy gates, and injected transports before network activity.
-9. Worker Runner real job handlers: mapped whitelisted real contract jobs to gated handlers and safe manual-action outputs by default.
-10. Orchestrator API and Hub visibility: exposed protected real-action readiness surfaces and route gates such as `PSF_ENABLE_REAL_CODEX` and `PSF_ENABLE_REAL_GITHUB_PR`.
-11. ai-novelist real loop readiness: documented readiness boundaries for the first managed project without enabling autonomous external actions.
-12. Operations hardening: extended doctor/safety guidance for real gates, queue runtime, workspace roots, and secret redaction.
-13. Temporal and LangGraph decision record: kept both deferred until the BullMQ-based control plane needs durable workflow complexity.
+1. Shared safety package：添加 redaction、command/path policy 和 real-mode guardrails，供 worker 与 integration paths 使用。
+2. Artifact store and retention policy：记录 local artifact 边界，以及 large evidence 只保留 path 的处理方式。
+3. Queue and API real-mode job contracts：添加显式 real/gated action contracts，避免 arbitrary job submission。
+4. Real Codex runner gated mode：添加 real-runner abstraction；除非 `ENABLE_REAL_CODEX=1`、安全 Codex CLI policy、workspace guards、runtime limits 和 approvals 都满足，否则保持 blocked。
+5. Deterministic Playwright QA runner：添加 gated real browser path，要求 target URL 加 `ENABLE_REAL_PLAYWRIGHT=1` 或 injected runner。
+6. AI exploratory QA gated mode：添加 abstraction 和 validation path，同时默认禁用 MCP/browser execution。
+7. Real auto-fix loop gated mode：把 fix loop 连接到 gated real contracts，同时保留 dry-run/manual-action defaults。
+8. Real integration adapters with injected transports：添加 GitHub、Coolify、Uptime Kuma 和 Plane real adapters；必须具备 credentials、policy gates 和 injected transports 才可能产生 network activity。
+9. Worker Runner real job handlers：把白名单 real contract jobs 映射到 gated handlers，默认输出安全 manual-action。
+10. Orchestrator API and Hub visibility：暴露受保护的 real-action readiness surfaces 和 route gates，例如 `PSF_ENABLE_REAL_CODEX` 与 `PSF_ENABLE_REAL_GITHUB_PR`。
+11. ai-novelist real loop readiness：记录第一个 managed project 的 readiness 边界，但不启用 autonomous external actions。
+12. Operations hardening：扩展 doctor/safety guidance，覆盖 real gates、queue runtime、workspace roots 和 secret redaction。
+13. Temporal and LangGraph decision record：暂缓二者，直到 BullMQ-based control plane 需要 durable workflow complexity。
 
-## Task 14 Documentation And Verification
+## Task 14 文档与验证
 
-- README now distinguishes real-but-disabled abilities from default dry-run/mock behavior.
-- `.env.example` now lists the phase real-mode variables and Orchestrator route gates with empty placeholders/comments for secrets.
-- This progress file summarizes changed capabilities, safety boundaries, migrations, test commands, and remaining manual actions.
-- Real external APIs were not called during this documentation task.
-- Final verification passed after the documentation rollup, targeted test-stability commits, and final security-review fixes.
+- README 现在区分 real-but-disabled abilities 和默认 dry-run/mock behavior。
+- `.env.example` 现在列出 phase real-mode variables 和 Orchestrator route gates，并用空 placeholder/comment 表示 secrets。
+- 本 progress 文件汇总 changed capabilities、safety boundaries、migrations、test commands 和 remaining manual actions。
+- 本 documentation task 未调用真实 external APIs。
+- Final verification 在 documentation rollup、targeted test-stability commits 和 final security-review fixes 后通过。
 
-## Changed Capability List
+## 能力变更清单
 
-Real but disabled/gated capabilities now include Codex real runner, deterministic Playwright QA, AI exploratory QA abstraction, real fix loop contract, GitHub/Coolify/Uptime Kuma/Plane real adapters via injected transport, and Worker Runner real job handlers.
+Real but disabled/gated capabilities 现在包括 Codex real runner、deterministic Playwright QA、AI exploratory QA abstraction、real fix loop contract、通过 injected transport 的 GitHub/Coolify/Uptime Kuma/Plane real adapters，以及 Worker Runner real job handlers。
 
-Default-safe capabilities remain local dry-runs, mock integration status/dry-runs, manual-action outputs, demo workflow, and normal test execution. Provider real-mode flags only make real mode eligible; they do not call networks without credentials, route gates, approvals, runtime wiring, and injected transports.
+Default-safe capabilities 仍是 local dry-runs、mock integration status/dry-runs、manual-action outputs、demo workflow 和 normal test execution。Provider real-mode flags 只让 real mode 具备资格；没有 credentials、route gates、approvals、runtime wiring 和 injected transports 时，不会调用 network。
 
-## Default Safety Boundaries
+## 默认安全边界
 
-- Codex child processes now receive only an allowlisted non-secret environment, and local repository mirrors must live under `PSF_WORKSPACE_ROOT/mirrors` after realpath resolution.
-- Queued real-action jobs record approved approval records separately from worker policy grant ids.
-- Uptime Kuma runtime session tokens are redacted from post-login transport error results.
-- `realNetworkCall` remains `false` on default integration status and dry-run surfaces.
-- Orchestrator real-action routes require `PSF_ACTION_EXECUTION_MODE=queued` plus route-specific `PSF_ENABLE_REAL_*` gates.
-- Worker/provider gates such as `ENABLE_REAL_CODEX`, `ENABLE_REAL_PLAYWRIGHT`, `ENABLE_AI_EXPLORATORY_QA`, and `ENABLE_REAL_GITHUB` remain disabled in `.env.example`.
-- Secrets must not appear in API responses, Hub UI state, logs, artifacts, PR bodies, Issue bodies, or integration outputs.
-- No push, PR creation, deployment, monitor creation, Plane sync, production mutation, or provider API call is part of the default path.
+- Codex child processes 现在只接收 allowlisted non-secret environment，local repository mirrors 必须在 realpath resolution 后位于 `PSF_WORKSPACE_ROOT/mirrors` 下。
+- Queued real-action jobs 会把 approved approval records 和 worker policy grant ids 分开记录。
+- Uptime Kuma runtime session tokens 会从 post-login transport error results 中 redacted。
+- 默认 integration status 和 dry-run surfaces 上，`realNetworkCall` 保持 `false`。
+- Orchestrator real-action routes 要求 `PSF_ACTION_EXECUTION_MODE=queued` 加 route-specific `PSF_ENABLE_REAL_*` gates。
+- Worker/provider gates，例如 `ENABLE_REAL_CODEX`、`ENABLE_REAL_PLAYWRIGHT`、`ENABLE_AI_EXPLORATORY_QA` 和 `ENABLE_REAL_GITHUB`，在 `.env.example` 中仍保持 disabled。
+- Secrets 不得出现在 API responses、Hub UI state、logs、artifacts、PR bodies、Issue bodies 或 integration outputs。
+- 默认路径不包含 push、PR creation、deployment、monitor creation、Plane sync、production mutation 或 provider API call。
 
 ## Migrations
 
-Task 14 is documentation-only and introduces no Prisma migration. The phase rollup does not change schema or runtime code.
+Task 14 仅修改文档，没有引入 Prisma migration。该 phase rollup 不改变 schema 或 runtime code。
 
-## Verification Results
+## 验证结果
 
-Final coordinator gates passed:
+Final coordinator gates 已通过：
 
 ```bash
 pnpm install --lockfile-only
@@ -85,9 +85,9 @@ git diff --check
 git status --short --branch
 ```
 
-`pnpm psf doctor` completed with warnings because `.env` and optional provider credentials are absent in this local checkout. That is expected for the safe default setup and did not enable any real external call.
+`pnpm psf doctor` 由于本地 checkout 缺少 `.env` 和可选 provider credentials 而输出 warnings。这符合安全默认设置，且不会启用任何真实 external call。
 
-Focused checks that match the changed real-mode surfaces also passed:
+匹配 changed real-mode surfaces 的 focused checks 也已通过：
 
 ```bash
 pnpm --filter @psf/integrations test
@@ -98,8 +98,8 @@ pnpm --filter @psf/orchestrator-api test
 pnpm --filter @psf/hub test
 ```
 
-## Remaining Manual Actions
+## 剩余人工动作
 
-- Operator must provide real credentials only in local `.env` or secret storage, never in tracked docs.
-- Operator must explicitly approve and wire queued runtime, route gates, worker gates, injected runners/transports, and provider operation gates before any real external action.
-- Provider API behavior should remain behind fake transports in tests unless a later approved task intentionally performs real network validation.
+- Operator 必须只在本地 `.env` 或 secret storage 中提供真实 credentials，绝不能写入 tracked docs。
+- Operator 必须显式批准并接好 queued runtime、route gates、worker gates、injected runners/transports 和 provider operation gates，才允许任何真实 external action。
+- Provider API behavior 在 tests 中应继续使用 fake transports，除非后续批准的任务明确要求真实 network validation。
