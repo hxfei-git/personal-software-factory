@@ -1552,10 +1552,28 @@ describe("Hub render helpers", () => {
           configured: false,
           ready: false,
           safeToRun: false,
+          canQueue: true,
+          canExecute: false,
           realNetworkCall: false,
+          realExternalCall: false,
+          realPush: false,
+          realDeploy: false,
           missingEnv: ["GITHUB_TOKEN"],
           requiredApprovalTypes: [],
           action: "github-pr",
+          recommendedNextAction: "Review PR preview/manual-action output; no push or PR creation will occur.",
+          blockers: [
+            {
+              category: "execution",
+              key: "execution.github.injected_transport_missing",
+              message: "Default GitHub PR path has no injected transport.",
+              recommendedNextAction: "Review PR preview/manual-action output; no push or PR creation will occur.",
+              severity: "manual_action",
+              blocks: ["execute"],
+              source: "orchestrator",
+              details: { action: "github-pr", evidence: "known_static" },
+            },
+          ],
           message: "Missing GITHUB_TOKEN and PSF_ENABLE_REAL_GITHUB_PR=true.",
         },
         coolify: {
@@ -1639,9 +1657,16 @@ describe("Hub render helpers", () => {
     });
     const text = textFromElement(view);
 
+    expect(text).toContain("Queue: ready");
+    expect(text).toContain("Execute: manual-action");
+    expect(text).toContain("Default GitHub PR path has no injected transport.");
+    expect(text).toContain("Review PR preview/manual-action output; no push or PR creation will occur.");
+    expect(text).toContain("Create PR preview/manual-action");
+    expect(text).not.toContain("Create GitHub PR real");
+    expect(text).not.toContain("Run Codex real");
     expect(text).toContain("Real-mode readiness");
     expect(text).toContain("GitHub PR");
-    expect(text).toContain("blocked/manual-action");
+    expect(text).toContain("Queue: blocked");
     expect(text).toContain("Missing GITHUB_TOKEN");
     expect(text).toContain("Missing approvals SECURITY_RISK");
     expect(text).toContain("Missing approvals PRODUCTION_DEPLOY");
@@ -1659,8 +1684,8 @@ describe("Hub render helpers", () => {
     expect(text).toContain("QARun detail");
     expect(text).toContain("Artifact detail");
     expect(text).toContain("Approval actions");
-    expect(findButtonByText(view, "Create GitHub PR real").props.disabled).toBe(true);
-    expect(findButtonByText(view, "Deploy staging real").props.disabled).toBe(true);
+    expect(findButtonByText(view, "Create PR preview/manual-action").props.disabled).toBe(false);
+    expect(findButtonByText(view, "Queue deploy manual-action").props.disabled).toBe(true);
     expect(text).not.toContain("super-secret-token");
     expect(text).not.toContain("github-summary-secret");
     expect(text).not.toContain("PLANE_API_TOKEN_VALUE");

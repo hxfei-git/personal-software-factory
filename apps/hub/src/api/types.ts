@@ -276,6 +276,17 @@ export interface HealthSignal {
 
 export type RealModeReadinessKey = "codex" | "qaPlaywright" | "qaAiExploratory" | "fix" | "github" | "coolify" | "uptimeKuma" | "plane";
 
+export interface ReadinessBlocker {
+  category: "queue_acceptance" | "approval" | "configuration" | "policy" | "execution" | "safety";
+  key: string;
+  message: string;
+  recommendedNextAction: string;
+  severity: "blocking" | "manual_action" | "warning" | "info";
+  blocks: Array<"queue" | "execute">;
+  source: "orchestrator" | "worker_runner" | "integration" | "worker";
+  details?: JsonRecord;
+}
+
 export interface RealModeReadinessEntry {
   key: RealModeReadinessKey;
   label: string;
@@ -284,7 +295,14 @@ export interface RealModeReadinessEntry {
   configured: boolean;
   ready: boolean;
   safeToRun: boolean;
+  canQueue?: boolean;
+  canExecute?: boolean;
+  blockers?: ReadinessBlocker[];
+  recommendedNextAction?: string;
   realNetworkCall: false;
+  realExternalCall?: false;
+  realPush?: false;
+  realDeploy?: false;
   missingEnv: string[];
   requiredApprovalTypes?: string[];
   approvedApprovalTypes?: string[];

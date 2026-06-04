@@ -21,6 +21,7 @@ import type {
   QueuedDryRunActionResponse,
   QAReport,
   QueueStatus,
+  RealModeReadinessKey,
   WorkerRun,
 } from "./api/types";
 
@@ -653,15 +654,18 @@ function renderMissionActions(
         <button type="button" disabled={busy} onClick={() => void actions.onRunAction("loop-dry-run", {})}>Run Full Loop dry-run</button>
         <button type="button" disabled={busy} onClick={() => void actions.onRefresh()}>Refresh Summary</button>
         {guardedRealActions.map((entry) => {
-          const missingApprovalText = formatMissingApprovalTypes(entry.missingApprovalTypes);
+          const canQueue = entry.canQueue ?? entry.safeToRun;
+          const blockers = entry.blockers ?? [];
+          const title = [entry.recommendedNextAction ?? entry.message, ...blockers.map((blocker) => blocker.message)].filter(Boolean).join(" ");
           return (
             <button
               type="button"
               key={entry.action}
-              disabled={busy || !entry.safeToRun}
-              title={[entry.message, missingApprovalText].filter(Boolean).join(" ")}
+              disabled={busy || !canQueue}
+              onClick={() => void actions.onRunAction(entry.action as MissionDryRunAction, {})}
+              title={title}
             >
-              {realActionButtonLabel(entry.action)}
+              {realActionButtonLabel(entry)}
             </button>
           );
         })}
@@ -671,32 +675,27 @@ function renderMissionActions(
   );
 }
 
-function formatMissingApprovalTypes(missingApprovalTypes?: string[]): string {
-  return missingApprovalTypes && missingApprovalTypes.length > 0
-    ? "Missing approvals " + missingApprovalTypes.join(", ")
-    : "";
-}
-
-function realActionButtonLabel(action: string): string {
-  switch (action) {
+function realActionButtonLabel(entry: NonNullable<MissionSummaryResponse["realModeReadiness"]>[RealModeReadinessKey]): string {
+  const canExecute = entry.canExecute === true;
+  switch (entry.action) {
     case "codex-real":
-      return "Run Codex real";
+      return canExecute ? "Queue gated Codex" : "Queue Codex manual-action";
     case "qa-playwright":
-      return "Run Playwright QA real";
+      return canExecute ? "Queue gated Playwright QA" : "Queue gated QA evidence";
     case "qa-ai-exploratory":
-      return "Run AI QA real";
+      return canExecute ? "Queue gated AI QA" : "Queue AI QA manual-action";
     case "fix-real":
-      return "Run Fix real";
+      return canExecute ? "Queue gated fix" : "Queue fix manual-action";
     case "github-pr":
-      return "Create GitHub PR real";
+      return canExecute ? "Queue GitHub PR contract" : "Create PR preview/manual-action";
     case "deploy-staging":
-      return "Deploy staging real";
+      return canExecute ? "Queue gated deploy" : "Queue deploy manual-action";
     case "monitor-sync":
-      return "Sync monitor real";
+      return canExecute ? "Queue monitor sync" : "Queue monitor manual-action";
     case "plane-sync":
-      return "Sync Plane real";
+      return canExecute ? "Queue Plane sync" : "Queue Plane manual-action";
     default:
-      return action + " real";
+      return "Queue gated action";
   }
 }
 
@@ -1014,9 +1013,12 @@ function renderRealModeReadiness(data: MissionSummaryResponse): ReactElement {
         <div className="list-row" key={entry.key}>
           <div>
             <strong>{entry.label}</strong>
-            <span>{entry.ready ? "ready" : "blocked/manual-action"} / safeToRun {String(entry.safeToRun)} / realNetworkCall {String(entry.realNetworkCall)}</span>
-            <span>{entry.message}</span>
-            {entry.missingEnv.length > 0 ? <span>Missing {entry.missingEnv.join(", ")}</span> : null}
+            <span>{`Queue: ${(entry.canQueue ?? entry.safeToRun) ? "ready" : "blocked"} / Execute: ${entry.canExecute ? "ready" : "manual-action"} / realNetworkCall ${String(entry.realNetworkCall)}`}</span>
+            <span>{entry.recommendedNextAction ?? entry.message}</span>
+            {(entry.blockers ?? []).map((blocker) => (
+              <span key={blocker.key}>{`${blocker.severity} ${blocker.category}: ${blocker.message}`}</span>
+            ))}
+            {entry.missingEnv.length > 0 ? <span>{`Missing ${entry.missingEnv.join(", ")}`}</span> : null}
             {entry.requiredApprovalTypes && entry.requiredApprovalTypes.length > 0 ? <span>Approvals {entry.requiredApprovalTypes.join(", ")}</span> : null}
             {entry.missingApprovalTypes && entry.missingApprovalTypes.length > 0 ? <span>{`Missing approvals ${entry.missingApprovalTypes.join(", ")}`}</span> : null}
           </div>
