@@ -179,6 +179,7 @@
 - `docs/superpowers/specs/2026-06-03-aggressive-documentation-cleanup-design.md`: 上一轮激进文档清理设计记录。
 - `docs/superpowers/specs/2026-06-04-documentation-map-and-structure-design.md`: 当前文档地图和目录重整设计记录。
 - `docs/superpowers/specs/2026-06-04-control-plane-doc-drift-and-readiness-design.md`: 控制面 readiness、文档差异清理和后续 B→A 路线设计记录。
+- `docs/superpowers/specs/2026-06-04-control-plane-readiness-convergence-design.md`: B2 控制面 readiness/blocker 合同收敛设计记录。
 
 ### 归档
 
