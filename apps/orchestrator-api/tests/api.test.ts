@@ -1384,68 +1384,11 @@ describe("orchestrator api", () => {
         enabled: true,
         ready: true,
         safeToRun: false,
-        canQueue: false,
-        canExecute: false,
         requiredApprovalTypes: ["SECURITY_RISK"],
         approvedApprovalTypes: [],
         missingApprovalTypes: ["SECURITY_RISK"],
-        queueBlockers: [
-          expect.objectContaining({
-            scope: "queue",
-            kind: "approval",
-            missing: ["SECURITY_RISK"],
-          }),
-        ],
-        executionBlockers: expect.arrayContaining([
-          expect.objectContaining({ scope: "execution", kind: "injected_runner" }),
-          expect.objectContaining({ scope: "execution", kind: "local_mirror" }),
-          expect.objectContaining({ scope: "execution", kind: "command_policy" }),
-        ]),
       });
-      expect(response.json().realModeReadiness.codex.blockers).toEqual(expect.arrayContaining([
-        expect.objectContaining({ kind: "approval" }),
-        expect.objectContaining({ kind: "injected_runner" }),
-      ]));
-      expect(response.json().realModeReadiness.codex.recommendedNextAction).toContain("SECURITY_RISK");
       expect(response.json().policyFailures).toContain("Codex real execution missing approvals: SECURITY_RISK.");
-      expect(response.json().policyFailures).toContain("Codex real execution requires an injected Codex runner before execution.");
-    });
-  });
-
-  it("separates queue readiness from execution readiness in real-mode readiness", async () => {
-    await withEnv({ PSF_ACTION_EXECUTION_MODE: "queued", PSF_ENABLE_REAL_CODEX: "true" }, async () => {
-      const { server, storage } = await createTestServer({
-        auth: { disabled: true },
-        workerRuntime: new InProcessWorkerRuntime(),
-      });
-      await seedDemoMission(storage);
-      const approval = await createApprovedApproval(server, EXAMPLE_MISSION_ID, "SECURITY_RISK");
-
-      const response = await server.inject({ method: "GET", url: `/missions/${EXAMPLE_MISSION_ID}/summary` });
-
-      expect(response.statusCode).toBe(200);
-      expect(approval.type).toBe("SECURITY_RISK");
-      expect(response.json().realModeReadiness.codex).toMatchObject({
-        enabled: true,
-        ready: true,
-        safeToRun: true,
-        canQueue: true,
-        canExecute: false,
-        requiredApprovalTypes: ["SECURITY_RISK"],
-        approvedApprovalTypes: ["SECURITY_RISK"],
-        missingApprovalTypes: [],
-        queueBlockers: [],
-        executionBlockers: expect.arrayContaining([
-          expect.objectContaining({ scope: "execution", kind: "injected_runner" }),
-          expect.objectContaining({ scope: "execution", kind: "local_mirror" }),
-          expect.objectContaining({ scope: "execution", kind: "command_policy" }),
-          expect.objectContaining({ scope: "execution", kind: "workspace_guard" }),
-        ]),
-      });
-      expect(response.json().realModeReadiness.codex.message).toContain("queueable only");
-      expect(response.json().realModeReadiness.codex.message).not.toContain("can execute");
-      expect(response.json().policyFailures).toContain("Codex real execution requires an injected Codex runner before execution.");
-      expect(response.json().policyFailures).not.toContain("Codex real execution missing approvals: SECURITY_RISK.");
     });
   });
 
@@ -3044,61 +2987,11 @@ describe("orchestrator api", () => {
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({
         realModeReadiness: {
-          codex: {
-            enabled: false,
-            configured: true,
-            ready: false,
-            safeToRun: false,
-            canQueue: false,
-            canExecute: false,
-            realNetworkCall: false,
-            queueBlockers: expect.arrayContaining([expect.objectContaining({ kind: "route_gate" })]),
-            executionBlockers: expect.arrayContaining([expect.objectContaining({ kind: "injected_runner" })]),
-          },
-          github: {
-            enabled: false,
-            configured: true,
-            ready: false,
-            safeToRun: false,
-            canQueue: false,
-            canExecute: false,
-            realNetworkCall: false,
-            queueBlockers: expect.arrayContaining([expect.objectContaining({ kind: "route_gate" })]),
-            executionBlockers: expect.arrayContaining([expect.objectContaining({ kind: "injected_transport" })]),
-          },
-          coolify: {
-            enabled: false,
-            configured: false,
-            ready: false,
-            safeToRun: false,
-            canQueue: false,
-            canExecute: false,
-            realNetworkCall: false,
-            queueBlockers: expect.arrayContaining([
-              expect.objectContaining({ kind: "route_gate" }),
-              expect.objectContaining({ kind: "provider_env" }),
-            ]),
-          },
-          uptimeKuma: {
-            enabled: false,
-            configured: false,
-            ready: false,
-            safeToRun: false,
-            canQueue: false,
-            canExecute: false,
-            realNetworkCall: false,
-            queueBlockers: expect.arrayContaining([expect.objectContaining({ kind: "provider_env" })]),
-          },
-          plane: {
-            enabled: false,
-            configured: false,
-            ready: false,
-            safeToRun: false,
-            canQueue: false,
-            canExecute: false,
-            realNetworkCall: false,
-            queueBlockers: expect.arrayContaining([expect.objectContaining({ kind: "provider_env" })]),
-          },
+          codex: { enabled: false, configured: true, ready: false, safeToRun: false, realNetworkCall: false },
+          github: { enabled: false, configured: true, ready: false, safeToRun: false, realNetworkCall: false },
+          coolify: { enabled: false, configured: false, ready: false, safeToRun: false, realNetworkCall: false },
+          uptimeKuma: { enabled: false, configured: false, ready: false, safeToRun: false, realNetworkCall: false },
+          plane: { enabled: false, configured: false, ready: false, safeToRun: false, realNetworkCall: false },
         },
         externalLinks: {
           githubPrUrl: "https://github.example/psf/factory/pull/17",

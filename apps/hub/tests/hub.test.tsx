@@ -1498,15 +1498,6 @@ describe("Hub render helpers", () => {
           configured: true,
           ready: false,
           safeToRun: false,
-          canQueue: false,
-          canExecute: false,
-          queueBlockers: [{ scope: "queue", kind: "approval", message: "Missing security approval.", nextAction: "Codex real execution missing approvals: SECURITY_RISK.", missing: ["SECURITY_RISK"] }],
-          executionBlockers: [{ scope: "execution", kind: "injected_runner", message: "Injected runner missing.", nextAction: "Codex real execution requires an injected Codex runner before execution." }],
-          blockers: [
-            { scope: "queue", kind: "approval", message: "Missing security approval.", nextAction: "Codex real execution missing approvals: SECURITY_RISK.", missing: ["SECURITY_RISK"] },
-            { scope: "execution", kind: "injected_runner", message: "Injected runner missing.", nextAction: "Codex real execution requires an injected Codex runner before execution." },
-          ],
-          recommendedNextAction: "Codex real execution missing approvals: SECURITY_RISK.",
           realNetworkCall: false,
           missingEnv: [],
           requiredApprovalTypes: ["SECURITY_RISK"],
@@ -1522,15 +1513,6 @@ describe("Hub render helpers", () => {
           configured: true,
           ready: false,
           safeToRun: false,
-          canQueue: false,
-          canExecute: false,
-          queueBlockers: [{ scope: "queue", kind: "route_gate", message: "Route gate disabled.", nextAction: "Set PSF_ENABLE_REAL_QA_PLAYWRIGHT=true only after approval.", missing: ["PSF_ENABLE_REAL_QA_PLAYWRIGHT=true"] }],
-          executionBlockers: [{ scope: "execution", kind: "target_url", message: "Target URL unverified.", nextAction: "Verify the local target URL before Playwright QA." }],
-          blockers: [
-            { scope: "queue", kind: "route_gate", message: "Route gate disabled.", nextAction: "Set PSF_ENABLE_REAL_QA_PLAYWRIGHT=true only after approval.", missing: ["PSF_ENABLE_REAL_QA_PLAYWRIGHT=true"] },
-            { scope: "execution", kind: "target_url", message: "Target URL unverified.", nextAction: "Verify the local target URL before Playwright QA." },
-          ],
-          recommendedNextAction: "Set PSF_ENABLE_REAL_QA_PLAYWRIGHT=true only after approval.",
           realNetworkCall: false,
           missingEnv: [],
           requiredApprovalTypes: [],
@@ -1544,15 +1526,6 @@ describe("Hub render helpers", () => {
           configured: true,
           ready: false,
           safeToRun: false,
-          canQueue: false,
-          canExecute: false,
-          queueBlockers: [{ scope: "queue", kind: "route_gate", message: "Route gate disabled.", nextAction: "Set PSF_ENABLE_REAL_QA_AI_EXPLORATORY=true only after approval.", missing: ["PSF_ENABLE_REAL_QA_AI_EXPLORATORY=true"] }],
-          executionBlockers: [{ scope: "execution", kind: "injected_transport", message: "AI transport missing.", nextAction: "Inject and approve the AI exploratory transport before execution." }],
-          blockers: [
-            { scope: "queue", kind: "route_gate", message: "Route gate disabled.", nextAction: "Set PSF_ENABLE_REAL_QA_AI_EXPLORATORY=true only after approval.", missing: ["PSF_ENABLE_REAL_QA_AI_EXPLORATORY=true"] },
-            { scope: "execution", kind: "injected_transport", message: "AI transport missing.", nextAction: "Inject and approve the AI exploratory transport before execution." },
-          ],
-          recommendedNextAction: "Set PSF_ENABLE_REAL_QA_AI_EXPLORATORY=true only after approval.",
           realNetworkCall: false,
           missingEnv: [],
           requiredApprovalTypes: ["EXTERNAL_COST_RISK"],
@@ -1566,15 +1539,6 @@ describe("Hub render helpers", () => {
           configured: true,
           ready: false,
           safeToRun: false,
-          canQueue: false,
-          canExecute: false,
-          queueBlockers: [{ scope: "queue", kind: "route_gate", message: "Route gate disabled.", nextAction: "Set PSF_ENABLE_REAL_FIX=true only after approval.", missing: ["PSF_ENABLE_REAL_FIX=true"] }],
-          executionBlockers: [{ scope: "execution", kind: "injected_runner", message: "Injected runner missing.", nextAction: "Real fix loop requires an injected Codex runner before execution." }],
-          blockers: [
-            { scope: "queue", kind: "route_gate", message: "Route gate disabled.", nextAction: "Set PSF_ENABLE_REAL_FIX=true only after approval.", missing: ["PSF_ENABLE_REAL_FIX=true"] },
-            { scope: "execution", kind: "injected_runner", message: "Injected runner missing.", nextAction: "Real fix loop requires an injected Codex runner before execution." },
-          ],
-          recommendedNextAction: "Set PSF_ENABLE_REAL_FIX=true only after approval.",
           realNetworkCall: false,
           missingEnv: [],
           requiredApprovalTypes: ["SECURITY_RISK"],
@@ -1588,19 +1552,6 @@ describe("Hub render helpers", () => {
           configured: false,
           ready: false,
           safeToRun: false,
-          canQueue: false,
-          canExecute: false,
-          queueBlockers: [
-            { scope: "queue", kind: "route_gate", message: "Route gate disabled.", nextAction: "Set PSF_ENABLE_REAL_GITHUB_PR=true only after approval.", missing: ["PSF_ENABLE_REAL_GITHUB_PR=true"] },
-            { scope: "queue", kind: "provider_env", message: "GitHub env missing.", nextAction: "Configure missing provider environment before queueing this real action.", missing: ["GITHUB_TOKEN"] },
-          ],
-          executionBlockers: [{ scope: "execution", kind: "injected_transport", message: "Provider transport missing.", nextAction: "Inject an approved provider transport in a later explicit provider task." }],
-          blockers: [
-            { scope: "queue", kind: "route_gate", message: "Route gate disabled.", nextAction: "Set PSF_ENABLE_REAL_GITHUB_PR=true only after approval.", missing: ["PSF_ENABLE_REAL_GITHUB_PR=true"] },
-            { scope: "queue", kind: "provider_env", message: "GitHub env missing.", nextAction: "Configure missing provider environment before queueing this real action.", missing: ["GITHUB_TOKEN"] },
-            { scope: "execution", kind: "injected_transport", message: "Provider transport missing.", nextAction: "Inject an approved provider transport in a later explicit provider task." },
-          ],
-          recommendedNextAction: "Set PSF_ENABLE_REAL_GITHUB_PR=true only after approval.",
           realNetworkCall: false,
           missingEnv: ["GITHUB_TOKEN"],
           requiredApprovalTypes: [],
@@ -1614,19 +1565,6 @@ describe("Hub render helpers", () => {
           configured: false,
           ready: false,
           safeToRun: false,
-          canQueue: false,
-          canExecute: false,
-          queueBlockers: [
-            { scope: "queue", kind: "provider_env", message: "Coolify env missing.", nextAction: "Configure missing provider environment before queueing this real action.", missing: ["COOLIFY_TOKEN"] },
-            { scope: "queue", kind: "approval", message: "Production approval missing.", nextAction: "Coolify staging deploy missing approvals: PRODUCTION_DEPLOY.", missing: ["PRODUCTION_DEPLOY"] },
-          ],
-          executionBlockers: [{ scope: "execution", kind: "operation_gate", message: "Deploy operation disabled.", nextAction: "Keep provider network, push, PR, deploy, monitor, and sync operations disabled until a later approved task." }],
-          blockers: [
-            { scope: "queue", kind: "provider_env", message: "Coolify env missing.", nextAction: "Configure missing provider environment before queueing this real action.", missing: ["COOLIFY_TOKEN"] },
-            { scope: "queue", kind: "approval", message: "Production approval missing.", nextAction: "Coolify staging deploy missing approvals: PRODUCTION_DEPLOY.", missing: ["PRODUCTION_DEPLOY"] },
-            { scope: "execution", kind: "operation_gate", message: "Deploy operation disabled.", nextAction: "Keep provider network, push, PR, deploy, monitor, and sync operations disabled until a later approved task." },
-          ],
-          recommendedNextAction: "Configure missing provider environment before queueing this real action.",
           realNetworkCall: false,
           missingEnv: ["COOLIFY_TOKEN"],
           requiredApprovalTypes: ["PRODUCTION_DEPLOY"],
@@ -1642,15 +1580,6 @@ describe("Hub render helpers", () => {
           configured: false,
           ready: false,
           safeToRun: false,
-          canQueue: false,
-          canExecute: false,
-          queueBlockers: [{ scope: "queue", kind: "provider_env", message: "Uptime Kuma env missing.", nextAction: "Configure missing provider environment before queueing this real action.", missing: ["UPTIME_KUMA_PASSWORD"] }],
-          executionBlockers: [{ scope: "execution", kind: "operation_gate", message: "Monitor operation disabled.", nextAction: "Keep provider network, push, PR, deploy, monitor, and sync operations disabled until a later approved task." }],
-          blockers: [
-            { scope: "queue", kind: "provider_env", message: "Uptime Kuma env missing.", nextAction: "Configure missing provider environment before queueing this real action.", missing: ["UPTIME_KUMA_PASSWORD"] },
-            { scope: "execution", kind: "operation_gate", message: "Monitor operation disabled.", nextAction: "Keep provider network, push, PR, deploy, monitor, and sync operations disabled until a later approved task." },
-          ],
-          recommendedNextAction: "Configure missing provider environment before queueing this real action.",
           realNetworkCall: false,
           missingEnv: ["UPTIME_KUMA_PASSWORD"],
           requiredApprovalTypes: [],
@@ -1664,15 +1593,6 @@ describe("Hub render helpers", () => {
           configured: false,
           ready: false,
           safeToRun: false,
-          canQueue: false,
-          canExecute: false,
-          queueBlockers: [{ scope: "queue", kind: "provider_env", message: "Plane env missing.", nextAction: "Configure missing provider environment before queueing this real action.", missing: ["PLANE_API_TOKEN"] }],
-          executionBlockers: [{ scope: "execution", kind: "operation_gate", message: "Plane sync operation disabled.", nextAction: "Keep provider network, push, PR, deploy, monitor, and sync operations disabled until a later approved task." }],
-          blockers: [
-            { scope: "queue", kind: "provider_env", message: "Plane env missing.", nextAction: "Configure missing provider environment before queueing this real action.", missing: ["PLANE_API_TOKEN"] },
-            { scope: "execution", kind: "operation_gate", message: "Plane sync operation disabled.", nextAction: "Keep provider network, push, PR, deploy, monitor, and sync operations disabled until a later approved task." },
-          ],
-          recommendedNextAction: "Configure missing provider environment before queueing this real action.",
           realNetworkCall: false,
           missingEnv: ["PLANE_API_TOKEN"],
           requiredApprovalTypes: [],
@@ -1722,11 +1642,6 @@ describe("Hub render helpers", () => {
     expect(text).toContain("Real-mode readiness");
     expect(text).toContain("GitHub PR");
     expect(text).toContain("blocked/manual-action");
-    expect(text).toContain("canQueue");
-    expect(text).toContain("canExecute");
-    expect(text).toContain("Queue blockers");
-    expect(text).toContain("Execution blockers");
-    expect(text).toContain("Next action");
     expect(text).toContain("Missing GITHUB_TOKEN");
     expect(text).toContain("Missing approvals SECURITY_RISK");
     expect(text).toContain("Missing approvals PRODUCTION_DEPLOY");

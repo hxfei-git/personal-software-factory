@@ -2167,31 +2167,6 @@ function findArtifactByType(artifacts: Artifact[], type: Artifact["type"]): Arti
 
 type ReadinessKey = "codex" | "qaPlaywright" | "qaAiExploratory" | "fix" | "github" | "coolify" | "uptimeKuma" | "plane";
 
-type ReadinessBlockerScope = "queue" | "execution";
-
-type ReadinessBlockerKind =
-  | "queue_mode"
-  | "worker_runtime"
-  | "route_gate"
-  | "provider_env"
-  | "approval"
-  | "injected_runner"
-  | "injected_transport"
-  | "local_mirror"
-  | "target_url"
-  | "selector_verification"
-  | "command_policy"
-  | "workspace_guard"
-  | "operation_gate";
-
-type ReadinessBlocker = {
-  scope: ReadinessBlockerScope;
-  kind: ReadinessBlockerKind;
-  message: string;
-  nextAction: string;
-  missing?: string[];
-};
-
 type ReadinessEntry = {
   key: ReadinessKey;
   label: string;
@@ -2200,17 +2175,11 @@ type ReadinessEntry = {
   configured: boolean;
   ready: boolean;
   safeToRun: boolean;
-  canQueue: boolean;
-  canExecute: boolean;
   realNetworkCall: false;
   missingEnv: string[];
   requiredApprovalTypes: string[];
   approvedApprovalTypes: string[];
   missingApprovalTypes: string[];
-  queueBlockers: ReadinessBlocker[];
-  executionBlockers: ReadinessBlocker[];
-  blockers: ReadinessBlocker[];
-  recommendedNextAction: string;
   message: string;
 };
 
@@ -2285,151 +2254,6 @@ function buildApprovalCoverage(requiredApprovalTypes: string[], approvals: Appro
   };
 }
 
-function buildQueueBlockers(input: {
-  label: string;
-  gateEnv: string;
-  enabled: boolean;
-  configured: boolean;
-  missingEnv: string[];
-  queueReady: boolean;
-  workerRuntimeConfigured: boolean;
-  missingApprovalTypes: string[];
-}): ReadinessBlocker[] {
-  const blockers: ReadinessBlocker[] = [];
-  if (!input.queueReady) {
-    blockers.push({
-      scope: "queue",
-      kind: "queue_mode",
-      message: input.label + " cannot be queued because PSF_ACTION_EXECUTION_MODE is not queued.",
-      nextAction: "Set PSF_ACTION_EXECUTION_MODE=queued before queueing this real action.",
-      missing: ["PSF_ACTION_EXECUTION_MODE=queued"],
-    });
-  }
-  if (!input.workerRuntimeConfigured) {
-    blockers.push({
-      scope: "queue",
-      kind: "worker_runtime",
-      message: input.label + " cannot be queued because Worker Runtime is not configured.",
-      nextAction: "Start Orchestrator with a configured Worker Runtime before queueing this real action.",
-    });
-  }
-  if (!input.enabled) {
-    blockers.push({
-      scope: "queue",
-      kind: "route_gate",
-      message: input.label + " cannot be queued because " + input.gateEnv + " is not true.",
-      nextAction: "Set " + input.gateEnv + "=true only after approving this real-action path.",
-      missing: [input.gateEnv + "=true"],
-    });
-  }
-  if (!input.configured || input.missingEnv.length > 0) {
-    blockers.push({
-      scope: "queue",
-      kind: "provider_env",
-      message: input.label + " cannot be queued because provider environment is incomplete.",
-      nextAction: "Configure missing provider environment before queueing this real action.",
-      missing: input.missingEnv.length > 0 ? input.missingEnv : ["provider configuration"],
-    });
-  }
-  if (input.missingApprovalTypes.length > 0) {
-    blockers.push({
-      scope: "queue",
-      kind: "approval",
-      message: input.label + " cannot be queued because required approvals are missing.",
-      nextAction: input.label + " missing approvals: " + input.missingApprovalTypes.join(", ") + ".",
-      missing: input.missingApprovalTypes,
-    });
-  }
-  return blockers;
-}
-
-function buildExecutionBlockers(action: GatedRealActionKind, label: string): ReadinessBlocker[] {
-  switch (action) {
-    case "codex-real":
-    case "fix-real":
-      return [
-        {
-          scope: "execution",
-          kind: "injected_runner",
-          message: label + " requires an injected Codex runner before execution.",
-          nextAction: label + " requires an injected Codex runner before execution.",
-        },
-        {
-          scope: "execution",
-          kind: "local_mirror",
-          message: label + " requires an operator-verified local project mirror before execution.",
-          nextAction: "Verify the local project mirror, passport commands, and workspace path before execution.",
-        },
-        {
-          scope: "execution",
-          kind: "command_policy",
-          message: label + " requires a reviewed command policy before execution.",
-          nextAction: "Review install, build, test, lint, and E2E commands against the real checkout before execution.",
-        },
-        {
-          scope: "execution",
-          kind: "workspace_guard",
-          message: label + " requires workspace path guards before execution.",
-          nextAction: "Verify workspace path guards prevent writes outside the approved local mirror.",
-        },
-      ];
-    case "qa-playwright":
-      return [
-        {
-          scope: "execution",
-          kind: "target_url",
-          message: label + " requires an operator-verified local target URL before execution.",
-          nextAction: "Verify the local target URL responds before running Playwright QA.",
-        },
-        {
-          scope: "execution",
-          kind: "selector_verification",
-          message: label + " requires deterministic selector verification before execution.",
-          nextAction: "Verify deterministic selectors against the local target before running Playwright QA.",
-        },
-        {
-          scope: "execution",
-          kind: "command_policy",
-          message: label + " requires a reviewed QA command policy before execution.",
-          nextAction: "Review the Playwright command and artifact policy before execution.",
-        },
-      ];
-    case "qa-ai-exploratory":
-      return [
-        {
-          scope: "execution",
-          kind: "injected_transport",
-          message: label + " requires an injected AI exploratory transport before execution.",
-          nextAction: "Inject and approve the AI exploratory transport before execution.",
-        },
-        {
-          scope: "execution",
-          kind: "target_url",
-          message: label + " requires an operator-verified local target URL before execution.",
-          nextAction: "Verify the local target URL before AI exploratory QA.",
-        },
-      ];
-    case "github-pr":
-    case "deploy-staging":
-    case "monitor-sync":
-    case "plane-sync":
-      return [
-        {
-          scope: "execution",
-          kind: "injected_transport",
-          message: label + " requires an injected provider transport before execution.",
-          nextAction: "Inject an approved provider transport in a later explicit provider task.",
-        },
-        {
-          scope: "execution",
-          kind: "operation_gate",
-          message: label + " requires explicit operation gates before execution.",
-          nextAction: "Keep provider network, push, PR, deploy, monitor, and sync operations disabled until a later approved task.",
-        },
-      ];
-  }
-}
-
 function buildRealModeReadiness(input: ReadinessBuildInput): RealModeReadiness {
   return Object.fromEntries(Object.entries(readinessDefinitions).map(([rawKey, definition]) => {
     const key = rawKey as ReadinessKey;
@@ -2443,25 +2267,16 @@ function buildRealModeReadiness(input: ReadinessBuildInput): RealModeReadiness {
     const queueReady = input.actionExecutionMode === "queued";
     const ready = enabled && configured && queueReady && input.workerRuntimeConfigured;
     const approvalCoverage = buildApprovalCoverage(definition.requiredApprovalTypes, input.approvals);
-    const queueBlockers = buildQueueBlockers({
-      label: contract.label,
-      gateEnv: contract.gateEnv,
-      enabled,
-      configured,
-      missingEnv,
-      queueReady,
-      workerRuntimeConfigured: input.workerRuntimeConfigured,
-      missingApprovalTypes: approvalCoverage.missingApprovalTypes,
-    });
-    const executionBlockers = buildExecutionBlockers(definition.action, contract.label);
-    const blockers = [...queueBlockers, ...executionBlockers];
-    const canQueue = queueBlockers.length === 0;
-    const canExecute = canQueue && executionBlockers.length === 0;
-    const safeToRun = canQueue;
-    const recommendedNextAction = blockers[0]?.nextAction ?? contract.label + " has no readiness blockers reported.";
-    const message = canQueue
-      ? contract.label + " is queueable only; execution remains blocked/manual-action until execution blockers are cleared. API summary still reports realNetworkCall=false."
-      : contract.label + " blocked before queueing: " + queueBlockers.map((blocker) => blocker.nextAction).join(" ") + " API summary still reports realNetworkCall=false.";
+    const safeToRun = ready && approvalCoverage.missingApprovalTypes.length === 0;
+    const blockers: string[] = [];
+    if (!queueReady) blockers.push("PSF_ACTION_EXECUTION_MODE=queued");
+    if (!input.workerRuntimeConfigured) blockers.push("worker runtime configured");
+    if (!enabled) blockers.push(contract.gateEnv + "=true");
+    if (missingEnv.length > 0) blockers.push("missing " + missingEnv.join(", "));
+    if (approvalCoverage.missingApprovalTypes.length > 0) blockers.push("missing approved approvals " + approvalCoverage.missingApprovalTypes.join(", "));
+    const message = safeToRun
+      ? contract.label + " is ready to queue; API summary still reports realNetworkCall=false."
+      : contract.label + " blocked/manual-action: " + blockers.join("; ") + ".";
     return [key, {
       key,
       label: contract.label,
@@ -2470,17 +2285,11 @@ function buildRealModeReadiness(input: ReadinessBuildInput): RealModeReadiness {
       configured,
       ready,
       safeToRun,
-      canQueue,
-      canExecute,
       realNetworkCall: false as const,
       missingEnv,
       requiredApprovalTypes: approvalCoverage.requiredApprovalTypes,
       approvedApprovalTypes: approvalCoverage.approvedApprovalTypes,
       missingApprovalTypes: approvalCoverage.missingApprovalTypes,
-      queueBlockers,
-      executionBlockers,
-      blockers,
-      recommendedNextAction,
       message,
     } satisfies ReadinessEntry];
   })) as RealModeReadiness;
@@ -2488,26 +2297,27 @@ function buildRealModeReadiness(input: ReadinessBuildInput): RealModeReadiness {
 
 function buildPolicyFailures(readiness: RealModeReadiness): string[] {
   return Object.values(readiness)
-    .flatMap((entry) => entry.blockers.map((blocker) => {
-      if (blocker.kind === "queue_mode") {
-        return entry.label + " requires PSF_ACTION_EXECUTION_MODE=queued.";
+    .filter((entry) => !entry.safeToRun)
+    .flatMap((entry) => {
+      const contract = gatedRealActionContracts[entry.action];
+      const failures: string[] = [];
+      if (entry.message.includes("PSF_ACTION_EXECUTION_MODE=queued")) {
+        failures.push(entry.label + " requires PSF_ACTION_EXECUTION_MODE=queued.");
       }
-      if (blocker.kind === "route_gate") {
-        const contract = gatedRealActionContracts[entry.action];
-        return entry.label + " requires " + contract.gateEnv + "=true.";
+      if (!entry.enabled) {
+        failures.push(entry.label + " requires " + contract.gateEnv + "=true.");
       }
-      if (blocker.kind === "provider_env") {
-        const missing = blocker.missing && blocker.missing.length > 0 ? blocker.missing : entry.missingEnv;
-        return entry.label + " missing env: " + (missing.length > 0 ? missing.join(", ") : "provider configuration") + ".";
+      if (entry.missingEnv.length > 0) {
+        failures.push(entry.label + " missing env: " + entry.missingEnv.join(", ") + ".");
       }
-      if (blocker.kind === "worker_runtime") {
-        return entry.label + " requires a configured Worker Runtime.";
+      if (entry.message.includes("worker runtime configured")) {
+        failures.push(entry.label + " requires a configured Worker Runtime.");
       }
-      if (blocker.kind === "approval") {
-        return entry.label + " missing approvals: " + entry.missingApprovalTypes.join(", ") + ".";
+      if (entry.missingApprovalTypes.length > 0) {
+        failures.push(entry.label + " missing approvals: " + entry.missingApprovalTypes.join(", ") + ".");
       }
-      return blocker.nextAction;
-    }));
+      return failures;
+    });
 }
 
 function buildExternalLinks(

@@ -8,15 +8,11 @@
 
 ## 当前执行路线
 
-B1 和 B2 已完成。下一批工作按 B3 -> A1 执行。B3 只补合同回归测试和必要的最小生产代码调整。A1 最后在 operator-prepared `ai-novelist` local mirror 上证明 gated-runner path。
+下一批工作按 B1 -> B2 -> B3 -> A1 执行。B1 先做文档差异审计与最小必要清理，避免 `docs/vision/plan.md` 的长期愿景、旧 phase、旧路径或旧进度污染当前事实源。B2 再定义 readiness/blocker 合同，避免 `safeToRun=true` 被误读成真实执行已可发生。B3 只补合同回归测试和必要的最小生产代码调整。A1 最后在 operator-prepared `ai-novelist` local mirror 上证明 gated-runner path。
 
 GitHub、Coolify、Uptime Kuma、Plane、push、真实 PR 创建、部署、monitor 创建、Plane sync、Temporal 和 LangGraph 继续暂缓，直到本地 mirror gated-runner path 被证明且后续任务获得明确批准。
 
 ## 最新更新
-
-Batch B2 已完成，覆盖 Mission summary readiness/blocker 合同收敛。`realModeReadiness` 现在明确区分 `canQueue` 与 `canExecute`，并返回 `queueBlockers`、`executionBlockers`、combined `blockers` 和 `recommendedNextAction`。`safeToRun` 只作为兼容的队列就绪别名保留，不能解读成真实执行许可。当前 `canExecute` 仍为 `false`，因为 injected runner/transport、本地 mirror、target URL、selector verification、command policy、workspace guard 和 operation gate 还没有在后续任务中证明；`realNetworkCall` 继续保持 `false`。Hub Mission Detail 现在按 `canQueue` 禁用 guarded real-action buttons，并直接显示 queue/execution blockers。
-
-Batch B1 已完成，覆盖当前架构与 `docs/vision/plan.md` 的差异审计、当前事实源路线更新、stale wording 和 safety wording 分类。没有删除 Markdown，没有启用真实 Codex、Playwright、provider network、push、PR、deploy、monitor 或 Plane sync。
 
 Batch 05/06 已完成，覆盖 gated fix/regression enforcement 和 GitHub PR gate preview。`fix-real` queued payloads 现在携带 open bugs、attempts、Project Passport、Mission files、verification commands、regression evidence、branch/workspace context 和 approvals。Worker Runner 只有在 regression evidence 与 injected verification 成功后，才持久化 accepted BugReport updates，并通过合法 Mission states 保守 transition 到 `ready_for_review`。`github-pr` 现在要求已批准的 `EXTERNAL_COST_RISK`，会 queue 安全的 PR preview context，并持久化 child integration WorkerRun 和 PR preview Artifact；默认仍是 manual-action/no-network。该 batch 的 focused package tests、`pnpm typecheck`、`pnpm test`、`pnpm build` 和 `git diff --check` 已通过。
 

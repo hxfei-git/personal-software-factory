@@ -24,15 +24,14 @@
 - Hub Web 通过 Orchestrator 读取数据，不直接修改文件系统、数据库或外部 provider。
 - 集成 dry-run 和真实模式 readiness surface 默认保持 `realNetworkCall: false`。
 - `ai-novelist` 已作为 readiness metadata 注册，但不会把未验证命令伪装成安全可执行。
-- Mission summary readiness 已区分 `canQueue`、`canExecute`、queue blockers 和 execution blockers，避免把 `safeToRun` 误读成真实执行许可。
 
 ## 当前问题
 
 1. 文档仍有漂移风险：新增活跃文档如果复用旧阶段语言，必须明确标为历史语境，不能当作当前事实。
-2. 真实模式 gate 复杂度仍高：Mission summary 已结构化 `canQueue`/`canExecute` 和 blockers，但 worker/provider 侧 gate、injected transport、本地 workspace 检查仍需在后续证明任务中继续对齐。
+2. 真实模式 gate 复杂度较高：route gate、worker gate、provider gate、approval、injected transport、本地 workspace 检查分布在多处文档和代码路径。
 3. `ai-novelist` 执行仍未验证：passport commands、selectors、本地 URL 行为和 E2E 入口需要在真实 checkout 中人工验证。
 4. Hub API types、Mission schemas、Orchestrator service schemas、worker job schemas、integration types 之间仍有合同重复。
-5. manual-action UX 在 Mission summary readiness 中已暴露 `recommendedNextAction`，但 worker/provider 具体执行输出仍需要继续收敛为同样清晰的下一步动作。
+5. manual-action UX 已能暴露 blocker，但还不够顺手；操作者不总能直接看到下一步具体动作。
 6. 归档策略已用于完成的历史阶段材料，但未来仍可能有人把陈旧文档加到 `docs/archive/` 之外。
 
 ## docs/vision/plan.md 差异摘要
@@ -43,7 +42,7 @@
 - Contract-only 或 manual-action：`codex.real`、`qa.playwright`、`qa.ai_exploratory`、`fix.real`、`github.pr`、`deploy.coolify`、`monitor.uptime_kuma` 和 `plane.sync`。这些路径需要 gate、approval、queue/runtime wiring、injected runner 或 injected transport 才能继续推进；默认仍保持 `realNetworkCall: false`、`realExternalCall: false`、`realPush: false` 和 `realDeploy: false`。
 - 未验证：`ai-novelist` 的 operator-prepared local mirror、passport commands、local URL、E2E command、deterministic selectors 和目标项目本地运行行为。Passport 中的 `manual-verification-required` 不得当作已验证事实。
 - 暂缓：GitHub/Coolify/Uptime Kuma/Plane provider network calls、push、真实 PR 创建、部署、monitor 创建、Plane sync、Temporal 和 LangGraph。Temporal/LangGraph 继续遵守 ADR 0005 的证据门槛。
-- 后续顺序：B1 文档差异审计与 B2 readiness/blocker 合同收敛已完成；接下来先执行 B3 合同回归测试，最后执行 A1 `ai-novelist` local mirror gated-runner proof。
+- 后续顺序：先执行 B1 文档差异审计与最小必要清理，再执行 B2 readiness/blocker 合同收敛，再执行 B3 合同回归测试，最后执行 A1 `ai-novelist` local mirror gated-runner proof。
 
 ## 改进待办
 
@@ -56,9 +55,9 @@
 ### P1
 
 - 在启用真实 worker 执行前，在真实 checkout 中验证 `ai-novelist` 的 install、dev、build、test、lint 和 E2E 命令。
-- 继续把 worker/provider 执行前检查收敛到与 Mission summary `queueBlockers`、`executionBlockers` 和 `recommendedNextAction` 一致的 readiness checklist。
+- 为每一种 gated real action 建立单一 readiness checklist。
 - 减少重复类型合同；若重复有价值，则补充聚焦的 contract tests。
-- 让 Hub 真实模式 blocker 继续覆盖 worker/provider manual-action outputs 中缺失的 approval、gate、env var、本地 mirror、target URL、runner 或 transport。
+- 让 Hub 真实模式 blocker 精确指向缺失的 approval、gate、env var、本地 mirror、target URL、runner 或 transport。
 
 ### P2
 
@@ -175,7 +174,6 @@
 - `docs/superpowers/README.md`: Superpowers 工作流目录说明。
 - `docs/superpowers/plans/README.md`: 当前实施计划目录说明。
 - `docs/superpowers/plans/2026-06-04-b1-documentation-drift-audit-and-minimal-cleanup.md`: B1 文档差异审计与最小必要清理实施计划。
-- `docs/superpowers/plans/2026-06-04-b2-readiness-blocker-contract.md`: B2 readiness/blocker 合同收敛实施计划。
 - `docs/superpowers/plans/2026-06-04-aggressive-documentation-cleanup.md`: 上一轮激进文档清理实施记录，作为历史计划保留。
 - `docs/superpowers/plans/2026-06-04-documentation-map-and-structure.md`: 当前文档地图和目录重整实施计划。
 - `docs/superpowers/specs/2026-06-03-aggressive-documentation-cleanup-design.md`: 上一轮激进文档清理设计记录。

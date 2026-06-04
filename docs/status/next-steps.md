@@ -2,10 +2,11 @@
 
 ## 推荐下一批工作
 
-1. 先执行 B3：补 Mission summary readiness、approval gate、queue wrapper、GitHub PR preview、fix/regression evidence 和 secret redaction 的合同回归测试。B3 只应补合同回归测试和必要的最小生产代码调整。
-2. 再执行 A1：只在 operator-prepared `ai-novelist` local mirror 上证明 gated-runner path。Passport 中 `manual-verification-required` 的 commands、local URL 和 selectors 必须先人工验证。
-3. 暂不扩展外部 provider；在本地 mirror gated-runner path 被证明之前，GitHub、Coolify、Uptime Kuma、Plane 和其他 provider network calls 必须继续禁用。
-4. 保持 B1/B2 结论：`docs/vision/plan.md` 仍是长期愿景，不是当前事实源；`safeToRun` 只是兼容的队列就绪别名，`canExecute` 仍为 `false`，直到后续任务证明 runner/transport、mirror、URL、selector、command policy、workspace guard 和 operation gate。
+1. 先执行 B1：审计当前架构与 `docs/vision/plan.md` 的差异，更新当前事实源，并做最小必要文档清理。不要默认删除 Markdown；如需删除、移动、改名或新增 Markdown，必须同步 `summary.md` 文档地图。
+2. 再执行 B2：定义 readiness/blocker 合同，区分 `canQueue` 与 `canExecute` 或等价结构化 `blockers[]`，避免当前 `safeToRun` 被误读成真实执行已可发生。
+3. 再执行 B3：补 Mission summary readiness、approval gate、queue wrapper、GitHub PR preview、fix/regression evidence 和 secret redaction 的合同回归测试。
+4. 最后执行 A1：只在 operator-prepared `ai-novelist` local mirror 上证明 gated-runner path。Passport 中 `manual-verification-required` 的 commands、local URL 和 selectors 必须先人工验证。
+5. 暂不扩展外部 provider；在本地 mirror gated-runner path 被证明之前，GitHub、Coolify、Uptime Kuma、Plane 和其他 provider network calls 必须继续禁用。
 
 ## 真实 Codex 前
 

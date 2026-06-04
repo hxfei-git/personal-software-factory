@@ -223,15 +223,11 @@ pnpm psf queues:status
 - 验证: `git status --short --branch` 显示工作区干净；`git diff --check af4e137e2441a58caac624ee367e69476d030f44..HEAD` 无输出；`node scripts/check-phase1-structure.mjs` 通过并验证 40 files 和 26 directories；旧英文章节标题搜索无输出；root Markdown 仍只有 `./AGENTS.md`、`./README.md` 和 `./summary.md`；docs Markdown 仍位于主题目录；旧路径扫描只剩 current new paths、迁移映射、历史命令、debug 历史、ADR 早期 `plan.md` 引用和已标注的 vision 历史文本；安全边界搜索仍找到 `realNetworkCall: false`、default-safe、gated real、injected runner/transport、默认不执行和不调用外部服务等说明；`pnpm db:generate` 成功生成 Prisma Client v6.19.3；`pnpm check` 通过，typecheck 17/17，scripts tests 21/21，workspace tests 17/17 packages。
 - 后续: none。
 
-### 2026-06-04 - B2 readiness/blocker 合同收敛
+### 2026-06-04 - 回退 B2 readiness/blocker 合同收敛
 
-- 背景: `buildRealModeReadiness` 原先主要暴露 `safeToRun`，该字段只覆盖 action execution mode、Worker Runtime、route env gate、integration env 和 approvals，容易被误读成真实执行已经可以发生。
-- 范围: Mission summary `realModeReadiness`、`policyFailures`、Hub Mission Detail readiness rendering、Hub guarded real-action buttons，以及 API/Hub/architecture/status/summary 文档。未修改 integrations package `safeToRun` 语义。
-- RED: Orchestrator API baseline 先通过 85 tests；新增 B2 API 合同测试后，`pnpm --filter @psf/orchestrator-api test` 失败 3 tests，失败点为缺少 `canQueue`、`canExecute`、`queueBlockers`、`executionBlockers`、`blockers` 和 `recommendedNextAction`。Hub baseline 先通过 35 tests；新增 B2 Hub fixture/assertions 后，`pnpm --filter @psf/hub test` 失败 1 test，失败点为 UI 仍渲染旧 `safeToRun` 文案而没有 `canQueue`/`canExecute` 和 blocker text。
-- 修复: Orchestrator readiness entry 新增 `canQueue`、`canExecute`、`queueBlockers`、`executionBlockers`、combined `blockers` 和 `recommendedNextAction`。`safeToRun` 保留为兼容的 queue-readiness alias，等于 `canQueue`。`buildPolicyFailures` 改为读取结构化 blocker，不再解析 `message` 文案。Hub guarded real-action buttons 改用 `canQueue` 禁用，并显示 `canExecute`、queue blockers、execution blockers 和 next action。
-- 安全边界: `canExecute` 当前仍为 `false`，因为 injected runner/transport、本地 mirror、target URL、selector verification、command policy、workspace guard 和 operation gate 还没有在后续任务中证明。`realNetworkCall` 继续保持 `false`。没有启用 Codex、Playwright、provider network、push、PR、deploy、monitor 或 Plane sync。
-- 环境发现: B2 worktree 初次运行 package tests 失败，原因是 isolated worktree 缺少 `node_modules`。`pnpm install --offline` 成功链接本地 store。随后 Orchestrator API typecheck 一度失败，原因是 B2 worktree 缺少生成的 Prisma Client `.prisma` 目录；主工作区同一 typecheck 通过。运行 `pnpm --filter @psf/db prisma generate` 后，B2 worktree typecheck 通过。
-- 最终验证: `pnpm --filter @psf/orchestrator-api test` 通过 86 tests；`pnpm --filter @psf/orchestrator-api typecheck` 通过；`pnpm --filter @psf/hub test` 通过 35 tests；`pnpm --filter @psf/hub typecheck` 通过；`node scripts/check-phase1-structure.mjs` 通过并验证 40 files 和 26 directories；`git diff --check` 无输出。
-- 安全扫描: 排除 worktree `node_modules` 后，`realNetworkCall.*true|realPush.*true|realDeploy.*true|create PR|deploy production` 命中均为显式禁止、安全边界、ADR/vision 历史、Superpowers 计划中的扫描命令，或 project/passport 禁止性文字；未发现当前事实源声称 provider network、push、真实 PR、deploy、monitor 或 Plane sync 已启用。
-- Markdown 地图: 本实现提交没有新增、移动、改名或删除 Markdown。B2 计划文件已在创建计划时登记到 `summary.md` 文档地图。
-- 后续: B3 只补合同回归测试和必要最小生产代码调整；A1 才进入 operator-prepared `ai-novelist` local mirror gated-runner proof。
+- 背景: 用户要求先回退 B2。采用非破坏性 `git revert --no-commit` 反向回退 B2 顶部四个提交，而不是使用 `reset --hard`。
+- 范围: 回退 `规划就绪合同收敛`、`收敛就绪阻塞合同`、`更新就绪阻塞展示` 和 `记录就绪合同收敛`。删除 B2 计划文件，并同步移除 `summary.md` 文档地图中的 B2 计划条目。
+- 结果: Mission summary readiness 恢复为 B1 后状态，仍以原 `safeToRun` readiness surface 表达；事实源恢复为下一步执行 B2，再执行 B3 和 A1，不再声称 B2 已完成。
+- 安全边界: 回退没有启用 Codex、Playwright、provider network、push、PR、deploy、monitor 或 Plane sync。
+- 验证: `pnpm --filter @psf/orchestrator-api test` 通过 85 tests；`pnpm --filter @psf/orchestrator-api typecheck` 通过；`pnpm --filter @psf/hub test` 通过 35 tests；`pnpm --filter @psf/hub typecheck` 通过；`node scripts/check-phase1-structure.mjs` 通过并验证 40 files 和 26 directories；`git diff --cached --check` 无输出。
+- 后续: 若重新执行 B2，需要先重新确认 contract 范围，并重新创建/登记实施计划。

@@ -45,9 +45,9 @@ Then open `http://127.0.0.1:5173` and inspect:
 - Dashboard dry-run buttons for `POST /demo/ai-novelist`, with and without the sample bug payload, plus `Refresh Dashboard`.
 - Mission Detail for `mission-0001-ai-novelist-chapter-review` from `GET /missions/:id/summary`.
 - Mission Detail dry-run buttons for `plan`, `codex-dry-run`, `qa-dry-run`, `fix-dry-run`, and `loop-dry-run`, plus a sample-bug QA dry-run and `Refresh Summary`.
-- Guarded real-mode buttons for Codex, Playwright QA, AI QA, fix, GitHub PR, Coolify deploy, Uptime Kuma monitor sync, and Plane sync. They are disabled when Mission summary readiness says `canQueue: false`; `canQueue: true` only means the guarded action can be queued, while `canExecute` still remains `false` until runner/transport, mirror, URL, selector, command-policy, workspace, and operation-gate proof exists. These are visibility controls only in this phase.
+- Guarded real-mode buttons for Codex, Playwright QA, AI QA, fix, GitHub PR, Coolify deploy, Uptime Kuma monitor sync, and Plane sync. They are disabled when readiness says `safeToRun: false`; GitHub PR readiness now includes the `EXTERNAL_COST_RISK` approval gate. These are visibility controls only in this phase.
 - Fix/regression evidence and GitHub PR preview child artifacts when Worker Runner records them under the Mission summary.
-- Real-mode readiness and policy blockers from the Mission summary, including `canQueue`, `canExecute`, disabled/manual-action states, missing environment names, required approval types, missing approval types, queue blockers, execution blockers, and recommended next action.
+- Real-mode readiness and policy blockers from the Mission summary, including disabled/manual-action states, missing environment names, required approval types, and missing approval types.
 - External PR, deployment, monitor, and Plane links/statuses when the Orchestrator summary reports them.
 - QA report and BugReport evidence linked from the Mission summary.
 - WorkerRun detail/log previews, QARun detail, Artifact detail, approval action state, approval decision buttons, and artifact retention metadata from the Mission summary.
