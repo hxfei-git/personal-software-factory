@@ -6,6 +6,8 @@
 
 The current system already has a TypeScript monorepo, Orchestrator API, Hub Web, Mission state machine, Prisma-backed storage, optional BullMQ queue runtime, Worker Runner, deterministic planner, dry-run workers, gated real-mode contracts, GitHub PR preview, fix/regression enforcement, and default-safe integration adapters.
 
+`docs/status/progress.md` records that Batch 03/04 already covered local QA and local Codex proof surfaces, and Batch 05/06 already covered fix/regression enforcement and GitHub PR preview. The remaining local-loop work is proof against a real, operator-prepared `ai-novelist` mirror, not rebuilding those surfaces from zero.
+
 The remaining gap is not a missing grand architecture. The risk is state pollution: old phase notes, old paths, and long-term vision language can still be mistaken for current implementation facts. The next work should first make the control plane and documentation precise, then prove the shortest local real loop for `ai-novelist`.
 
 ## Goal
@@ -24,7 +26,7 @@ This design does not enable real Codex execution, Playwright browser execution, 
 - Do not enable default real Codex execution.
 - Do not enable default real Playwright or Playwright MCP execution.
 - Do not introduce Temporal or LangGraph.
-- Do not preserve low-value old phase progress material if its useful facts are already represented in current docs or ADRs.
+- Do not delete Markdown by default. Audit first, clean only when needed, and update `summary.md`'s document map for every Markdown add, move, rename, or delete.
 
 ## Current Architecture Versus Vision
 
@@ -34,25 +36,36 @@ This design does not enable real Codex execution, Playwright browser execution, 
 | Mission state | Implemented through `@psf/mission-core` and auditable MissionEvents. | Full production release path exists conceptually but not as a live autonomous workflow. | Keep explicit state machine. Improve blocker visibility before real work. |
 | Hub | Implemented as React/Vite operator console backed by Orchestrator API. | Vision expected broader complete workflow visibility. | Improve readiness, manual-action, evidence, and blocker UX before real execution. |
 | Queue runtime | Implemented with inline and BullMQ modes plus queue wrapper WorkerRuns. | Long-running durable workflow vision mentions Temporal later. | Keep BullMQ baseline per ADR 0005. |
-| Codex worker | Dry-run and gated real-runner abstractions exist. Default Worker Runner returns manual-action without injected runner. | Vision expects autonomous branch/worktree/Codex/test/commit loop. | First improve readiness output, then prove local gated Codex on a fixture or verified `ai-novelist` mirror. |
-| QA worker | Dry-run evidence and deterministic Playwright runner abstraction exist. Missing target URL or unverified selectors block safely. | Vision expects deterministic QA and AI exploratory QA against staging. | Validate `ai-novelist` target URL, commands, selectors, then run deterministic QA gated path. |
+| Codex worker | Dry-run and gated real-runner abstractions exist. Batch 03/04 proved local Codex surfaces with fixture/injected paths; default Worker Runner still returns manual-action without injected runner. | Vision expects autonomous branch/worktree/Codex/test/commit loop against the managed project. | Clarify readiness semantics, then prove the gated Codex path on a real `ai-novelist` mirror. |
+| QA worker | Dry-run evidence and deterministic Playwright runner abstraction exist. Batch 03/04 proved local QA surfaces; missing target URL or unverified selectors still block safely. | Vision expects deterministic QA and AI exploratory QA against staging or local target. | Validate real `ai-novelist` target URL, commands, and selectors, then run deterministic QA gated path. |
 | Auto-fix loop | Dry-run and gated real fix contract exist with regression evidence enforcement. | Vision expects automatic bug fix and regression loop. | Keep blocked/manual-action until local QA and Codex proof are reliable. |
 | GitHub PR | Gated PR contract and preview artifact exist. No push or PR creation by default. | Vision expects branch push, PR creation, comments, and webhook sync. | Do not enable until local loop is proven and explicit provider approval exists. |
 | Coolify | Dry-run/status and gated adapter contract exist. No deployment by default. | Vision expects staging or preview deployment. | Defer real deploy. Prefer local target URL proof first. |
 | Uptime Kuma | Dry-run/status and gated adapter contract exist. No monitor creation or polling by default. | Vision expects monitor status in Hub. | Defer network monitor work. |
 | Plane | Dry-run/status and gated adapter contract exist. No issue sync by default. | Vision expects Mission/Bug issue sync. | Defer network issue sync. |
-| Documentation | Current fact sources are consolidated, but old phase and old path wording can re-enter. | Vision contains historical phase plan and old doc paths. | Treat doc-drift cleanup as Batch B1. |
+| Documentation | Current fact sources are consolidated, and several Superpowers design/plan records intentionally remain. Old phase and old path wording can still re-enter. | Vision contains historical phase plan and old doc paths. | Treat doc drift as Batch B1: audit first, then minimal necessary cleanup. |
+
+## Readiness Terminology
+
+Current `safeToRun` in `buildRealModeReadiness` is a route-level readiness signal. It checks queue mode, worker runtime configuration, route env gates, integration env, and Mission approvals. It does not currently prove injected runner or transport availability, local mirror readiness, target URL validity, selector verification, or command policy success.
+
+Batch B2 should avoid letting `safeToRun=true` read as "real execution can happen now." It should either add explicit fields such as `canQueue`, `canExecute`, and `blockers[]`, or an equivalent structured blocker model that separates:
+
+- queue acceptance blockers: action execution mode, worker runtime, route gate, approval, and provider env;
+- execution blockers: injected runner or transport, local mirror, target URL, selector verification, command policy, workspace guards, and operation gates;
+- safety flags: `realNetworkCall: false`, `realExternalCall: false`, `realPush: false`, and `realDeploy: false` until a later approved task intentionally changes them.
 
 ## Batch Plan
 
-### Batch B1: Documentation Difference Audit And Cleanup
+### Batch B1: Documentation Difference Audit And Minimal Cleanup
 
-Create a current architecture versus `docs/vision/plan.md` difference matrix in active docs. Clean old progress and old phase contamination aggressively:
+Create a current architecture versus `docs/vision/plan.md` difference matrix in active docs. Audit first, then make the smallest necessary cleanup so old progress and old phase material cannot pollute current state:
 
 - Update `summary.md` with a compact vision-difference summary and document-map changes.
 - Update `docs/status/progress.md` and `docs/status/next-steps.md` to state the chosen order: B before A, C deferred.
 - Update `docs/debug/debug.md` with the audit, stale wording findings, cleanup decisions, and verification results.
-- Remove or rewrite old progress, old phase, old path, and low-value completed Superpowers documents when their useful facts are already in current docs or ADRs.
+- Preserve retained Superpowers design/plan records when they have audit value or current context value. If cleanup requires deleting, moving, renaming, or adding any Markdown file, update `summary.md`'s document map in the same change.
+- Remove or rewrite old progress, old phase, old path, and low-value completed documents only after the audit shows their useful facts are already in current docs or ADRs.
 - Keep `docs/vision/plan.md` as a long-term reference only.
 
 Verification should search for stale current-state pointers such as `docs/progress/current.md`, `phase-XX-summary`, old root `plan.md` guidance, `apps/api`, `packages/core`, and `packages/schemas`, then classify remaining matches as historical or current.
@@ -61,9 +74,10 @@ Verification should search for stale current-state pointers such as `docs/progre
 
 Make blocked and manual-action states operationally useful across API, Hub, Worker Runner, and integrations:
 
-- Standardize blocker fields for route gate, worker gate, provider gate, approval, env, local mirror, target URL, command policy, injected runner, and injected transport.
+- Define the readiness/blocker contract first, including `canQueue` versus `canExecute` or an equivalent structured `blockers[]` model.
+- Standardize blocker fields for route gate, worker gate, provider gate, approval, env, local mirror, target URL, selector verification, command policy, injected runner, and injected transport.
 - Ensure every blocked/manual-action response includes a concrete recommended next action.
-- Keep default response flags explicit: `realNetworkCall: false`, `realExternalCall: false`, `realPush: false`, and `realDeploy: false`.
+- Keep default response flags explicit and unchanged: `realNetworkCall: false`, `realExternalCall: false`, `realPush: false`, and `realDeploy: false`.
 - Improve Hub Mission Detail and integration readiness displays so the operator can see what is missing without reading logs.
 
 ### Batch B3: Contract And Safety Test Reinforcement
@@ -77,14 +91,15 @@ Add focused tests where drift would be expensive:
 - Fix/regression evidence enforcement.
 - Secret redaction in API responses, worker outputs, artifacts, and Hub-visible state.
 
-Prefer focused contract tests over large refactors. If duplicate schemas remain, either justify the duplication or cover the boundary with tests.
+Do not expand scope into broad refactors. B3 is for contract regression tests and only the minimal production-code adjustments required to make those contracts explicit. If duplicate schemas remain, either justify the duplication or cover the boundary with tests.
 
-### Batch A1: `ai-novelist` Shortest Local Real-Loop Proof
+### Batch A1: `ai-novelist` Real Mirror Local-Loop Proof
 
 Only after B1-B3:
 
 - Prepare or verify an operator-controlled local `ai-novelist` checkout or mirror.
-- Verify passport install, dev, build, test, lint, and E2E commands against the real project.
+- Treat `manual-verification-required` passport metadata as unverified until the operator proves it against that real checkout or mirror.
+- Verify passport install, dev, build, test, lint, and E2E commands against the real project mirror.
 - Verify local URL and deterministic selectors.
 - Run deterministic Playwright QA gated path against a real local target.
 - Prove local gated Codex runner behavior with no push, no PR, no deploy, and no provider network call.
@@ -106,6 +121,14 @@ node scripts/check-phase1-structure.mjs
 rg -n 'docs/progress/current.md|phase-XX-summary|apps/api|packages/core|packages/schemas|root `plan.md`|./plan.md' README.md AGENTS.md summary.md docs --glob '!docs/vision/plan.md'
 rg -n 'realNetworkCall.*true|realPush.*true|realDeploy.*true|create PR|deploy production' README.md AGENTS.md summary.md docs
 ```
+
+If `rg` is unavailable, use equivalent `grep` and `find` checks. Search matches are not required to be zero; classify each remaining match as one of:
+
+- historical context;
+- explicit prohibition or safety boundary;
+- current risk that needs cleanup.
+
+The B1 acceptance condition is that no active current-fact guidance points to obsolete paths, old phase progress, or unsafe real-execution behavior.
 
 For B2-B3, run the smallest focused tests for touched packages first, then broaden when shared contracts change:
 
