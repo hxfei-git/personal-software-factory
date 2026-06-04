@@ -2,10 +2,11 @@
 
 ## 推荐下一批工作
 
-1. 下一批实现优先聚焦 `ai-novelist` 的确定性 QA，或谨慎推进受 gate 保护的本地真实 Codex 执行。
-2. 暂不扩展外部 provider；在本地 QA/Codex control-plane 行为被证明之前，GitHub、Coolify、Uptime Kuma、Plane 和其他 provider network calls 必须继续禁用。
-3. 按 `README.md` 在干净 `.env` 上手动操作 Hub control plane，确认 Mission creation、resource pages、Approval decisions 和 dry-run action preflight 都保持 real-mode gates 清晰可见，且 integration responses 保持 `realNetworkCall: false`。
-4. 在收集运行证据期间，继续以 BullMQ-backed queue runtime 和显式 TypeScript Mission state machine 作为基线。
+1. 先执行 B1：审计当前架构与 `docs/vision/plan.md` 的差异，更新当前事实源，并做最小必要文档清理。不要默认删除 Markdown；如需删除、移动、改名或新增 Markdown，必须同步 `summary.md` 文档地图。
+2. 再执行 B2：定义 readiness/blocker 合同，区分 `canQueue` 与 `canExecute` 或等价结构化 `blockers[]`，避免当前 `safeToRun` 被误读成真实执行已可发生。
+3. 再执行 B3：补 Mission summary readiness、approval gate、queue wrapper、GitHub PR preview、fix/regression evidence 和 secret redaction 的合同回归测试。
+4. 最后执行 A1：只在 operator-prepared `ai-novelist` local mirror 上证明 gated-runner path。Passport 中 `manual-verification-required` 的 commands、local URL 和 selectors 必须先人工验证。
+5. 暂不扩展外部 provider；在本地 mirror gated-runner path 被证明之前，GitHub、Coolify、Uptime Kuma、Plane 和其他 provider network calls 必须继续禁用。
 
 ## 真实 Codex 前
 
