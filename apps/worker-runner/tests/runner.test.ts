@@ -16,6 +16,7 @@ import { createInMemoryMissionStorage } from "@psf/orchestrator-api/storage";
 import { runDeterministicPlaywrightQa, type DeterministicQaInput } from "@psf/qa-worker";
 import type { CodexExecutionRequest } from "@psf/codex-worker";
 import { createDefaultJobHandler } from "../src/handlers.js";
+import { githubResultBlockers } from "../src/readiness-blockers.js";
 import { processWorkerJob } from "../src/runner.js";
 
 describe("worker runner", () => {
@@ -1473,6 +1474,57 @@ describe("worker runner", () => {
       canExecute: false,
       blockers: [expect.objectContaining({ key: "configuration.env.github.missing_or_disabled", blocks: ["execute"] })],
     });
+  });
+
+  it("maps unknown github.pr manual-action output to an unclassified execution blocker", () => {
+    const blockers = githubResultBlockers({
+      name: "github",
+      externalName: "GitHub",
+      mode: "real",
+      realEnabled: true,
+      realNetworkCall: false,
+      configured: true,
+      missingEnv: [],
+      safeToRun: false,
+      message: "Manual action required: adapter returned a review-only stop.",
+      decision: "manual_action",
+      status: {
+        name: "github",
+        externalName: "GitHub",
+        mode: "real",
+        enabled: true,
+        configured: true,
+        healthy: false,
+        realEnabled: true,
+        realNetworkCall: false,
+        safeToRun: false,
+        requiredEnv: [],
+        missingEnv: [],
+        lastCheckedAt: "2026-05-31T00:00:00.000Z",
+        message: "Manual action required: adapter returned a review-only stop.",
+      },
+      outputs: {
+        branchName: "agent/mission-real",
+        baseBranch: "main",
+        requests: [],
+        manualActions: ["Review adapter output before retrying."],
+      },
+      logs: [],
+      errors: [],
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    expect(blockers).toEqual([
+      expect.objectContaining({
+        category: "execution",
+        key: "execution.integration.unclassified_execution_blocker",
+        blocks: ["execute"],
+        source: "integration",
+      }),
+    ]);
+    const keys = blockers.map((blocker) => blocker.key);
+    expect(keys).not.toContain("execution.integration.injected_transport_missing");
+    expect(keys).not.toContain("policy.integration.operation_gate_disabled");
   });
 
   it("persists github.pr fake transport success with PR URL without exposing tokens", async () => {
