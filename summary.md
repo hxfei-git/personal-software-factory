@@ -163,6 +163,7 @@
 
 - `docs/superpowers/README.md`: Superpowers 工作流目录说明。
 - `docs/superpowers/plans/README.md`: 当前实施计划目录说明。
+- `docs/superpowers/plans/2026-06-04-b1-documentation-drift-audit-and-minimal-cleanup.md`: B1 文档差异审计与最小必要清理实施计划。
 - `docs/superpowers/plans/2026-06-04-aggressive-documentation-cleanup.md`: 上一轮激进文档清理实施记录，作为历史计划保留。
 - `docs/superpowers/plans/2026-06-04-documentation-map-and-structure.md`: 当前文档地图和目录重整实施计划。
 - `docs/superpowers/specs/2026-06-03-aggressive-documentation-cleanup-design.md`: 上一轮激进文档清理设计记录。
