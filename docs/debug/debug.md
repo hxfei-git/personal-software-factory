@@ -52,6 +52,16 @@ pnpm psf queues:status
 
 ## 当前条目
 
+### 2026-06-04 - B1 文档差异审计与最小清理
+
+- 背景: 已批准控制面文档差异收敛设计，当前批次只执行 B1 文档审计和最小必要清理。
+- 现象: `docs/vision/plan.md` 仍包含长期愿景、旧 phase、旧路径和旧执行 prompt；这些内容必须继续被标记为非当前事实，避免污染当前状态。
+- 范围: `summary.md`、`docs/status/progress.md`、`docs/status/next-steps.md`、`docs/debug/debug.md`、`README.md`、`AGENTS.md`、`docs/vision/plan.md` 和 retained Superpowers plan/spec records。
+- 调查: 运行 Markdown inventory、stale path/phase scan 和 safety wording scan；由于当前环境没有 `rg`，使用 `grep` fallback；命中分类为 historical context、explicit non-current wording、explicit prohibition or safety boundary，未发现 current-risk matches。
+- 修复: 更新当前事实源的愿景差异摘要和 B1 -> B2 -> B3 -> A1 路线；没有默认删除 Markdown；没有发现需要删除、移动、改名或新增的 Markdown；没有启用真实执行或外部 provider 调用。
+- 验证: `git diff --check` 通过；`node scripts/check-phase1-structure.mjs` 通过；stale path/phase scan 和 safety wording scan 的剩余命中均已分类为历史语境、明确非当前措辞或安全禁止边界。
+- 后续: B2 定义 readiness/blocker 合同，避免 `safeToRun=true` 被误读成真实执行已可发生。
+
 ### 2026-06-03 - 发现文档漂移
 
 - 背景: 规划当前 documentation cleanup。
