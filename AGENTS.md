@@ -6,23 +6,23 @@ Build a personal AI software factory that turns user requirements into planned M
 
 ## Current Implementation Discipline
 
-- Current active implementation state is documented in `struct.md`, `summary.md`, `debug.md`, `README.md`, and `docs/progress.md`.
+- Current active implementation state is documented in `summary.md`, `docs/architecture/structure.md`, `docs/debug/debug.md`, `README.md`, and `docs/status/progress.md`.
 - The repository includes gated real execution contracts and Batch 05/06 fix/regression plus GitHub PR preview work, but the default posture remains local-first, dry-run/mock/manual-action safe.
 - Do not turn GitHub, Coolify, Uptime Kuma, Plane, Codex, Playwright, or AI exploratory adapters into real external callers or real execution paths without an explicit later task and approval.
 - Integration responses and default gated real-mode responses must keep `realNetworkCall` false until real external calls are intentionally implemented and approved.
-- Keep changes small, documented, and aligned with `struct.md`, `docs/api.md`, `docs/safety.md`, and `docs/queue-runtime.md`.
+- Keep changes small, documented, and aligned with `docs/architecture/structure.md`, `docs/api/orchestrator-api.md`, `docs/security/safety.md`, and `docs/runtime/queue-runtime.md`.
 
 ## Required Reading Before Major Changes
 
-- `struct.md` for the current implemented architecture.
-- `summary.md` for current problems, risks, and improvement backlog.
-- `debug.md` for known debug hotspots and recent investigations.
+- `summary.md` for current status, problems, risks, improvement backlog, and the full Markdown document map.
+- `docs/architecture/structure.md` for the current implemented architecture.
+- `docs/debug/debug.md` for known debug hotspots, verification records, and recent investigations.
 - `README.md` for current local setup and capability boundaries.
-- `docs/progress.md` for latest completed batches and verification status.
-- `docs/api.md` for Orchestrator API contracts.
-- `docs/safety.md` for dry-run, real-mode, and secret boundaries.
-- `docs/queue-runtime.md` for queued WorkerRun and Worker Runner behavior.
-- `plan.md` for long-term product vision only; do not treat it as current implementation state.
+- `docs/status/progress.md` for latest completed batches and verification status.
+- `docs/api/orchestrator-api.md` for Orchestrator API contracts.
+- `docs/security/safety.md` for dry-run, real-mode, and secret boundaries.
+- `docs/runtime/queue-runtime.md` for queued WorkerRun and Worker Runner behavior.
+- `docs/vision/plan.md` for long-term product vision only; do not treat it as current implementation state.
 
 ## Working Rules
 
@@ -40,12 +40,13 @@ Build a personal AI software factory that turns user requirements into planned M
 
 ## Documentation Maintenance Rules
 
-- If a change modifies architecture, module boundaries, data flow, state transitions, worker contracts, integration gates, or safety boundaries, update `struct.md` in the same task.
-- If a change adds, resolves, or discovers architecture problems, risks, technical debt, phase status changes, or improvement work, update `summary.md` in the same task.
-- If a change involves debugging, failed checks, unexpected behavior, manual-action output, flaky tests, queue/runtime issues, or incident-like findings, update `debug.md` in the same task.
+- Every Markdown file add, move, rename, or delete must update `summary.md`'s document map in the same task.
+- Every architecture, module-boundary, data-flow, state-machine, worker-contract, integration-gate, or safety-boundary change must update `docs/architecture/structure.md` in the same task.
+- Every current problem, risk, technical debt, status change, resolved issue, or improvement backlog change must update `summary.md` in the same task.
+- Every debugging session, failed check, unexpected behavior, manual-action output, flaky test, queue/runtime issue, verification result, or incident-like finding must update `docs/debug/debug.md` in the same task.
 - Preserve ADRs under `docs/adr/**`; do not delete them during cleanup unless the user explicitly asks and a newer ADR supersedes the decision.
-- Remove completed plans, stale phase notes, and low-value historical documents once their useful facts are represented in current docs, ADRs, `summary.md`, or `debug.md`.
-- If none of `struct.md`, `summary.md`, or `debug.md` need changes, the final response and commit body must explicitly state why.
+- Remove completed plans, stale phase notes, and low-value historical documents once their useful facts are represented in current docs, ADRs, `summary.md`, or `docs/debug/debug.md`.
+- If none of `summary.md`, `docs/architecture/structure.md`, or `docs/debug/debug.md` need changes, the final response and commit body must explicitly state why.
 - Do not record secret values in any of these documents.
 
 ## Phase 1 Checks

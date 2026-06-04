@@ -23,11 +23,11 @@ Personal Software Factory tracks current implementation state in root fact sourc
 
 - Each task should end with a focused local git commit that groups related changes.
 - Each commit must use a Chinese summary as the commit title and include a Chinese description in the commit body.
-- Each task should update the relevant README, `struct.md`, `summary.md`, `debug.md`, progress note, ADR, or operating guide when behavior, structure, commands, safety boundaries, or current status changes.
+- Each task should update the relevant README, `docs/architecture/structure.md`, `summary.md`, `docs/debug/debug.md`, progress note, ADR, or operating guide when behavior, structure, commands, safety boundaries, or current status changes.
 - Do not push commits to GitHub or update protected branches without explicit user approval.
 
 ## Documentation
 
 - Keep README files current when a directory's purpose changes.
-- Record current progress in `docs/progress.md`.
-- Keep architecture decisions aligned with `struct.md` and ADRs under `docs/adr/`.
+- Record current progress in `docs/status/progress.md`.
+- Keep architecture decisions aligned with `docs/architecture/structure.md` and ADRs under `docs/adr/`.

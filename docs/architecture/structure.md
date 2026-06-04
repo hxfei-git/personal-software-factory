@@ -5,7 +5,7 @@
 This file is the current architecture fact source for Personal Software Factory.
 It describes the implemented repository state after the gated real execution work, Batch 03/04 local QA and Codex proof surfaces, and Batch 05/06 fix/regression plus GitHub PR gate preview.
 
-ADRs remain the durable decision history. Low-value historical phase plans are removed once their useful facts are represented in current docs, ADRs, `summary.md`, or `debug.md`.
+ADRs remain the durable decision history. Low-value historical phase plans are removed once their useful facts are represented in current docs, ADRs, `summary.md`, or `docs/debug/debug.md`.
 
 ## System Purpose
 
@@ -87,16 +87,14 @@ GitHub, Coolify, Uptime Kuma, and Plane adapters expose dry-run/status behavior 
 
 ## Current Source Priority
 
-After this documentation cleanup is complete, use these documents as active sources before coding. During the cleanup, `summary.md` and `debug.md` are created by the next task; if they are not present yet, continue with `README.md`, `docs/progress.md`, `docs/api.md`, `docs/safety.md`, and `docs/queue-runtime.md`.
-
 1. `AGENTS.md`
-2. `struct.md`
+2. `README.md`
 3. `summary.md`
-4. `debug.md`
-5. `docs/adr/**` for architecture decision history
-6. `README.md`
-7. `docs/progress.md`
-8. `docs/api.md`
-9. `docs/safety.md`
-10. `docs/queue-runtime.md`
-11. provider-specific integration docs when touching that provider
+4. `docs/architecture/structure.md`
+5. `docs/debug/debug.md`
+6. `docs/adr/**` for architecture decision history
+7. `docs/status/progress.md`
+8. `docs/api/orchestrator-api.md`
+9. `docs/security/safety.md`
+10. `docs/runtime/queue-runtime.md`
+11. provider-specific integration docs under `docs/integrations/` when touching that provider
