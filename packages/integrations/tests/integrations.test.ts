@@ -19,6 +19,7 @@ import {
   type IntegrationTransportRequest,
   type IntegrationTransportResponse,
 } from "../src/index.js";
+import { buildRealResult } from "../src/github-real.js";
 
 const fixedNow = "2026-05-31T12:00:00.000Z";
 
@@ -577,6 +578,129 @@ describe("gated real integration adapters", () => {
       }),
     ]));
     expect(calls).toHaveLength(0);
+  });
+
+  it("returns a network gate blocker when transport is present but allowNetwork is disabled", async () => {
+    const { calls, transport } = createTransport([{ status: 201, json: { number: 42 } }]);
+
+    const result = await runGitHubReal({
+      env: configuredEnv,
+      now: fixedNow,
+      mission: missionInput,
+      transport,
+      gates: { allowNetwork: false },
+    });
+
+    expect(result.decision).toBe("manual_action");
+    expect(result.realNetworkCall).toBe(false);
+    expect(result.blockers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        category: "policy",
+        key: "policy.integration.network_gate_disabled",
+        blocks: ["execute"],
+        source: "integration",
+      }),
+    ]));
+    expect(result.blockers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "execution.integration.injected_transport_missing" }),
+    ]));
+    expect(calls).toHaveLength(0);
+  });
+
+  it("adds an unclassified integration blocker to failed provider results", async () => {
+    const { transport } = createTransport([{ status: 422, json: { message: "validation failure" } }]);
+
+    const result = await runGitHubReal({
+      env: configuredEnv,
+      now: fixedNow,
+      mission: missionInput,
+      sourceSha: "abc123",
+      transport,
+      gates: { allowNetwork: true, allowPushBranch: true, allowCreatePullRequest: true },
+    });
+
+    expect(result.decision).toBe("failed");
+    expect(result.safeToRun).toBe(false);
+    expect(result.outputs.manualActions).toEqual([]);
+    expect(result.blockers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        category: "execution",
+        key: "execution.integration.unclassified_execution_blocker",
+        blocks: ["execute"],
+        source: "integration",
+        recommendedNextAction: "Inspect the integration adapter output before retrying.",
+      }),
+    ]));
+  });
+
+  it("adds an unclassified blocker when caller-provided blockers are empty for unsafe results", () => {
+    const result = buildRealResult(
+      {
+        name: "github",
+        externalName: "github",
+        requiredEnv: ["GITHUB_TOKEN", "GITHUB_OWNER", "GITHUB_REPO"],
+        enableRealEnv: "ENABLE_REAL_GITHUB",
+      },
+      { env: configuredEnv, now: fixedNow },
+      {
+        decision: "degraded",
+        message: "GitHub network unavailable after injected transport failure.",
+        outputs: { manualActions: [] },
+        safeToRun: false,
+        blockers: [],
+      },
+    );
+
+    expect(result.blockers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        category: "execution",
+        key: "execution.integration.unclassified_execution_blocker",
+        blocks: ["execute"],
+        source: "integration",
+      }),
+    ]));
+  });
+
+  it("redacts unsafe caller-provided blocker details", () => {
+    const result = buildRealResult(
+      {
+        name: "github",
+        externalName: "github",
+        requiredEnv: ["GITHUB_TOKEN", "GITHUB_OWNER", "GITHUB_REPO"],
+        enableRealEnv: "ENABLE_REAL_GITHUB",
+      },
+      { env: configuredEnv, now: fixedNow },
+      {
+        decision: "manual_action",
+        message: "Manual action required: custom blocker detail safety test.",
+        outputs: { manualActions: [] },
+        safeToRun: false,
+        blockers: [{
+          category: "execution",
+          key: "execution.integration.manual_action",
+          message: "Manual action required: inspect custom blocker details.",
+          recommendedNextAction: "Inspect the integration adapter output before retrying.",
+          severity: "manual_action",
+          blocks: ["execute"],
+          source: "integration",
+          details: {
+            provider: "github",
+            jwt: "jwt-real-secret",
+            bearer: "bearer-real-secret",
+            sessionId: "session-real-secret",
+            apiToken: "api-token-real-secret",
+          },
+        }],
+      },
+    );
+
+    const text = textOf(result);
+
+    expect(result.blockers[0]?.details).toMatchObject({ provider: "github" });
+    expect(text).not.toContain("jwt-real-secret");
+    expect(text).not.toContain("bearer-real-secret");
+    expect(text).not.toContain("session-real-secret");
+    expect(text).not.toContain("api-token-real-secret");
   });
 
   it.each([

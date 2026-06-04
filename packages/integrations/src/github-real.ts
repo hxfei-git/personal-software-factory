@@ -5,10 +5,11 @@ import {
   resolveNow,
 } from "./base.js";
 import { buildGitHubPullRequestBody } from "./github.js";
-import { redactText, redactValue } from "./redaction.js";
+import { isSecretLikeName, redactText, redactValue } from "./redaction.js";
 import type { IntegrationDefinition, IntegrationEnv, IntegrationName, IntegrationStatus, MissionIntegrationInput } from "./types.js";
 
 const definition = INTEGRATION_DEFINITIONS.github;
+const REDACTED = "[REDACTED]";
 
 export type IntegrationTransportMethod = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
@@ -111,6 +112,7 @@ function integrationBlockersFromResult(input: {
   message: string;
   missingEnv: string[];
   outputs: object;
+  safeToRun: boolean;
 }): IntegrationReadinessBlocker[] {
   const blockers: IntegrationReadinessBlocker[] = [];
 
@@ -128,23 +130,27 @@ function integrationBlockersFromResult(input: {
   }
 
   for (const manualAction of manualActionsFromOutputs(input.outputs)) {
-    blockers.push(blockerFromManualAction(input.integrationName, manualAction));
+    blockers.push(...blockersFromManualAction(input.integrationName, manualAction));
   }
 
-  if (input.decision === "manual_action" && blockers.length === 0) {
-    blockers.push({
-      category: "execution",
-      key: "execution.integration.unclassified_execution_blocker",
-      message: input.message,
-      recommendedNextAction: "Inspect the integration adapter output before retrying.",
-      severity: "manual_action",
-      blocks: ["execute"],
-      source: "integration",
-      details: { provider: input.integrationName },
-    });
+  if ((input.decision !== "succeeded" || input.safeToRun === false) && blockers.length === 0) {
+    blockers.push(unclassifiedIntegrationBlocker(input.integrationName, input.message));
   }
 
   return blockers;
+}
+
+function unclassifiedIntegrationBlocker(provider: IntegrationName, message: string): IntegrationReadinessBlocker {
+  return {
+    category: "execution",
+    key: "execution.integration.unclassified_execution_blocker",
+    message,
+    recommendedNextAction: "Inspect the integration adapter output before retrying.",
+    severity: "manual_action",
+    blocks: ["execute"],
+    source: "integration",
+    details: { provider },
+  };
 }
 
 function manualActionsFromOutputs(outputs: object): string[] {
@@ -157,11 +163,12 @@ function manualActionsFromOutputs(outputs: object): string[] {
   return manualActions;
 }
 
-function blockerFromManualAction(provider: IntegrationName, manualAction: string): IntegrationReadinessBlocker {
+function blockersFromManualAction(provider: IntegrationName, manualAction: string): IntegrationReadinessBlocker[] {
   const normalized = manualAction.toLowerCase();
+  const blockers: IntegrationReadinessBlocker[] = [];
 
-  if (normalized.includes("transport") || normalized.includes("allownetwork")) {
-    return {
+  if (normalized.includes("transport")) {
+    blockers.push({
       category: "execution",
       key: "execution.integration.injected_transport_missing",
       message: "Integration requires an injected transport before any provider request.",
@@ -170,7 +177,24 @@ function blockerFromManualAction(provider: IntegrationName, manualAction: string
       blocks: ["execute"],
       source: "integration",
       details: { provider },
-    };
+    });
+  }
+
+  if (normalized.includes("allownetwork") || normalized.includes("network gate")) {
+    blockers.push({
+      category: "policy",
+      key: "policy.integration.network_gate_disabled",
+      message: "Integration network gate is disabled by policy.",
+      recommendedNextAction: "Set gates.allowNetwork=true only after explicit approval, or keep the adapter in manual-action mode.",
+      severity: "manual_action",
+      blocks: ["execute"],
+      source: "integration",
+      details: { provider },
+    });
+  }
+
+  if (blockers.length > 0) {
+    return blockers;
   }
 
   if (
@@ -184,7 +208,7 @@ function blockerFromManualAction(provider: IntegrationName, manualAction: string
     normalized.includes("requires approval") ||
     (normalized.includes("production") && normalized.includes("approval"))
   ) {
-    return {
+    return [{
       category: "policy",
       key: "policy.integration.operation_gate_disabled",
       message: "Integration operation gate is disabled by policy.",
@@ -193,10 +217,10 @@ function blockerFromManualAction(provider: IntegrationName, manualAction: string
       blocks: ["execute"],
       source: "integration",
       details: { provider },
-    };
+    }];
   }
 
-  return {
+  return [{
     category: "execution",
     key: "execution.integration.manual_action",
     message: manualAction,
@@ -205,7 +229,59 @@ function blockerFromManualAction(provider: IntegrationName, manualAction: string
     blocks: ["execute"],
     source: "integration",
     details: { provider },
-  };
+  }];
+}
+
+function sanitizeIntegrationBlockers(blockers: IntegrationReadinessBlocker[], env: IntegrationEnv): IntegrationReadinessBlocker[] {
+  return blockers.map((blocker) => {
+    const details = sanitizeBlockerDetails(blocker.details, env);
+    const sanitized: IntegrationReadinessBlocker = {
+      ...blocker,
+      blocks: ["execute"],
+      source: "integration",
+    };
+
+    if (details) {
+      sanitized.details = details;
+    } else {
+      delete sanitized.details;
+    }
+
+    return sanitized;
+  });
+}
+
+function sanitizeBlockerDetails(details: Record<string, unknown> | undefined, env: IntegrationEnv): Record<string, unknown> | undefined {
+  if (!details) return undefined;
+  const sanitized = sanitizeBlockerDetailValue(details, env);
+  if (!sanitized || typeof sanitized !== "object" || Array.isArray(sanitized)) return undefined;
+  return sanitized as Record<string, unknown>;
+}
+
+function sanitizeBlockerDetailValue(value: unknown, env: IntegrationEnv): unknown {
+  const redacted = redactValue(value, env);
+
+  if (Array.isArray(redacted)) {
+    return redacted.map((entry) => sanitizeBlockerDetailValue(entry, env));
+  }
+
+  if (redacted && typeof redacted === "object") {
+    return Object.fromEntries(
+      Object.entries(redacted as Record<string, unknown>)
+        .filter(([, entry]) => entry !== undefined)
+        .map(([key, entry]) => [
+          key,
+          isUnsafeBlockerDetailName(key) ? REDACTED : sanitizeBlockerDetailValue(entry, env),
+        ]),
+    );
+  }
+
+  return redacted;
+}
+
+function isUnsafeBlockerDetailName(name: string): boolean {
+  const normalized = name.replace(/[\s_.-]/g, "").toLowerCase();
+  return isSecretLikeName(name) || ["jwt", "bearer", "session", "payload", "headers"].some((secretName) => normalized.includes(secretName));
 }
 
 function sortIntegrationBlockers(blockers: IntegrationReadinessBlocker[]): IntegrationReadinessBlocker[] {
@@ -263,13 +339,18 @@ export function buildRealResult<TName extends IntegrationName, TOutputs extends 
   const realEnabled = isRealEnabled(integrationDefinition, env);
   const safeToRun = fields.safeToRun ?? fields.decision === "succeeded";
   const realNetworkCall = fields.realNetworkCall ?? false;
-  const blockers = sortIntegrationBlockers(fields.blockers ?? integrationBlockersFromResult({
+  let blockers = sanitizeIntegrationBlockers(fields.blockers ?? integrationBlockersFromResult({
     integrationName: integrationDefinition.name,
     decision: fields.decision,
     message: fields.message,
     missingEnv,
     outputs: fields.outputs,
-  }));
+    safeToRun,
+  }), env);
+  if ((fields.decision !== "succeeded" || safeToRun === false) && blockers.length === 0) {
+    blockers = sanitizeIntegrationBlockers([unclassifiedIntegrationBlocker(integrationDefinition.name, fields.message)], env);
+  }
+  blockers = sortIntegrationBlockers(blockers);
   const status: IntegrationRealStatus<TName> = {
     name: integrationDefinition.name,
     externalName: integrationDefinition.externalName,
@@ -418,7 +499,12 @@ export async function runGitHubReal(input: GitHubRealInput = {}): Promise<GitHub
   }
 
   if (!input.transport || input.gates?.allowNetwork !== true) {
-    manualActions.push("Inject a transport and set gates.allowNetwork=true before any GitHub request.");
+    if (!input.transport) {
+      manualActions.push("Inject a transport before any GitHub request.");
+    }
+    if (input.gates?.allowNetwork !== true) {
+      manualActions.push("Set gates.allowNetwork=true before any GitHub request.");
+    }
     return missingTransportResult(definition, input, initialOutputs);
   }
 
