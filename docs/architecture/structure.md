@@ -48,6 +48,10 @@ API 暴露 health、dashboard、project registry sync、Project Passport read、
 
 除非为了本地开发或测试明确关闭，write routes 都要求 bearer-token auth。
 
+## Control-Plane Readiness
+
+Mission summary readiness 是控制面合同，不是执行授权。Orchestrator 先从 action execution mode、Worker Runtime、route gates、provider env 和 approvals 计算 `queueBlockers` 与 `canQueue`，再从 runner/transport、本地 mirror、target URL、selector verification、command policy、workspace guard 和 operation gate 要求计算 `executionBlockers` 与 `canExecute`。Hub 直接渲染这些 blocker 和 `recommendedNextAction`。`safeToRun` 只作为兼容的 queue-readiness alias 保留，不能解读成真实执行已经可以发生；当前默认 `realNetworkCall: false`，且 `canExecute` 仍为 `false`。
+
 ## Storage 与 Events
 
 Prisma model 包含 `Project`, `Mission`, `MissionEvent`, `WorkerRun`, `QARun`, `Bug`, `Artifact`, `Approval`, `Deployment`, 和 `Monitor`。
