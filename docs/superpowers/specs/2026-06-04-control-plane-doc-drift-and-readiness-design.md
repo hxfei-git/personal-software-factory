@@ -6,16 +6,16 @@
 
 The current system already has a TypeScript monorepo, Orchestrator API, Hub Web, Mission state machine, Prisma-backed storage, optional BullMQ queue runtime, Worker Runner, deterministic planner, dry-run workers, gated real-mode contracts, GitHub PR preview, fix/regression enforcement, and default-safe integration adapters.
 
-`docs/status/progress.md` records that Batch 03/04 already covered local QA and local Codex proof surfaces, and Batch 05/06 already covered fix/regression enforcement and GitHub PR preview. The remaining local-loop work is proof against a real, operator-prepared `ai-novelist` mirror, not rebuilding those surfaces from zero.
+`docs/status/progress.md` records that Batch 03/04 already covered local QA and local Codex proof surfaces, and Batch 05/06 already covered fix/regression enforcement and GitHub PR preview. The remaining mirror-based work is proof against an operator-prepared `ai-novelist` mirror, not rebuilding those surfaces from zero.
 
-The remaining gap is not a missing grand architecture. The risk is state pollution: old phase notes, old paths, and long-term vision language can still be mistaken for current implementation facts. The next work should first make the control plane and documentation precise, then prove the shortest local real loop for `ai-novelist`.
+The remaining gap is not a missing grand architecture. The risk is state pollution: old phase notes, old paths, and long-term vision language can still be mistaken for current implementation facts. The next work should first make the control plane and documentation precise, then prove the shortest local gated-runner path for `ai-novelist` against an operator-prepared mirror.
 
 ## Goal
 
 Run the next workstream in this order:
 
 1. Control-plane and documentation convergence.
-2. `ai-novelist` shortest local real-loop proof.
+2. `ai-novelist` local mirror gated-runner proof.
 3. External provider real-network integration only after the local loop is proven and explicitly approved.
 
 This design does not enable real Codex execution, Playwright browser execution, provider network calls, push, PR creation, deployment, monitor creation, or Plane sync.
@@ -93,7 +93,7 @@ Add focused tests where drift would be expensive:
 
 Do not expand scope into broad refactors. B3 is for contract regression tests and only the minimal production-code adjustments required to make those contracts explicit. If duplicate schemas remain, either justify the duplication or cover the boundary with tests.
 
-### Batch A1: `ai-novelist` Real Mirror Local-Loop Proof
+### Batch A1: `ai-novelist` Local Mirror Gated-Runner Proof
 
 Only after B1-B3:
 
