@@ -51,6 +51,7 @@ import {
   type GatedRealActionKind,
   type QueuedActionKind,
 } from "./actions.js";
+import { buildReadinessBlocker, deriveReadinessState, type ReadinessBlocker } from "./readiness.js";
 import { badRequest, invalidTransition, notFound, serviceUnavailable } from "./errors.js";
 import { ApprovalDecisionConflictError, type MissionStorage } from "./storage.js";
 
@@ -2175,7 +2176,14 @@ type ReadinessEntry = {
   configured: boolean;
   ready: boolean;
   safeToRun: boolean;
+  canQueue: boolean;
+  canExecute: boolean;
+  blockers: ReadinessBlocker[];
+  recommendedNextAction: string;
   realNetworkCall: false;
+  realExternalCall: false;
+  realPush: false;
+  realDeploy: false;
   missingEnv: string[];
   requiredApprovalTypes: string[];
   approvedApprovalTypes: string[];
@@ -2254,6 +2262,79 @@ function buildApprovalCoverage(requiredApprovalTypes: string[], approvals: Appro
   };
 }
 
+function knownStaticExecutionBlockers(key: ReadinessKey, action: GatedRealActionKind): ReadinessBlocker[] {
+  switch (action) {
+    case "codex-real":
+      return [buildReadinessBlocker({
+        category: "execution",
+        key: "execution.codex.injected_runner_missing",
+        message: "Default Worker Runner has no injected Codex runner configured for codex.real.",
+        recommendedNextAction: "Inject an approved local Codex runner for codex.real, or expect manual-action Worker Runner output.",
+        severity: "manual_action",
+        blocks: ["execute"],
+        source: "orchestrator",
+        details: { action, readinessKey: key, evidence: "known_static" },
+      })];
+    case "fix-real":
+      return [buildReadinessBlocker({
+        category: "execution",
+        key: "execution.fix.injected_runner_missing",
+        message: "Default Worker Runner has no injected Codex runner configured for fix.real.",
+        recommendedNextAction: "Inject approved local fix and verification runners, or expect manual-action Worker Runner output.",
+        severity: "manual_action",
+        blocks: ["execute"],
+        source: "orchestrator",
+        details: { action, readinessKey: key, evidence: "known_static" },
+      })];
+    case "github-pr":
+      return [buildReadinessBlocker({
+        category: "execution",
+        key: "execution.github.injected_transport_missing",
+        message: "No injected GitHub transport is configured and operation gates are disabled; no push or PR creation will occur.",
+        recommendedNextAction: "Review the GitHub PR preview/manual-action output; do not expect push or PR creation until an approved injected transport and operation gates are configured.",
+        severity: "manual_action",
+        blocks: ["execute"],
+        source: "orchestrator",
+        details: { action, readinessKey: key, evidence: "known_static", realPush: false },
+      })];
+    case "qa-playwright":
+      return [buildReadinessBlocker({
+        category: "execution",
+        key: "execution.qa.selector_verification_required",
+        message: "Playwright QA selectors and target runtime require verification before real browser execution.",
+        recommendedNextAction: "Verify the target URL, deterministic selectors, and approved Playwright runner before treating execution as ready.",
+        severity: "manual_action",
+        blocks: ["execute"],
+        source: "orchestrator",
+        details: { action, readinessKey: key, evidence: "known_static" },
+      })];
+    case "qa-ai-exploratory":
+      return [buildReadinessBlocker({
+        category: "execution",
+        key: "execution.qa_ai.executor_missing",
+        message: "No approved AI exploratory QA executor is configured.",
+        recommendedNextAction: "Keep AI exploratory QA as manual-action until an approved executor path is configured in a later task.",
+        severity: "manual_action",
+        blocks: ["execute"],
+        source: "orchestrator",
+        details: { action, readinessKey: key, evidence: "known_static" },
+      })];
+    case "deploy-staging":
+    case "monitor-sync":
+    case "plane-sync":
+      return [buildReadinessBlocker({
+        category: "execution",
+        key: "execution.integration.injected_transport_missing." + action,
+        message: "No injected integration transport is configured for " + action + "; no external provider call will occur.",
+        recommendedNextAction: "Review the manual-action output and configure an approved injected transport only in a later approved task.",
+        severity: "manual_action",
+        blocks: ["execute"],
+        source: "orchestrator",
+        details: { action, readinessKey: key, evidence: "known_static" },
+      })];
+  }
+}
+
 function buildRealModeReadiness(input: ReadinessBuildInput): RealModeReadiness {
   return Object.fromEntries(Object.entries(readinessDefinitions).map(([rawKey, definition]) => {
     const key = rawKey as ReadinessKey;
@@ -2268,15 +2349,82 @@ function buildRealModeReadiness(input: ReadinessBuildInput): RealModeReadiness {
     const ready = enabled && configured && queueReady && input.workerRuntimeConfigured;
     const approvalCoverage = buildApprovalCoverage(definition.requiredApprovalTypes, input.approvals);
     const safeToRun = ready && approvalCoverage.missingApprovalTypes.length === 0;
-    const blockers: string[] = [];
-    if (!queueReady) blockers.push("PSF_ACTION_EXECUTION_MODE=queued");
-    if (!input.workerRuntimeConfigured) blockers.push("worker runtime configured");
-    if (!enabled) blockers.push(contract.gateEnv + "=true");
-    if (missingEnv.length > 0) blockers.push("missing " + missingEnv.join(", "));
-    if (approvalCoverage.missingApprovalTypes.length > 0) blockers.push("missing approved approvals " + approvalCoverage.missingApprovalTypes.join(", "));
+    const blockers: ReadinessBlocker[] = [];
+
+    if (!queueReady) {
+      blockers.push(buildReadinessBlocker({
+        category: "queue_acceptance",
+        key: "queue_acceptance.action_execution_mode",
+        message: contract.label + " requires PSF_ACTION_EXECUTION_MODE=queued before queueing.",
+        recommendedNextAction: "Set PSF_ACTION_EXECUTION_MODE=queued before queueing " + definition.action + ".",
+        severity: "blocking",
+        blocks: ["queue", "execute"],
+        source: "orchestrator",
+        details: { action: definition.action, required: "queued", actual: input.actionExecutionMode },
+      }));
+    }
+
+    if (!input.workerRuntimeConfigured) {
+      blockers.push(buildReadinessBlocker({
+        category: "queue_acceptance",
+        key: "queue_acceptance.worker_runtime_missing",
+        message: contract.label + " requires a configured Worker Runtime before queueing.",
+        recommendedNextAction: "Configure PSF_WORKER_RUNTIME for queued execution before queueing " + definition.action + ".",
+        severity: "blocking",
+        blocks: ["queue", "execute"],
+        source: "orchestrator",
+        details: { action: definition.action },
+      }));
+    }
+
+    if (!enabled) {
+      blockers.push(buildReadinessBlocker({
+        category: "queue_acceptance",
+        key: "queue_acceptance.route_gate." + contract.gateEnv,
+        message: contract.label + " requires " + contract.gateEnv + "=true before queueing.",
+        recommendedNextAction: "Set " + contract.gateEnv + "=true only after approving the gated real-action route for " + definition.action + ".",
+        severity: "blocking",
+        blocks: ["queue", "execute"],
+        source: "orchestrator",
+        details: { action: definition.action, gateEnv: contract.gateEnv },
+      }));
+    }
+
+    for (const envName of missingEnv) {
+      blockers.push(buildReadinessBlocker({
+        category: "configuration",
+        key: "configuration.env." + envName + ".missing",
+        message: contract.label + " is missing required environment variable " + envName + ".",
+        recommendedNextAction: "Set " + envName + " in the local environment before queueing " + definition.action + ".",
+        severity: "blocking",
+        blocks: ["queue", "execute"],
+        source: "orchestrator",
+        details: { action: definition.action, envName },
+      }));
+    }
+
+    for (const approvalType of approvalCoverage.missingApprovalTypes) {
+      blockers.push(buildReadinessBlocker({
+        category: "approval",
+        key: "approval." + approvalType + ".missing",
+        message: contract.label + " is missing approved Mission approval " + approvalType + ".",
+        recommendedNextAction: "Approve Mission approval type " + approvalType + " before queueing " + definition.action + ".",
+        severity: "blocking",
+        blocks: ["queue", "execute"],
+        source: "orchestrator",
+        details: { action: definition.action, approvalType },
+      }));
+    }
+
+    blockers.push(...knownStaticExecutionBlockers(key, definition.action));
+
+    const readinessState = deriveReadinessState(
+      blockers,
+      contract.label + " has no known blockers; review Worker Runner output before advancing the Mission.",
+    );
     const message = safeToRun
-      ? contract.label + " is ready to queue; API summary still reports realNetworkCall=false."
-      : contract.label + " blocked/manual-action: " + blockers.join("; ") + ".";
+      ? contract.label + " is ready to queue at the legacy route level; execution readiness is represented by canExecute and blockers."
+      : contract.label + " blocked/manual-action: " + readinessState.blockers.map((blocker) => blocker.message).join("; ") + ".";
     return [key, {
       key,
       label: contract.label,
@@ -2285,7 +2433,14 @@ function buildRealModeReadiness(input: ReadinessBuildInput): RealModeReadiness {
       configured,
       ready,
       safeToRun,
+      canQueue: readinessState.canQueue,
+      canExecute: readinessState.canExecute,
+      blockers: readinessState.blockers,
+      recommendedNextAction: readinessState.recommendedNextAction,
       realNetworkCall: false as const,
+      realExternalCall: false as const,
+      realPush: false as const,
+      realDeploy: false as const,
       missingEnv,
       requiredApprovalTypes: approvalCoverage.requiredApprovalTypes,
       approvedApprovalTypes: approvalCoverage.approvedApprovalTypes,
