@@ -1,5 +1,8 @@
-# Progress Notes
+# 状态文档
 
-Use `../progress.md` as the active progress entrypoint.
+本目录保存当前进度和下一步计划。
 
-Detailed phase and batch rollups were removed during the aggressive documentation cleanup after their current facts were consolidated into current fact sources and operations guidance.
+- `progress.md`: 当前能力、验证结果、剩余人工动作和安全边界。
+- `next-steps.md`: 推荐下一批工作和进入真实执行前的检查项。
+
+旧的阶段和批次 rollup 已在文档清理中删除；需要了解当前状态时，以本目录和根目录 `../../summary.md` 为准。
