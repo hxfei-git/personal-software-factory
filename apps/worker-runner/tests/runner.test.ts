@@ -1189,6 +1189,17 @@ describe("worker runner", () => {
       status: "manual_action",
       manualActionRequired: true,
     });
+    expect(wrapper.output).toMatchObject({
+      canQueue: true,
+      canExecute: false,
+      blockers: [expect.objectContaining({
+        category: "execution",
+        key: "execution.codex.injected_runner_missing",
+        severity: "manual_action",
+        blocks: ["execute"],
+        source: "worker_runner",
+      })],
+    });
     expect(String(wrapper.output.reason)).toContain("requires an injected Codex runner");
     await expect(storage.getMission("mission-real")).resolves.toMatchObject({ status: MissionStatus.fixing });
   });
@@ -1405,6 +1416,14 @@ describe("worker runner", () => {
       manualActionRequired: true,
       childWorkerRunIds: ["worker-run-mission-real-github-pr"],
       childArtifactIds: ["artifact-mission-real-github-pr-preview"],
+    });
+    expect(wrapper.output).toMatchObject({
+      canQueue: true,
+      canExecute: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ key: "execution.integration.injected_transport_missing", blocks: ["execute"] }),
+        expect.objectContaining({ key: "policy.integration.operation_gate_disabled", blocks: ["execute"] }),
+      ]),
     });
     await expect(storage.getArtifact("artifact-mission-real-github-pr-preview")).resolves.toMatchObject({
       type: "technical_notes",
