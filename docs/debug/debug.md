@@ -56,7 +56,7 @@ Use this format for new entries:
 
 - Context: current documentation cleanup planning.
 - Symptom: `docs/progress/current.md` still described Phase 1, while README and progress rollups described gated real execution and Batch 05/06.
-- Scope: root docs, progress docs, AGENTS guidance, historical planning files.
+- Scope: then-root docs, progress docs, AGENTS guidance, historical planning files.
 - Investigation: searched docs for stale phase labels, archived enhancement-plan references and active references to historical plans.
 - Fix: created current fact-source docs and archived misleading historical files under `docs/archive/`.
 - Verification: spec and plan were committed before file cleanup, and the archive task moved historical files with `git mv`.
@@ -96,9 +96,9 @@ Use this format for new entries:
 
 - Context: final validation after creating current fact-source docs and archiving historical planning files.
 - Symptom: active docs previously mixed current architecture with stale phase guidance.
-- Scope: `AGENTS.md`, root docs, progress docs, Superpowers docs, runtime/safety docs, and archive paths.
+- Scope: `AGENTS.md`, then-root docs, progress docs, Superpowers docs, runtime/safety docs, and archive paths.
 - Investigation: ran whitespace, stale-phase text, safety-boundary text, and git status checks.
-- Fix: active docs now point to `struct.md`, `summary.md`, and `debug.md`; historical plans were archived during that cleanup pass; later aggressive cleanup removed low-value archive files; runtime/safety docs use default-safe plus gated real contract wording.
+- Fix: Historical note: active docs were updated at that time to point to then-current `struct.md`, `summary.md`, and `debug.md`; later documentation-map work moved those entries to `docs/architecture/structure.md`, `summary.md`, and `docs/debug/debug.md`. Historical plans were archived during that cleanup pass; later aggressive cleanup removed low-value archive files; runtime/safety docs use default-safe plus gated real contract wording.
 - Verification: `git diff --check HEAD~3..HEAD` passed with no output; `git diff --check main...HEAD` passed with no output; `rg -n 'Phase 1: Monorepo Foundation|Phase 11-15 currently|Current Phase' AGENTS.md README.md docs struct.md summary.md debug.md --glob '!docs/archive/**'` only matched active cleanup spec/plan command examples and replacement instructions; `rg -n 'realNetworkCall.*false|realNetworkCall` stays `false|realNetworkCall` remains `false' AGENTS.md README.md docs struct.md summary.md debug.md --glob '!docs/archive/**'` found current safety-boundary wording plus cleanup plan/spec and debug history references; `git status --short --branch` showed `## docs/current-architecture-cleanup`.
 - Follow-up: none.
 
@@ -134,13 +134,13 @@ Use this format for new entries:
 
 ### 2026-06-04 - Progress Rollups Consolidated
 
-- Context: aggressive cleanup of progress files after current facts moved into root fact sources.
-- Symptom: `docs/progress/` contained old phase and batch rollups that duplicated `docs/progress.md`, current docs, and debug history.
-- Scope: `docs/progress/**`, `docs/progress.md`, `summary.md`, and `debug.md`.
-- Investigation: searched active references to progress child files and confirmed `docs/progress.md` contains the current capability and verification summary.
+- Context: aggressive cleanup of progress files after current facts moved into then-current fact sources; current progress entrypoint is `docs/status/progress.md`.
+- Symptom: `docs/progress/` contained old phase and batch rollups that duplicated the then-current progress entrypoint, current docs, and debug history.
+- Scope: historical `docs/progress/**`, current `docs/status/progress.md`, `summary.md`, and `docs/debug/debug.md`.
+- Investigation: searched active references to progress child files and confirmed the progress entrypoint contained the current capability and verification summary.
 - Fix: deleted progress child rollups and removed active links to them. Progress README now keeps `../progress.md` as the only path reference after child rollup deletion. Progress child rollup deletion also updated the structure check script from old phase files to current fact sources.
 - Verification: run deleted-path search, stale phase search, `git diff --check`, and `git status --short`.
-- Follow-up: record future current progress in `docs/progress.md` unless a new focused current note is explicitly needed.
+- Follow-up: record future current progress in `docs/status/progress.md` unless a new focused current note is explicitly needed.
 
 ### 2026-06-04 - Duplicate Phase Planning Docs Removed
 
@@ -166,7 +166,7 @@ Use this format for new entries:
 
 - Context: aggressive cleanup changed the documentation retention policy.
 - Symptom: previous guidance allowed historical docs to remain in archive even when they no longer carried unique audit value.
-- Scope: `AGENTS.md`, `struct.md`, `summary.md`, and `debug.md`.
+- Scope: `AGENTS.md`, then-current `struct.md`, `summary.md`, and `debug.md`.
 - Investigation: compared approved cleanup boundary with current documentation maintenance rules and source priority.
 - Fix: documented ADR protection and the rule to remove low-value completed plans or stale phase notes after useful facts are captured.
 - Verification: run governance wording search, source-priority check, `git diff --check`, and `git status --short`.
@@ -176,8 +176,18 @@ Use this format for new entries:
 
 - Context: final validation in the `docs/aggressive-documentation-cleanup` worktree after deleting low-value historical docs, duplicate phase planning files, old progress rollups, and the merged cleanup worktree.
 - Symptom: repository documentation had retained stale phase artifacts, completed workflow documents, and old archive/progress paths after the first cleanup pass.
-- Scope: active root docs, `docs/archive`, `docs/superpowers`, `docs/progress`, retained operational docs, ADRs, and local worktrees.
+- Scope: then-active root docs, `docs/archive`, `docs/superpowers`, historical `docs/progress`, retained operational docs, ADRs, and local worktrees.
 - Investigation: ran structural checks, deleted-path checks, stale phase wording checks, safety-boundary checks, and git status checks before writing these final notes.
 - Fix: retained current fact sources and ADRs, removed low-value historical files, kept archive/progress child directories reduced to README policy files, and recorded the cleanup policy and final validation result.
-- Verification: `git status --short --branch` initially showed clean `## docs/aggressive-documentation-cleanup`; `git diff --check` passed with no output; `git worktree list` showed the main worktree and this aggressive cleanup worktree only, with no `.worktrees/docs-current-architecture-cleanup`; active Superpowers contained only the current aggressive cleanup spec/plan and README files; `docs/archive` contained only `docs/archive/README.md`; `docs/progress` contained only `docs/progress/README.md`; `test -d docs/adr` exited 0. Deleted-path search matched cleanup history or commands in `debug.md` and the active aggressive cleanup plan/spec only. Stale phase wording search still matched current repository check labels, retained operational feature labels, current progress/history labels, ADR history, `summary.md`/`debug.md` cleanup records, and active aggressive cleanup plan/spec verification text, but did not show retained operational docs treating deleted phase documents as current instructions. Safety-boundary search found active `realNetworkCall: false`, default-safe, gated real, injected runner, injected transport, and no-external-call guidance across `AGENTS.md`, `README.md`, `struct.md`, `summary.md`, `docs/api.md`, `docs/safety.md`, `docs/queue-runtime.md`, provider docs, worker docs, and cleanup records.
+- Verification: `git status --short --branch` initially showed clean `## docs/aggressive-documentation-cleanup`; `git diff --check` passed with no output; `git worktree list` showed the main worktree and this aggressive cleanup worktree only, with no `.worktrees/docs-current-architecture-cleanup`; active Superpowers contained only the current aggressive cleanup spec/plan and README files; `docs/archive` contained only `docs/archive/README.md`; historical `docs/progress` contained only `docs/progress/README.md`; `test -d docs/adr` exited 0. Deleted-path search matched cleanup history or commands in the debug record and the active aggressive cleanup plan/spec only. Stale phase wording search still matched current repository check labels, retained operational feature labels, current progress/history labels, ADR history, summary/debug cleanup records, and active aggressive cleanup plan/spec verification text, but did not show retained operational docs treating deleted phase documents as current instructions. Safety-boundary search found active `realNetworkCall: false`, default-safe, gated real, injected runner, injected transport, and no-external-call guidance across `AGENTS.md`, `README.md`, `docs/architecture/structure.md`, `summary.md`, `docs/api/orchestrator-api.md`, `docs/security/safety.md`, `docs/runtime/queue-runtime.md`, provider docs, worker docs, and cleanup records.
+- Follow-up: none.
+
+### 2026-06-04 - Documentation Migration Links Corrected
+
+- Context: Task 6 after the documentation map migration moved root and flat docs into topic directories.
+- Symptom: retained README files, operation standards, debug history, and cleanup workflow docs still contained old paths that could be mistaken for current entrypoints.
+- Scope: archive and Superpowers README files, development standards, debug records, aggressive cleanup plan/spec, vision plan historical note, and summary.
+- Investigation: ran the required old-path and root-fact-source scans, then separated current guidance from historical old paths and command examples.
+- Fix: updated current guidance to `docs/architecture/structure.md`, `docs/debug/debug.md`, `docs/status/progress.md`, `docs/api/orchestrator-api.md`, `docs/security/safety.md`, `docs/runtime/queue-runtime.md`, and `docs/integrations/overview.md`; marked retained old paths as historical notes.
+- Verification: old-path scan output was limited to current new paths containing legacy basenames, migration mappings, historical cleanup commands/records, vision historical prompt text, and ADR history; root wording scan had only then-root history or documentation-map plan headings; `git diff --check` passed with no output; git status showed only Task 6 Markdown edits.
 - Follow-up: none.

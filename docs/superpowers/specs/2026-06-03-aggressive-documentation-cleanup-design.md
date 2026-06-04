@@ -8,6 +8,8 @@ This spec covers repository hygiene only. It must not change runtime behavior, e
 
 ## Goal
 
+Historical note: this spec was written before the documentation map migration; old root and flat `docs/*.md` paths below describe then-current source locations or historical cleanup targets, not current documentation entrypoints.
+
 Reduce stale and low-value documentation surface so future work starts from current fact sources instead of old phase plans, completed Superpowers artifacts, or duplicated progress narratives.
 
 The cleanup should keep enough decision history to explain architecture choices, but it should remove files that now compete with current guidance.
@@ -17,11 +19,11 @@ The cleanup should keep enough decision history to explain architecture choices,
 Preserve these documents and document groups:
 
 - `AGENTS.md`
-- `struct.md`
+- `docs/architecture/structure.md`
 - `summary.md`
-- `debug.md`
+- `docs/debug/debug.md`
 - `README.md`
-- Current operational docs such as `docs/api.md`, `docs/safety.md`, `docs/queue-runtime.md`, integration docs, worker docs, auth, storage, schema, state-machine, operations, troubleshooting, and local-development docs.
+- Current operational docs such as `docs/api/orchestrator-api.md`, `docs/security/safety.md`, `docs/runtime/queue-runtime.md`, integration docs, worker docs, auth, storage, schema, state-machine, operations, troubleshooting, and local-development docs.
 - ADRs under `docs/adr/**`.
 - Package, app, worker, project, mission, artifact, and workspace README files that explain active repository boundaries.
 
@@ -30,7 +32,7 @@ Candidates for deletion or archive cleanup:
 - Completed Superpowers specs and plans, including the completed 2026-06-03 documentation cleanup spec and plan once this new cleanup is underway.
 - Old brainstorms, old phase plans, and archived enhancement plans.
 - Low-value archived Superpowers plans/specs that no longer need to remain in the repository.
-- Old progress phase rollups when their content is already represented by `struct.md`, `summary.md`, `debug.md`, `README.md`, `docs/progress.md`, current docs, or ADRs.
+- Old progress phase rollups when their content is already represented by `docs/architecture/structure.md`, `summary.md`, `docs/debug/debug.md`, `README.md`, `docs/status/progress.md`, current docs, or ADRs.
 - Duplicative roadmap and acceptance-criteria docs if they are still written as phase plans rather than current instructions.
 - The merged local worktree at `.worktrees/docs-current-architecture-cleanup`.
 
@@ -62,13 +64,13 @@ Delete completed historical material when it no longer carries unique decision v
 - `docs/archive/plans/enhance_plan.md`
 - completed active Superpowers cleanup spec/plan after the implementation plan for this cleanup exists
 
-If a file contains a decision that is not captured elsewhere, preserve the decision by summarizing it in `summary.md`, `debug.md`, or a retained ADR before deleting the file.
+If a file contains a decision that is not captured elsewhere, preserve the decision by summarizing it in `summary.md`, `docs/debug/debug.md`, or a retained ADR before deleting the file.
 
 ### 3. Reclassify Or Delete Progress And Phase Planning Docs
 
 Review active phase/progress planning documents and handle each file explicitly:
 
-- Keep current progress entrypoint `docs/progress.md`.
+- Keep current progress entrypoint `docs/status/progress.md`.
 - Keep focused progress notes only if they still provide useful verification or batch audit context that is not duplicated elsewhere.
 - Delete phase-only progress notes when they only repeat obsolete milestone narratives.
 - Delete or rewrite roadmap/acceptance docs that present old phase order as current implementation guidance.
@@ -87,12 +89,12 @@ Do not delete current operational docs just because they include old phase wordi
 
 Known examples to review include:
 
-- `docs/integrations.md`
-- `docs/next-steps.md`
-- `docs/api.md`
-- `docs/queue-runtime.md`
+- `docs/integrations/overview.md`
+- `docs/status/next-steps.md`
+- `docs/api/orchestrator-api.md`
+- `docs/runtime/queue-runtime.md`
 - `docs/local-development.md`
-- `docs/safety.md`
+- `docs/security/safety.md`
 - `docs/worker-runtime.md`
 - `README.md`
 
@@ -101,8 +103,8 @@ Known examples to review include:
 Every implementation task must update the corresponding current records:
 
 - `summary.md`: record what was deleted, what was retained, why ADRs are protected, and residual drift risk.
-- `debug.md`: record investigation scope, deletion/retention decisions, verification commands, and results.
-- `struct.md`: update only if the cleanup changes current documentation source priority or top-level documentation structure.
+- `docs/debug/debug.md`: record investigation scope, deletion/retention decisions, verification commands, and results.
+- `docs/architecture/structure.md`: update only if the cleanup changes current documentation source priority or top-level documentation structure.
 - `AGENTS.md`: update only if the cleanup policy needs a more explicit future rule.
 
 No secrets, tokens, raw credentials, private content, or long logs may be added to these documents.

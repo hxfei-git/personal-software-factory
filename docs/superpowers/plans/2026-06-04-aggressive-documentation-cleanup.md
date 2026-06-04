@@ -4,7 +4,9 @@
 
 **Goal:** Remove low-value stale documentation and the merged cleanup worktree while preserving current fact sources, ADRs, and default-safe real-mode boundaries.
 
-**Architecture:** Keep `AGENTS.md`, `struct.md`, `summary.md`, `debug.md`, `README.md`, current operational docs, and `docs/adr/**` as the durable documentation surface. Delete completed phase planning/progress artifacts that duplicate current facts, then rewrite remaining active docs to use current default-safe and gated real contract language.
+Historical note: this implementation plan was written before the documentation map migration. Old root and flat `docs/*.md` paths inside completed task file lists, command examples, and debug snippets are historical old paths, not current documentation entrypoints.
+
+**Architecture:** Keep `AGENTS.md`, `docs/architecture/structure.md`, `summary.md`, `docs/debug/debug.md`, `README.md`, current operational docs, and `docs/adr/**` as the durable documentation surface. Delete completed phase planning/progress artifacts that duplicate current facts, then rewrite remaining active docs to use current default-safe and gated real contract language.
 
 **Tech Stack:** Git, Markdown, ripgrep, pnpm workspace docs; no runtime code or TypeScript changes.
 
@@ -19,7 +21,7 @@
 - Do not push to GitHub.
 - Keep `realNetworkCall: false`, default-safe, gated real, injected runner, and injected transport boundaries in active docs.
 - Every tracked-file task must end with a Chinese commit title and Chinese commit body.
-- Update `summary.md` and `debug.md` when files are deleted or active wording changes.
+- Update `summary.md` and `docs/debug/debug.md` when files are deleted or active wording changes.
 - Deleted-path references inside this active plan are implementation instructions/history, not current documentation references. Keep task steps intact as the execution record.
 
 ## File Structure
@@ -244,13 +246,13 @@ The current cleanup policy is aggressive:
 - Keep current fact sources in the repository root and active `docs/` files.
 - Keep ADRs under `docs/adr/**`.
 - Delete low-value historical plans, brainstorms, completed Superpowers artifacts, and duplicate phase notes once their useful facts are represented in current docs or ADRs.
-- Add files here only when they preserve unique audit context that should not be copied into an ADR, `summary.md`, or `debug.md`.
+- Add files here only when they preserve unique audit context that should not be copied into an ADR, `summary.md`, or `docs/debug/debug.md`.
 
 For active architecture and operating guidance, read:
 
-- `../../struct.md`
+- `../../docs/architecture/structure.md`
 - `../../summary.md`
-- `../../debug.md`
+- `../../docs/debug/debug.md`
 - `../../README.md`
 - `../progress.md`
 - `../api.md`
@@ -391,7 +393,7 @@ Replace the body with:
 
 This directory is for active implementation plans only.
 
-Use the newest active plan for the current task. Completed plans should be removed after their decisions and verification results are represented in `summary.md`, `debug.md`, ADRs, or other current docs.
+Use the newest active plan for the current task. Completed plans should be removed after their decisions and verification results are represented in `summary.md`, `docs/debug/debug.md`, ADRs, or other current docs.
 ```
 
 - [ ] **Step 5: Update records**
@@ -488,7 +490,7 @@ Replace the body with:
 
 Use `../progress.md` as the active progress entrypoint.
 
-Detailed phase and batch rollups were removed during the aggressive documentation cleanup after their current facts were consolidated into `../progress.md`, `../../summary.md`, `../../debug.md`, current operational docs, or ADRs.
+Historical note: detailed phase and batch rollups were removed during the aggressive documentation cleanup after their current facts were consolidated into the then-current progress/debug paths; current entries are `../status/progress.md`, `../../summary.md`, `../debug/debug.md`, current operational docs, or ADRs.
 ```
 
 - [ ] **Step 3: Rewrite `docs/progress.md` heading and source note**
@@ -553,7 +555,7 @@ With:
 In `summary.md`, under `## Recently Resolved By Documentation Cleanup`, add:
 
 ```markdown
-- Old progress child rollups were removed after the current status, verification posture, and safety boundaries were consolidated into `docs/progress.md`, `summary.md`, and `debug.md`.
+- Old progress child rollups were removed after the current status, verification posture, and safety boundaries were consolidated into `docs/status/progress.md`, `summary.md`, and `docs/debug/debug.md`.
 ```
 
 Append to `debug.md`:
@@ -561,13 +563,13 @@ Append to `debug.md`:
 ```markdown
 ### 2026-06-04 - Progress Rollups Consolidated
 
-- Context: aggressive cleanup of progress files after current facts moved into root fact sources.
-- Symptom: `docs/progress/` contained old phase and batch rollups that duplicated `docs/progress.md`, current docs, and debug history.
-- Scope: `docs/progress/**`, `docs/progress.md`, `summary.md`, and `debug.md`.
-- Investigation: searched active references to progress child files and confirmed `docs/progress.md` contains the current capability and verification summary.
+- Context: aggressive cleanup of progress files after current facts moved into current document entrypoints.
+- Symptom: `docs/progress/` contained old phase and batch rollups that duplicated `docs/status/progress.md`, current docs, and debug history.
+- Scope: `docs/progress/**`, `docs/status/progress.md`, `summary.md`, and `docs/debug/debug.md`.
+- Investigation: searched active references to progress child files and confirmed `docs/status/progress.md` contains the current capability and verification summary.
 - Fix: deleted progress child rollups and removed active links to them.
 - Verification: run deleted-path search, stale phase search, `git diff --check`, and `git status --short`.
-- Follow-up: record future current progress in `docs/progress.md` unless a new focused current note is explicitly needed.
+- Follow-up: record future current progress in `docs/status/progress.md` unless a new focused current note is explicitly needed.
 ```
 
 - [ ] **Step 6: Verify Task 4**
@@ -653,7 +655,7 @@ Follow the phase order in `docs/01-execution-roadmap.md` and acceptance gates in
 With:
 
 ```markdown
-Use `struct.md`, `summary.md`, `debug.md`, `docs/progress.md`, and ADRs under `docs/adr/` for current implementation state and decision history.
+Use `docs/architecture/structure.md`, `summary.md`, `docs/debug/debug.md`, `docs/status/progress.md`, and ADRs under `docs/adr/` for current implementation state and decision history.
 ```
 
 - [ ] **Step 3: Update `docs/development-standards.md`**
@@ -663,7 +665,7 @@ Replace the `## Phase Discipline` section with:
 ```markdown
 ## Current Work Discipline
 
-Personal Software Factory tracks current implementation state in root fact sources and ADRs, not in old phase plans. Each task should preserve default-safe boundaries, update the relevant current docs, and finish with focused verification.
+Personal Software Factory tracks current implementation state through the current document entrypoints, distributed topic docs, and ADRs, not old phase plans. Each task should preserve default-safe boundaries, update the relevant current docs, and finish with focused verification.
 ```
 
 Replace:
@@ -689,7 +691,7 @@ Replace:
 With:
 
 ```markdown
-- Each task should update the relevant README, `struct.md`, `summary.md`, `debug.md`, progress note, ADR, or operating guide when behavior, structure, commands, status, or safety boundaries change.
+- Each task should update the relevant README, `docs/architecture/structure.md`, `summary.md`, `docs/debug/debug.md`, progress note, ADR, or operating guide when behavior, structure, commands, status, or safety boundaries change.
 ```
 
 Replace:
@@ -702,8 +704,8 @@ Replace:
 With:
 
 ```markdown
-- Record current progress in `docs/progress.md`.
-- Keep architecture decisions aligned with `struct.md` and ADRs under `docs/adr/`.
+- Record current progress in `docs/status/progress.md`.
+- Keep architecture decisions aligned with `docs/architecture/structure.md` and ADRs under `docs/adr/`.
 ```
 
 - [ ] **Step 4: Update `docs/next-steps.md`**
@@ -736,7 +738,7 @@ If that evidence appears, start from ADR 0005 and write a fresh migration design
 After the current fact-source list, add:
 
 ```markdown
-ADRs under `adr/` are retained decision records. Numbered phase planning documents were removed during aggressive cleanup after their current facts moved into root fact sources, current operational docs, or ADRs.
+ADRs under `adr/` are retained decision records. Numbered phase planning documents were removed during aggressive cleanup after their current facts moved into current document entrypoints, current operational docs, or ADRs.
 ```
 
 - [ ] **Step 6: Update records**
@@ -744,7 +746,7 @@ ADRs under `adr/` are retained decision records. Numbered phase planning documen
 In `summary.md`, under `## Recently Resolved By Documentation Cleanup`, add:
 
 ```markdown
-- Duplicate numbered phase planning, MVP scope, acceptance, and Temporal/LangGraph migration notes were removed; current state now relies on root fact sources, operational docs, and ADRs.
+- Duplicate numbered phase planning, MVP scope, acceptance, and Temporal/LangGraph migration notes were removed; current state now relies on current document entrypoints, operational docs, and ADRs.
 ```
 
 Append to `debug.md`:
@@ -1057,14 +1059,14 @@ Expected: commit succeeds.
 
 - [ ] **Step 1: Update `AGENTS.md` documentation maintenance rules**
 
-Under `## Documentation Maintenance Rules`, add these bullets after the existing `struct.md` / `summary.md` / `debug.md` bullets:
+Under `## Documentation Maintenance Rules`, add these bullets after the existing architecture / `summary.md` / debug bullets:
 
 ```markdown
 - Preserve ADRs under `docs/adr/**`; do not delete them during cleanup unless the user explicitly asks and a newer ADR supersedes the decision.
-- Remove completed plans, stale phase notes, and low-value historical documents once their useful facts are represented in current docs, ADRs, `summary.md`, or `debug.md`.
+- Remove completed plans, stale phase notes, and low-value historical documents once their useful facts are represented in current docs, ADRs, `summary.md`, or `docs/debug/debug.md`.
 ```
 
-- [ ] **Step 2: Update `struct.md` source priority**
+- [ ] **Step 2: Update `docs/architecture/structure.md` source priority**
 
 Replace:
 
@@ -1075,10 +1077,10 @@ Historical phase plans remain useful for audit, but they are not the current arc
 With:
 
 ```markdown
-ADRs remain the durable decision history. Low-value historical phase plans are removed once their useful facts are represented in current docs, ADRs, `summary.md`, or `debug.md`.
+ADRs remain the durable decision history. Low-value historical phase plans are removed once their useful facts are represented in current docs, ADRs, `summary.md`, or `docs/debug/debug.md`.
 ```
 
-In the `## Current Source Priority` list, add this item after `debug.md`:
+In the `## Current Source Priority` list, add this item after `docs/debug/debug.md`:
 
 ```markdown
 5. `docs/adr/**` for architecture decision history
@@ -1211,7 +1213,7 @@ Run:
 rg -n 'realNetworkCall.*false|default-safe|gated real|injected runner|injected transport|do not execute Codex|does not call external' AGENTS.md README.md docs struct.md summary.md debug.md --glob '!docs/archive/**'
 ```
 
-Expected: output shows active safety-boundary guidance in `AGENTS.md`, `struct.md`, `README.md`, `docs/api.md`, `docs/safety.md`, `docs/queue-runtime.md`, provider docs, `summary.md`, or `debug.md`.
+Expected: output shows active safety-boundary guidance in `AGENTS.md`, `docs/architecture/structure.md`, `README.md`, `docs/api/orchestrator-api.md`, `docs/security/safety.md`, `docs/runtime/queue-runtime.md`, provider docs, `summary.md`, or `docs/debug/debug.md`.
 
 - [ ] **Step 5: Update final validation records**
 
@@ -1222,7 +1224,7 @@ Append to `debug.md`:
 
 - Context: final validation after deleting low-value historical docs, duplicate phase planning files, old progress rollups, and the merged cleanup worktree.
 - Symptom: repository documentation still contained stale phase artifacts and completed workflow documents after the first cleanup pass.
-- Scope: active root docs, `docs/archive`, `docs/superpowers`, `docs/progress`, retained operational docs, ADRs, and local worktrees.
+- Scope: then-active root docs, `docs/archive`, `docs/superpowers`, historical `docs/progress`, retained operational docs, ADRs, and local worktrees.
 - Investigation: ran structural checks, deleted-path checks, stale phase wording checks, safety-boundary checks, and git status checks.
 - Fix: retained current fact sources and ADRs, deleted low-value historical files, rewrote retained operational docs, and recorded the new cleanup policy.
 - Verification: `git diff --check` passed with no output; `git worktree list` no longer showed `.worktrees/docs-current-architecture-cleanup`; active Superpowers contained only current aggressive cleanup artifacts and README files; archive contained only retained audit policy; progress child files were removed; deleted-path and stale phase checks only matched cleanup history in `debug.md`, `summary.md`, ADRs, or the active aggressive cleanup plan/spec; safety-boundary checks found `realNetworkCall: false`, default-safe, gated real, injected runner, and injected transport guidance.

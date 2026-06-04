@@ -1,5 +1,9 @@
 # plan.md — Personal Software Factory / 个人 AI 软件工厂
 
+> Historical note: this file was originally authored as root `plan.md`. Its current repository path is `docs/vision/plan.md`; legacy `plan.md` mentions below are historical prompt text, not current documentation-entry guidance.
+
+> 当前说明：本文件仅保留长期产品愿景和早期规划上下文，不是当前实现事实源，也不是当前任务执行指令。当前事实和执行入口以 `summary.md`、`docs/architecture/structure.md`、`docs/status/progress.md`、`docs/debug/debug.md` 和 `AGENTS.md` 为准。
+
 > 目标：为个人开发者构建一个可持续演进的 AI 软件工厂。用户只提出需求，系统自动完成需求拆解、分支开发、自动测试、AI 浏览器探索测试、缺陷回传、自动修复、预览部署、运行监控与 Web 进度管理。  
 > 执行方式：本文件将交给 Codex CLI，并优先由 Superpowers 的 `brainstorming` / planning / TDD 工作流驱动执行。  
 > 首个接入项目：`hxfei-git/ai-novelist`。  

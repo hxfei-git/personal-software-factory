@@ -75,6 +75,7 @@
 - structure check script 已从历史旧 phase 文件切换到当前事实源。
 - 重复的 numbered phase planning、MVP scope、acceptance、Temporal/LangGraph migration notes 已删除；当前状态依赖根入口、运行文档和 ADR。
 - 全局 Markdown 已迁入 `docs/` 主题目录，根目录保留 `README.md`、`AGENTS.md`、`summary.md` 三个入口；`summary.md` 现在维护完整文档地图。
+- 文档迁移后的交叉链接已更新到当前主题目录；保留的旧路径仅作为历史旧路径、迁移映射或历史命令出现。
 
 ## 已完成
 

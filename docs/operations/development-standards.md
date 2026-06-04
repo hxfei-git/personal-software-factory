@@ -2,7 +2,7 @@
 
 ## Current Work Discipline
 
-Personal Software Factory tracks current implementation state in root fact sources and ADRs, not in old phase plans. Each task should preserve default-safe boundaries, update the relevant current docs, and finish with focused verification.
+Personal Software Factory tracks current implementation state through the current document entrypoints, distributed topic docs, and ADRs, not old phase plans. Each task should preserve default-safe boundaries, update the relevant current docs, and finish with focused verification.
 
 ## Safety
 
