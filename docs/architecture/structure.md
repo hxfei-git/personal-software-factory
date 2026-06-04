@@ -1,11 +1,10 @@
-# Current Architecture Structure
+# 当前架构结构
 
-## Status
+## 状态
 
-This file is the current architecture fact source for Personal Software Factory.
-It describes the implemented repository state after the gated real execution work, Batch 03/04 local QA and Codex proof surfaces, and Batch 05/06 fix/regression plus GitHub PR gate preview.
+本文档是 Personal Software Factory 当前架构事实源。它描述已经实现的仓库结构、模块边界、数据流、状态机、worker contract、集成边界和默认安全姿态。
 
-ADRs remain the durable decision history. Low-value historical phase plans are removed once their useful facts are represented in current docs, ADRs, `summary.md`, or `docs/debug/debug.md`.
+ADR 是持久决策历史。低价值历史阶段计划会在有用事实进入当前文档、ADR、`summary.md` 或 `docs/debug/debug.md` 后删除。
 
 ## System Purpose
 

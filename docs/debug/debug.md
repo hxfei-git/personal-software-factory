@@ -1,4 +1,6 @@
-# Debug Notes
+# 调试记录
+
+> 当前调试记录入口为 `docs/debug/debug.md`。历史条目中出现的旧路径只表示当时的文件位置，不是当前事实源。
 
 ## Purpose
 

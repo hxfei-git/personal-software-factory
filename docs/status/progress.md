@@ -1,10 +1,10 @@
-# Current Progress
+# 当前进度
 
-## Current Fact Sources
+## 当前事实源
 
-The current architecture fact source is `../struct.md`. Current problems and improvement items are tracked in `../summary.md`. Debug notes and investigation records are tracked in `../debug.md`.
+当前架构事实源是 `../architecture/structure.md`。当前问题、风险、待改进项和文档地图在 `../../summary.md`。调试和验证记录在 `../debug/debug.md`。
 
-Detailed phase and batch rollups have been removed where they duplicated current facts. This file keeps the concise current progress summary.
+重复当前事实的详细 phase 和 batch rollup 已删除。本文档只保留简洁的当前进度摘要。
 
 ## Latest Update
 
