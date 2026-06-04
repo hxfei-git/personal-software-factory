@@ -21,6 +21,7 @@ import type {
   QueuedDryRunActionResponse,
   QAReport,
   QueueStatus,
+  RealModeReadinessEntry,
   WorkerRun,
 } from "./api/types";
 
@@ -654,12 +655,13 @@ function renderMissionActions(
         <button type="button" disabled={busy} onClick={() => void actions.onRefresh()}>Refresh Summary</button>
         {guardedRealActions.map((entry) => {
           const missingApprovalText = formatMissingApprovalTypes(entry.missingApprovalTypes);
+          const blockerText = formatReadinessBlockers(entry);
           return (
             <button
               type="button"
               key={entry.action}
-              disabled={busy || !entry.safeToRun}
-              title={[entry.message, missingApprovalText].filter(Boolean).join(" ")}
+              disabled={busy || !entry.canQueue}
+              title={[entry.message, missingApprovalText, blockerText].filter(Boolean).join(" ")}
             >
               {realActionButtonLabel(entry.action)}
             </button>
@@ -675,6 +677,10 @@ function formatMissingApprovalTypes(missingApprovalTypes?: string[]): string {
   return missingApprovalTypes && missingApprovalTypes.length > 0
     ? "Missing approvals " + missingApprovalTypes.join(", ")
     : "";
+}
+
+function formatReadinessBlockers(entry: RealModeReadinessEntry): string {
+  return entry.blockers.map((blocker) => blocker.nextAction).join(" ");
 }
 
 function realActionButtonLabel(action: string): string {
@@ -1014,11 +1020,14 @@ function renderRealModeReadiness(data: MissionSummaryResponse): ReactElement {
         <div className="list-row" key={entry.key}>
           <div>
             <strong>{entry.label}</strong>
-            <span>{entry.ready ? "ready" : "blocked/manual-action"} / safeToRun {String(entry.safeToRun)} / realNetworkCall {String(entry.realNetworkCall)}</span>
+            <span>{entry.canQueue ? "queueable/manual-action" : "blocked/manual-action"} / canQueue {String(entry.canQueue)} / canExecute {String(entry.canExecute)} / realNetworkCall {String(entry.realNetworkCall)}</span>
             <span>{entry.message}</span>
             {entry.missingEnv.length > 0 ? <span>Missing {entry.missingEnv.join(", ")}</span> : null}
             {entry.requiredApprovalTypes && entry.requiredApprovalTypes.length > 0 ? <span>Approvals {entry.requiredApprovalTypes.join(", ")}</span> : null}
             {entry.missingApprovalTypes && entry.missingApprovalTypes.length > 0 ? <span>{`Missing approvals ${entry.missingApprovalTypes.join(", ")}`}</span> : null}
+            {entry.blockers.length > 0 ? <span>Next action {entry.recommendedNextAction}</span> : null}
+            {entry.queueBlockers.length > 0 ? <span>Queue blockers {entry.queueBlockers.map((blocker) => blocker.kind).join(", ")}</span> : null}
+            {entry.executionBlockers.length > 0 ? <span>Execution blockers {entry.executionBlockers.map((blocker) => blocker.kind).join(", ")}</span> : null}
           </div>
           <span>{entry.enabled ? "enabled" : "disabled"}</span>
         </div>
