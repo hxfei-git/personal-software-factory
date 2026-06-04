@@ -467,6 +467,16 @@ describe("gated real integration adapters", () => {
         expect(result.safeToRun).toBe(false);
         expect(result.decision).toBe("manual_action");
         expect(result.message).toContain("Manual action");
+        expect(result.blockers.length).toBeGreaterThan(0);
+        expect(result.blockers[0]).toMatchObject({
+          severity: "manual_action",
+          blocks: ["execute"],
+          source: "integration",
+        });
+        expect(textOf(result)).not.toContain("ghp_real_secret");
+        expect(textOf(result)).not.toContain("coolify_real_secret");
+        expect(textOf(result)).not.toContain("kuma_real_secret");
+        expect(textOf(result)).not.toContain("plane_real_secret");
       }
     }
     expect(calls).toHaveLength(0);
@@ -543,6 +553,29 @@ describe("gated real integration adapters", () => {
     expect(result.decision).toBe("manual_action");
     expect(result.realNetworkCall).toBe(false);
     expect(result.message).toContain("protected branch");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("returns a GitHub operation gate blocker when no operation gate is enabled", async () => {
+    const { calls, transport } = createTransport([{ status: 201, json: { number: 42 } }]);
+
+    const result = await runGitHubReal({
+      env: configuredEnv,
+      now: fixedNow,
+      mission: missionInput,
+      transport,
+      gates: { allowNetwork: true },
+    });
+
+    expect(result.decision).toBe("manual_action");
+    expect(result.realNetworkCall).toBe(false);
+    expect(result.blockers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        key: "policy.integration.operation_gate_disabled",
+        blocks: ["execute"],
+        source: "integration",
+      }),
+    ]));
     expect(calls).toHaveLength(0);
   });
 

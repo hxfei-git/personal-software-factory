@@ -78,6 +78,7 @@ export {
   type GitHubRealInput,
   type GitHubRealOutputs,
   type GitHubRealResult,
+  type IntegrationReadinessBlocker,
   type IntegrationRealResult,
   type IntegrationRealStatus,
   type IntegrationTransport,

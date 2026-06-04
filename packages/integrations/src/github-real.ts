@@ -31,6 +31,17 @@ export interface IntegrationTransportResponse {
 export type IntegrationTransport = (request: IntegrationTransportRequest) => Promise<IntegrationTransportResponse>;
 export type RealIntegrationDecision = "manual_action" | "succeeded" | "failed" | "degraded";
 
+export interface IntegrationReadinessBlocker {
+  category: "queue_acceptance" | "approval" | "configuration" | "policy" | "execution" | "safety";
+  key: string;
+  message: string;
+  recommendedNextAction: string;
+  severity: "blocking" | "manual_action" | "warning" | "info";
+  blocks: Array<"queue" | "execute">;
+  source: "integration";
+  details?: Record<string, unknown>;
+}
+
 export type IntegrationRealStatus<TName extends IntegrationName = IntegrationName> = Omit<IntegrationStatus<TName>, "mode" | "realNetworkCall" | "safeToRun" | "healthy"> & {
   mode: "real";
   realNetworkCall: boolean;
@@ -47,6 +58,7 @@ export interface IntegrationRealResult<TName extends IntegrationName, TOutputs e
   configured: boolean;
   missingEnv: string[];
   safeToRun: boolean;
+  blockers: IntegrationReadinessBlocker[];
   message: string;
   decision: RealIntegrationDecision;
   status: IntegrationRealStatus<TName>;
@@ -93,6 +105,143 @@ export interface GitHubRealOutputs {
 
 export type GitHubRealResult = IntegrationRealResult<"github", GitHubRealOutputs>;
 
+function integrationBlockersFromResult(input: {
+  integrationName: IntegrationName;
+  decision: RealIntegrationDecision;
+  message: string;
+  missingEnv: string[];
+  outputs: object;
+}): IntegrationReadinessBlocker[] {
+  const blockers: IntegrationReadinessBlocker[] = [];
+
+  for (const envName of input.missingEnv) {
+    blockers.push({
+      category: "configuration",
+      key: `configuration.env.${envName}.missing`,
+      message: `${input.integrationName} is missing required environment variable ${envName}.`,
+      recommendedNextAction: `Configure ${envName} for ${input.integrationName} or keep the adapter in manual-action mode.`,
+      severity: "blocking",
+      blocks: ["execute"],
+      source: "integration",
+      details: { provider: input.integrationName, envName },
+    });
+  }
+
+  for (const manualAction of manualActionsFromOutputs(input.outputs)) {
+    blockers.push(blockerFromManualAction(input.integrationName, manualAction));
+  }
+
+  if (input.decision === "manual_action" && blockers.length === 0) {
+    blockers.push({
+      category: "execution",
+      key: "execution.integration.unclassified_execution_blocker",
+      message: input.message,
+      recommendedNextAction: "Inspect the integration adapter output before retrying.",
+      severity: "manual_action",
+      blocks: ["execute"],
+      source: "integration",
+      details: { provider: input.integrationName },
+    });
+  }
+
+  return blockers;
+}
+
+function manualActionsFromOutputs(outputs: object): string[] {
+  const manualActions = (outputs as { manualActions?: unknown }).manualActions;
+
+  if (!Array.isArray(manualActions) || !manualActions.every((value) => typeof value === "string")) {
+    return [];
+  }
+
+  return manualActions;
+}
+
+function blockerFromManualAction(provider: IntegrationName, manualAction: string): IntegrationReadinessBlocker {
+  const normalized = manualAction.toLowerCase();
+
+  if (normalized.includes("transport") || normalized.includes("allownetwork")) {
+    return {
+      category: "execution",
+      key: "execution.integration.injected_transport_missing",
+      message: "Integration requires an injected transport before any provider request.",
+      recommendedNextAction: "Inject an approved transport only after explicit approval, or keep the adapter in manual-action mode.",
+      severity: "manual_action",
+      blocks: ["execute"],
+      source: "integration",
+      details: { provider },
+    };
+  }
+
+  if (
+    normalized.includes("operation gate") ||
+    normalized.includes("allowpushbranch") ||
+    normalized.includes("allowcreatepullrequest") ||
+    normalized.includes("allowupdatepullrequestbody") ||
+    normalized.includes("allowpostqacomment") ||
+    normalized.includes("approveproductiondeploy") ||
+    normalized.includes("approve production") ||
+    normalized.includes("requires approval") ||
+    (normalized.includes("production") && normalized.includes("approval"))
+  ) {
+    return {
+      category: "policy",
+      key: "policy.integration.operation_gate_disabled",
+      message: "Integration operation gate is disabled by policy.",
+      recommendedNextAction: "Keep the adapter in manual-action mode until operation gates are explicitly approved.",
+      severity: "manual_action",
+      blocks: ["execute"],
+      source: "integration",
+      details: { provider },
+    };
+  }
+
+  return {
+    category: "execution",
+    key: "execution.integration.manual_action",
+    message: manualAction,
+    recommendedNextAction: "Inspect the integration adapter output before retrying.",
+    severity: "manual_action",
+    blocks: ["execute"],
+    source: "integration",
+    details: { provider },
+  };
+}
+
+function sortIntegrationBlockers(blockers: IntegrationReadinessBlocker[]): IntegrationReadinessBlocker[] {
+  const severityOrder: Record<IntegrationReadinessBlocker["severity"], number> = {
+    blocking: 0,
+    manual_action: 1,
+    warning: 2,
+    info: 3,
+  };
+  const categoryOrder: Record<IntegrationReadinessBlocker["category"], number> = {
+    queue_acceptance: 0,
+    approval: 1,
+    configuration: 2,
+    policy: 3,
+    execution: 4,
+    safety: 5,
+  };
+
+  return [...blockers].sort((left, right) => {
+    const severityDelta = severityOrder[left.severity] - severityOrder[right.severity];
+    if (severityDelta !== 0) return severityDelta;
+
+    const queueDelta = queueBlockRank(left) - queueBlockRank(right);
+    if (queueDelta !== 0) return queueDelta;
+
+    const categoryDelta = categoryOrder[left.category] - categoryOrder[right.category];
+    if (categoryDelta !== 0) return categoryDelta;
+
+    return left.key.localeCompare(right.key);
+  });
+}
+
+function queueBlockRank(blocker: IntegrationReadinessBlocker): number {
+  return blocker.blocks.includes("queue") ? 0 : 1;
+}
+
 export function buildRealResult<TName extends IntegrationName, TOutputs extends object>(
   integrationDefinition: IntegrationDefinition<TName>,
   input: { env?: IntegrationEnv; now?: string | (() => string) },
@@ -104,6 +253,7 @@ export function buildRealResult<TName extends IntegrationName, TOutputs extends 
     safeToRun?: boolean;
     logs?: string[];
     errors?: string[];
+    blockers?: IntegrationReadinessBlocker[];
   },
 ): IntegrationRealResult<TName, TOutputs> {
   const env = input.env ?? {};
@@ -113,6 +263,13 @@ export function buildRealResult<TName extends IntegrationName, TOutputs extends 
   const realEnabled = isRealEnabled(integrationDefinition, env);
   const safeToRun = fields.safeToRun ?? fields.decision === "succeeded";
   const realNetworkCall = fields.realNetworkCall ?? false;
+  const blockers = sortIntegrationBlockers(fields.blockers ?? integrationBlockersFromResult({
+    integrationName: integrationDefinition.name,
+    decision: fields.decision,
+    message: fields.message,
+    missingEnv,
+    outputs: fields.outputs,
+  }));
   const status: IntegrationRealStatus<TName> = {
     name: integrationDefinition.name,
     externalName: integrationDefinition.externalName,
@@ -137,6 +294,7 @@ export function buildRealResult<TName extends IntegrationName, TOutputs extends 
     configured,
     missingEnv,
     safeToRun,
+    blockers,
     message: fields.message,
     decision: fields.decision,
     status,
