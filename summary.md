@@ -1,77 +1,216 @@
-# Current Architecture Summary
+# 当前架构总览
 
-## Status
+## 使用方式
 
-This file tracks current architecture problems, risks, and improvement items. It is not a historical phase log. Historical phase material was removed once represented in current docs or ADRs, and `docs/archive/` is reserved for retained audit references.
+`summary.md` 是用户查看当前状态和文档地图的中文总入口；`README.md` 仍是项目启动入口。本文记录当前状态、问题、待改进项、最近文档清理结果，以及仓库中 Markdown 文档的用途地图。
 
-## Current Strengths
+优先阅读顺序：
 
-- The project has clear TypeScript monorepo boundaries.
-- Orchestrator API owns state and exposes a broad local control-plane surface.
-- Mission state transitions are explicit and auditable.
-- Worker Runtime and Worker Runner provide a queue boundary without granting arbitrary execution.
-- Hub Web reads Orchestrator data and does not directly mutate the filesystem, database, or providers.
-- Integration dry-runs and real-mode readiness surfaces preserve `realNetworkCall: false` by default.
-- `ai-novelist` is registered as readiness metadata without pretending unverified commands are safe.
+1. `README.md`
+2. `summary.md`
+3. `docs/architecture/structure.md`
+4. `docs/status/progress.md`
+5. `docs/debug/debug.md`
+6. `AGENTS.md`
 
-## Current Problems
+本文不是历史阶段日志。已完成且低价值的历史阶段材料，会在有用事实进入当前文档或 ADR 后移除；`docs/archive/` 只保留仍有审计价值的归档入口。
 
-1. Residual documentation drift risk remains when new active docs reuse old phase language without linking it as history.
-2. Real-mode gate complexity is high: route gates, worker gates, provider gates, approvals, injected transports, and local workspace checks are spread across several documents and code paths.
-3. `ai-novelist` execution is not verified: passport commands, selectors, local URL behavior, and E2E entrypoints require manual verification in a real checkout.
-4. Contract duplication exists between Hub API types, mission schemas, Orchestrator service schemas, worker job schemas, and integration types.
-5. Manual-action UX is useful but not yet ergonomic: operators can see blockers, but the next concrete action is not always obvious.
-6. Archive policy is now applied to completed historical phase material; residual risk is future stale documents being added outside `docs/archive/`.
+## 当前优势
 
-## Improvement Backlog
+- 仓库已有清晰的 TypeScript monorepo 边界。
+- Orchestrator API 负责状态管理，并提供本地控制面 API。
+- Mission 状态迁移显式、可审计。
+- Worker Runtime 和 Worker Runner 提供队列边界，但不授予任意执行能力。
+- Hub Web 通过 Orchestrator 读取数据，不直接修改文件系统、数据库或外部 provider。
+- 集成 dry-run 和真实模式 readiness surface 默认保持 `realNetworkCall: false`。
+- `ai-novelist` 已作为 readiness metadata 注册，但不会把未验证命令伪装成安全可执行。
+
+## 当前问题
+
+1. 文档仍有漂移风险：新增活跃文档如果复用旧阶段语言，必须明确标为历史语境，不能当作当前事实。
+2. 真实模式 gate 复杂度较高：route gate、worker gate、provider gate、approval、injected transport、本地 workspace 检查分布在多处文档和代码路径。
+3. `ai-novelist` 执行仍未验证：passport commands、selectors、本地 URL 行为和 E2E 入口需要在真实 checkout 中人工验证。
+4. Hub API types、Mission schemas、Orchestrator service schemas、worker job schemas、integration types 之间仍有合同重复。
+5. manual-action UX 已能暴露 blocker，但还不够顺手；操作者不总能直接看到下一步具体动作。
+6. 归档策略已用于完成的历史阶段材料，但未来仍可能有人把陈旧文档加到 `docs/archive/` 之外。
+
+## 改进待办
 
 ### P0
 
-- Keep `realNetworkCall: false` in default integration and gated real-mode responses.
-- Keep token, password, API key, authorization, cookie, credential, session, JWT, and bearer values out of docs, logs, Hub UI, API responses, artifacts, PR bodies, and Issue bodies.
-- Update `struct.md`, `summary.md`, and `debug.md` when code or files change their covered areas.
+- 默认 integration response 和 gated real-mode response 必须继续保持 `realNetworkCall: false`。
+- token、password、API key、authorization、cookie、credential、session、JWT、bearer 等 secret 值不得进入文档、日志、Hub UI、API response、artifact、PR body 或 Issue body。
+- 当代码、文件、架构、数据流、状态迁移、worker 合同、集成 gate 或安全边界变化时，同步更新 `docs/architecture/structure.md`、`summary.md`、`docs/debug/debug.md` 等对应事实源。
 
 ### P1
 
-- Verify `ai-novelist` install, dev, build, test, lint, and E2E commands in a real checkout before enabling real worker execution.
-- Build a single readiness checklist for each gated real action.
-- Reduce repeated type contracts or add focused contract tests where duplication is still useful.
-- Make Hub real-mode blockers point to the exact missing approval, gate, env var, local mirror, target URL, runner, or transport.
+- 在启用真实 worker 执行前，在真实 checkout 中验证 `ai-novelist` 的 install、dev、build、test、lint 和 E2E 命令。
+- 为每一种 gated real action 建立单一 readiness checklist。
+- 减少重复类型合同；若重复有价值，则补充聚焦的 contract tests。
+- 让 Hub 真实模式 blocker 精确指向缺失的 approval、gate、env var、本地 mirror、target URL、runner 或 transport。
 
 ### P2
 
-- Decide when old phase labels should be replaced with batch labels in current docs.
-- Add a short architecture diagram after the current facts stabilize.
-- Revisit Temporal or LangGraph only after BullMQ/state-machine orchestration shows concrete recovery or long-running workflow pain.
+- 判断当前文档中的旧 phase 标签何时应替换为 batch 标签或历史说明。
+- 当前事实稳定后，补充一张短架构图。
+- 只有 BullMQ/state-machine orchestration 出现具体恢复痛点或长流程痛点后，才重新评估 Temporal 或 LangGraph。
 
-## Documentation Cleanup Status
+## 文档清理状态
 
-## Recently Resolved By Documentation Cleanup
+- 根目录当前只保留 `README.md`、`AGENTS.md`、`summary.md` 三个 Markdown 入口。
+- 全局 Markdown 已迁入 `docs/` 主题目录；代码就近 README、Mission/project 上下文、prompt 模板、Superpowers 计划和生成目录入口保留在原业务位置。
+- `summary.md` 现在承担用户中文总览和完整 Markdown 文档地图职责；每次 Markdown 新增、移动、改名或删除，都必须同步维护本地图。
+- 旧路径不能作为当前事实源；如需提及已移动路径，必须明确标注为历史旧路径。
 
-- Retained operational docs now describe current queue, API, auth, schema, storage, artifact, safety, and integration behavior without old phase-entry wording. Remaining phase/batch wording in retained operational docs was normalized to current-runtime and future-approved-task wording. Safety doc remaining batch wording was normalized to current queue safety and future-approved-task wording.
-- Completed prior Superpowers cleanup spec/plan files were removed from the active workflow directory; the current aggressive cleanup spec and plan remain active until this workstream finishes.
-- Low-value archive files from old Superpowers plans/specs, brainstorms, archived enhancement planning, and superseded phase-current notes were removed; retained audit policy now lives in `docs/archive/README.md`, and active docs no longer point to the deleted archive paths.
-- Active guidance no longer treats `docs/progress/current.md`, the archived enhancement plan, old brainstorms, or old Superpowers plans/specs as current instructions.
-- `docs/archive/` now retains only the archive policy README unless future unique audit references are intentionally added.
-- Active runtime, operations, local-development, and safety docs now describe current default-safe plus gated real contract behavior instead of stale phase-only dry-run wording.
-- API, risk, approval, README, progress, summary, and debug docs have been corrected so stale dry-run-boundary, old phase, and archived-plan wording are no longer tracked as open issues.
-- Old progress child rollups were removed after the current status, verification posture, and safety boundaries were consolidated into `docs/progress.md`, `summary.md`, and `debug.md`.
-- Progress README now keeps `../progress.md` as the only path reference after child rollup deletion.
-- Progress child rollup deletion also updated the structure check script from old phase files to current fact sources.
-- Duplicate numbered phase planning, MVP scope, acceptance, and Temporal/LangGraph migration notes were removed; current state now relies on root fact sources, operational docs, and ADRs.
-- Aggressive cleanup removed low-value archive files, previous completed workflow docs, old progress rollups, duplicate phase planning docs, and the merged cleanup worktree while preserving current fact sources and ADRs.
+## 最近已解决的文档问题
 
-### Completed So Far
+- 保留的运行文档已改为描述当前 queue、API、auth、schema、storage、artifact、safety 和 integration 行为，不再使用旧 phase-entry 作为当前语境。
+- 低价值 archive 文件、低价值旧 Superpowers plans/specs、brainstorm、归档 enhancement planning、已被取代的 phase-current notes 已移除；保留的归档策略位于 `docs/archive/README.md`。
+- 活跃指导不再把历史旧路径 `docs/progress/current.md`、已归档 enhancement plan、旧 brainstorm 或旧 Superpowers plans/specs 当作当前指令。
+- `docs/archive/` 当前只保留归档策略 README，除非未来明确需要保留有独特审计价值的材料。
+- runtime、operations、local-development、safety 文档已改为当前 default-safe 加 gated real contract 表述，不再停留在旧 phase-only dry-run 表述。
+- API、risk、approval、README、progress、summary、debug 相关文档已修正 stale dry-run-boundary、旧 phase 和 archived-plan 表述。
+- 历史旧进度子 rollup 已删除；当前状态、验证姿态和安全边界已合并进 `docs/status/progress.md`、`summary.md` 和 `docs/debug/debug.md`。
+- status README 现在指向当前 `docs/status/progress.md`，不再依赖历史旧进度子 rollup。
+- structure check script 已从历史旧 phase 文件切换到当前事实源。
+- 重复的 numbered phase planning、MVP scope、acceptance、Temporal/LangGraph migration notes 已删除；当前状态依赖根入口、运行文档和 ADR。
+- 全局 Markdown 已迁入 `docs/` 主题目录，根目录保留 `README.md`、`AGENTS.md`、`summary.md` 三个入口；`summary.md` 现在维护完整文档地图。
 
-- A new `struct.md` is the current architecture map.
-- A new `summary.md` is the issue and improvement source.
-- A new `debug.md` is the debug record source.
-- Active docs and indexes have been updated toward current implementation guidance.
-- Stale current-phase wording in active reference docs has been corrected while preserving historical phase meaning.
-- Active runtime, local development, safety, and operations docs now use default-safe plus gated real contract wording instead of old phase-boundary wording.
-- Active API, provider, Codex, queue, approval, and progress references now describe dry-run/status behavior plus gated real adapter or runner contracts, with default-disabled/default-safe execution and archived historical plan links.
-- Misleading historical current-state files were removed after useful facts were represented in current docs or ADRs.
+## 已完成
 
-### Residual Risk
+- `docs/architecture/structure.md` 是当前架构地图和事实源。
+- `summary.md` 是当前问题、风险、待改进项和 Markdown 文档地图的用户中文入口。
+- `docs/debug/debug.md` 是调试、验证和排障记录源。
+- 活跃 docs 和索引已更新为当前实现指导。
+- 活跃参考文档中的 stale current-phase wording 已修正，同时保留必要历史含义。
+- runtime、local development、safety、operations 文档已使用 default-safe 加 gated real contract wording。
+- API、provider、Codex、queue、approval、progress 引用已描述 dry-run/status 行为和 gated real adapter 或 runner contract，保持 default-disabled/default-safe execution。
+- 误导性的历史 current-state 文件已在有用事实进入当前文档或 ADR 后移除。
 
-- Keep future completed phase material out of active guidance; delete low-value history after current facts are captured, and use ADRs only for durable decisions.
+## 残余风险
+
+- 未来完成的 phase material 仍需避免进入活跃指导；低价值历史应在当前事实捕获后删除，持久决策才进入 ADR。
+- 真实执行仍需要明确后续任务和批准；当前文档地图不代表任何外部调用能力已启用。
+- 文档地图的准确性依赖后续每次 Markdown 新增、移动、改名、删除时同步更新 `summary.md`。
+
+## Markdown 文档地图
+
+### 根入口
+
+- `README.md`: 项目入口、快速启动、运行命令和核心文档导航，主要给用户阅读。
+- `AGENTS.md`: Codex/agent 执行规则、安全边界和文档维护纪律，主要给 agent 和维护者阅读。
+- `summary.md`: 当前状态、问题、待改进项和完整 Markdown 文档地图，主要给用户阅读。
+
+### docs 全局文档
+
+- `docs/README.md`: docs 目录中文索引。
+- `docs/architecture/structure.md`: 当前架构事实源。
+- `docs/architecture/state-machine.md`: Mission 状态机说明。
+- `docs/runtime/artifacts.md`: artifact 存储和内容边界。
+- `docs/status/progress.md`: 当前进度、能力列表和验证结果。
+- `docs/status/next-steps.md`: 推荐下一步和真实执行前检查项。
+- `docs/status/README.md`: status 目录说明和当前状态文档入口。
+- `docs/debug/debug.md`: 调试、验证和排障记录。
+- `docs/vision/plan.md`: 长期产品愿景，不作为当前事实源。
+- `docs/api/orchestrator-api.md`: Orchestrator API 合同。
+- `docs/api/auth.md`: API 认证和本地边界。
+- `docs/api/schema.md`: 共享 schema、状态值和 Prisma 模型说明。
+- `docs/security/safety.md`: dry-run、真实模式和 secret 安全边界。
+- `docs/security/approval-policy.md`: 审批类型和 gated real 执行前置条件。
+- `docs/security/worker-permissions.md`: worker、CLI、API、Hub 权限边界。
+- `docs/runtime/queue-runtime.md`: 队列运行时、WorkerRun wrapper 和安全边界。
+- `docs/runtime/worker-runtime.md`: worker runtime facade 和 queue job contract。
+- `docs/runtime/storage.md`: PostgreSQL、Redis、Prisma 和存储抽象说明。
+- `docs/operations/operations.md`: 本地启动、日常 demo、reset、备份和恢复流程。
+- `docs/operations/local-development.md`: 本地开发路径和 dry-run/mock 默认边界。
+- `docs/operations/health-checks.md`: doctor、API、Hub、integration 和 queue 健康检查。
+- `docs/operations/troubleshooting.md`: 常见本地故障排查。
+- `docs/operations/development-standards.md`: 当前开发纪律、测试和文档维护规则。
+- `docs/integrations/overview.md`: 集成共享行为和执行边界。
+- `docs/integrations/github.md`: GitHub dry-run 和 gated real adapter 合同。
+- `docs/integrations/coolify.md`: Coolify dry-run 和 gated real adapter 合同。
+- `docs/integrations/uptime-kuma.md`: Uptime Kuma dry-run 和 gated real adapter 合同。
+- `docs/integrations/plane.md`: Plane dry-run 和 gated real adapter 合同。
+- `docs/workers/codex-worker.md`: Codex worker dry-run 和 gated real runner 边界。
+- `docs/workers/qa-worker.md`: QA worker 输入、输出、Playwright 和 AI exploratory QA 边界。
+- `docs/workers/auto-fix-loop.md`: 自动修复闭环和 gated real fix 合同。
+- `docs/workers/playwright.md`: Playwright deterministic QA 和 artifact 规则。
+- `docs/workers/playwright-mcp.md`: Playwright MCP 后续 AI 探索说明。
+- `docs/workers/real-codex-execution-readiness.md`: 真实 Codex 执行前 guardrail。
+- `docs/apps/hub-web.md`: Hub Web 启动、路由和 demo flow。
+- `docs/projects/project-registry.md`: project registry scan 和 DB sync 行为。
+- `docs/projects/project-passport.md`: Project Passport 字段和 ai-novelist caveat。
+- `docs/projects/mission-planner.md`: deterministic Mission Planner API 和 CLI。
+
+### ADR
+
+- `docs/adr/0001-current-architecture-alignment.md`: 记录当前架构和早期 plan 的对齐决策。
+- `docs/adr/0002-real-execution-safety-boundary.md`: 记录真实执行安全边界。
+- `docs/adr/0003-external-integrations-gated-mode.md`: 记录外部集成 gated real 模式。
+- `docs/adr/0004-artifact-store-and-retention-policy.md`: 记录 artifact store 和 retention 策略。
+- `docs/adr/0005-temporal-langgraph-decision.md`: 记录暂不引入 Temporal/LangGraph 的决策。
+
+### 模板
+
+- `docs/prompts/ai-qa-playwright-mcp.md`: AI QA Playwright MCP prompt 模板。
+- `docs/prompts/bug-report-template.md`: bug report 模板。
+- `docs/prompts/qa-report-template.md`: QA report 模板。
+- `packages/prompts/qa-explore.md`: package 内 AI exploratory QA prompt 输入模板。
+
+### Superpowers
+
+- `docs/superpowers/README.md`: Superpowers 工作流目录说明。
+- `docs/superpowers/plans/README.md`: 当前实施计划目录说明。
+- `docs/superpowers/plans/2026-06-04-aggressive-documentation-cleanup.md`: 上一轮激进文档清理实施记录，作为历史计划保留。
+- `docs/superpowers/plans/2026-06-04-documentation-map-and-structure.md`: 当前文档地图和目录重整实施计划。
+- `docs/superpowers/specs/2026-06-03-aggressive-documentation-cleanup-design.md`: 上一轮激进文档清理设计记录。
+- `docs/superpowers/specs/2026-06-04-documentation-map-and-structure-design.md`: 当前文档地图和目录重整设计记录。
+
+### 归档
+
+- `docs/archive/README.md`: 归档策略入口；当前默认不保留低价值历史材料。
+
+### 工作区 README
+
+- `apps/README.md`: apps 工作区说明。
+- `apps/hub/README.md`: Hub Web app commands。
+- `apps/orchestrator-api/README.md`: Orchestrator API app endpoints、run 和 tests。
+- `apps/worker-runner/README.md`: Worker Runner commands。
+- `packages/README.md`: packages 工作区说明。
+- `packages/auto-fix-loop/README.md`: auto-fix-loop package 说明。
+- `packages/db/README.md`: database package 责任、模型和命令。
+- `packages/demo-workflow/README.md`: demo workflow dry-run 边界。
+- `packages/integrations/README.md`: integrations package 安全合同和 provider。
+- `packages/mission-core/README.md`: Mission Core exports 和状态流。
+- `packages/mission-planner/README.md`: Mission Planner exports、生成文件和命令。
+- `packages/mission-schema/README.md`: Mission Schema exports、资源合同和状态值。
+- `packages/project-passport/README.md`: Project Passport package 责任和命令。
+- `packages/project-registry/README.md`: Project Registry package 行为。
+- `packages/worker-runtime/README.md`: Worker Runtime package 说明。
+- `workers/README.md`: workers 工作区说明。
+- `workers/codex-worker/README.md`: Codex Worker package API 和检查。
+- `workers/qa-worker/README.md`: QA Worker package 说明。
+- `scripts/README.md`: scripts 和 PSF CLI 说明。
+
+### Mission/project 文档
+
+- `missions/README.md`: Mission 目录说明。
+- `missions/mission-0001-ai-novelist-chapter-review/mission.md`: 示例 Mission 计划。
+- `missions/mission-0001-ai-novelist-chapter-review/acceptance.md`: 示例 Mission 验收计划。
+- `missions/mission-0001-ai-novelist-chapter-review/technical-notes.md`: 示例 Mission 技术说明。
+- `missions/mission-0001-ai-novelist-chapter-review/risk-notes.md`: 示例 Mission 风险说明。
+- `missions/mission-0001-ai-novelist-chapter-review/codex-prompt.md`: 示例 Codex dry-run prompt。
+- `missions/mission-0001-ai-novelist-chapter-review/dev-summary.md`: 示例 Codex dry-run summary。
+- `missions/mission-0001-ai-novelist-chapter-review/qa-report.md`: 示例 QA report。
+- `missions/mission-0001-ai-novelist-chapter-review/fix-mission.md`: 示例 fix Mission。
+- `missions/mission-0001-ai-novelist-chapter-review/fix-acceptance.md`: 示例 fix 验收计划。
+- `missions/mission-0001-ai-novelist-chapter-review/fix-codex-prompt.md`: 示例 fix Codex prompt。
+- `projects/README.md`: projects 目录说明。
+- `projects/ai-novelist/README.md`: ai-novelist registry entry。
+- `projects/ai-novelist/AGENTS.md`: ai-novelist 项目级 agent 规则。
+- `projects/ai-novelist/qa-charter.md`: ai-novelist QA charter。
+
+### 生成/本地输出入口
+
+- `artifacts/README.md`: artifact 输出目录说明。
+- `workspaces/README.md`: worker checkout 根目录说明。
