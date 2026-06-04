@@ -202,6 +202,8 @@ export interface IntegrationDryRunResult {
 }
 
 export type MissionDryRunAction = "plan" | "codex-dry-run" | "qa-dry-run" | "fix-dry-run" | "loop-dry-run";
+export type GatedRealActionKind = "codex-real" | "qa-playwright" | "qa-ai-exploratory" | "fix-real" | "github-pr" | "deploy-staging" | "monitor-sync" | "plane-sync";
+export type MissionActionKind = MissionDryRunAction | GatedRealActionKind;
 
 export interface InlineDryRunActionResponse {
   accepted?: true;
@@ -290,7 +292,7 @@ export interface ReadinessBlocker {
 export interface RealModeReadinessEntry {
   key: RealModeReadinessKey;
   label: string;
-  action: string;
+  action: GatedRealActionKind;
   enabled: boolean;
   configured: boolean;
   ready: boolean;

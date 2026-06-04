@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { act } from "react";
 import type { ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -16,6 +16,7 @@ import type {
   DryRunActionResponse,
   IntegrationStatus,
   Mission,
+  MissionActionKind,
   MissionDryRunAction,
   MissionSummaryResponse,
   Project,
@@ -873,7 +874,7 @@ describe("orchestrator API client", () => {
     });
   });
 
-  it("calls mission qa dry-run action with bearer token", async () => {
+  it("calls mission action routes with bearer token", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -886,11 +887,17 @@ describe("orchestrator API client", () => {
     });
 
     await client.runMissionAction("mission-1", "qa-dry-run", { withSampleBug: true });
+    await client.runMissionAction("mission-1", "github-pr" satisfies MissionActionKind, {});
 
-    expect(fetchMock).toHaveBeenCalledWith("http://api.local/missions/mission-1/actions/qa-dry-run", {
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://api.local/missions/mission-1/actions/qa-dry-run", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer hub-token" },
       body: JSON.stringify({ withSampleBug: true }),
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://api.local/missions/mission-1/actions/github-pr", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer hub-token" },
+      body: JSON.stringify({}),
     });
   });
 
@@ -1803,6 +1810,159 @@ describe("Hub render helpers", () => {
     expect(onRunAction).toHaveBeenNthCalledWith(5, "fix-dry-run" satisfies MissionDryRunAction, {});
     expect(onRunAction).toHaveBeenNthCalledWith(6, "loop-dry-run" satisfies MissionDryRunAction, {});
     expect(onRefresh).toHaveBeenCalledOnce();
+  });
+
+  it("clicks gated PR preview action through the mission action contract", async () => {
+    type RenderedMissionAction = Parameters<NonNullable<Parameters<typeof renderMissionDetailView>[0]["actions"]>["onRunAction"]>[0];
+    expectTypeOf<RenderedMissionAction>().toEqualTypeOf<MissionActionKind>();
+
+    const calls: Array<[MissionActionKind, Record<string, unknown> | undefined]> = [];
+    const onRunAction = (action: MissionActionKind, payload?: Record<string, unknown>): void => {
+      calls.push([action, payload]);
+    };
+    const view = renderMissionDetailView({
+      state: {
+        status: "success",
+        data: {
+          ...missionSummary,
+          realModeReadiness: {
+            codex: {
+              key: "codex",
+              label: "Codex real execution",
+              action: "codex-real",
+              enabled: false,
+              configured: true,
+              ready: false,
+              safeToRun: false,
+              canQueue: false,
+              canExecute: false,
+              realNetworkCall: false,
+              missingEnv: [],
+              message: "Manual action required.",
+            },
+            qaPlaywright: {
+              key: "qaPlaywright",
+              label: "Playwright QA",
+              action: "qa-playwright",
+              enabled: false,
+              configured: true,
+              ready: false,
+              safeToRun: false,
+              canQueue: false,
+              canExecute: false,
+              realNetworkCall: false,
+              missingEnv: [],
+              message: "Manual action required.",
+            },
+            qaAiExploratory: {
+              key: "qaAiExploratory",
+              label: "AI exploratory QA",
+              action: "qa-ai-exploratory",
+              enabled: false,
+              configured: true,
+              ready: false,
+              safeToRun: false,
+              canQueue: false,
+              canExecute: false,
+              realNetworkCall: false,
+              missingEnv: [],
+              message: "Manual action required.",
+            },
+            fix: {
+              key: "fix",
+              label: "Real fix loop",
+              action: "fix-real",
+              enabled: false,
+              configured: true,
+              ready: false,
+              safeToRun: false,
+              canQueue: false,
+              canExecute: false,
+              realNetworkCall: false,
+              missingEnv: [],
+              message: "Manual action required.",
+            },
+            github: {
+              key: "github",
+              label: "GitHub PR",
+              action: "github-pr",
+              enabled: false,
+              configured: false,
+              ready: false,
+              safeToRun: false,
+              canQueue: true,
+              canExecute: false,
+              realNetworkCall: false,
+              realExternalCall: false,
+              realPush: false,
+              realDeploy: false,
+              missingEnv: ["GITHUB_TOKEN"],
+              recommendedNextAction: "Review PR preview/manual-action output; no push or PR creation will occur.",
+              blockers: [
+                {
+                  category: "execution",
+                  key: "execution.github.injected_transport_missing",
+                  message: "Default GitHub PR path has no injected transport.",
+                  recommendedNextAction: "Review PR preview/manual-action output; no push or PR creation will occur.",
+                  severity: "manual_action",
+                  blocks: ["execute"],
+                  source: "orchestrator",
+                },
+              ],
+              message: "Manual action required.",
+            },
+            coolify: {
+              key: "coolify",
+              label: "Coolify staging deploy",
+              action: "deploy-staging",
+              enabled: false,
+              configured: false,
+              ready: false,
+              safeToRun: false,
+              canQueue: false,
+              canExecute: false,
+              realNetworkCall: false,
+              missingEnv: [],
+              message: "Manual action required.",
+            },
+            uptimeKuma: {
+              key: "uptimeKuma",
+              label: "Uptime Kuma monitor sync",
+              action: "monitor-sync",
+              enabled: false,
+              configured: false,
+              ready: false,
+              safeToRun: false,
+              canQueue: false,
+              canExecute: false,
+              realNetworkCall: false,
+              missingEnv: [],
+              message: "Manual action required.",
+            },
+            plane: {
+              key: "plane",
+              label: "Plane sync",
+              action: "plane-sync",
+              enabled: false,
+              configured: false,
+              ready: false,
+              safeToRun: false,
+              canQueue: false,
+              canExecute: false,
+              realNetworkCall: false,
+              missingEnv: [],
+              message: "Manual action required.",
+            },
+          },
+        },
+      },
+      actions: { onRunAction, onRefresh: vi.fn() },
+      actionState: { loading: "", message: "", error: "" },
+    });
+
+    await findButtonByText(view, "Create PR preview/manual-action").props.onClick?.();
+
+    expect(calls).toEqual([["github-pr" satisfies MissionActionKind, {}]]);
   });
 
   it("renders loading and error state for dry-run actions without leaking tokens", () => {

@@ -14,7 +14,7 @@ import type {
   ExternalIntegrationName,
   IntegrationStatus,
   Mission,
-  MissionDryRunAction,
+  MissionActionKind,
   MissionSummaryResponse,
   Project,
   DryRunActionResponse,
@@ -47,7 +47,7 @@ interface DashboardActions {
 }
 
 interface MissionActions {
-  onRunAction: (action: MissionDryRunAction, payload?: Record<string, unknown>) => void | Promise<void>;
+  onRunAction: (action: MissionActionKind, payload?: Record<string, unknown>) => void | Promise<void>;
   onRefresh: () => void | Promise<void>;
 }
 
@@ -158,7 +158,7 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
     }
   }, [loadDashboard, loadQueueStatus]);
 
-  const runMissionDryRun = useCallback(async (missionId: string, action: MissionDryRunAction, payload: Record<string, unknown> = {}): Promise<void> => {
+  const runMissionAction = useCallback(async (missionId: string, action: MissionActionKind, payload: Record<string, unknown> = {}): Promise<void> => {
     setActionState({ loading: action, message: "", error: "" });
     try {
       const result = await client.runMissionAction(missionId, action, payload);
@@ -373,7 +373,7 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
         return renderMissionDetailView({
           state: missionState,
           actions: {
-            onRunAction: (action, payload = {}) => runMissionDryRun(missionId, action, payload),
+            onRunAction: (action, payload = {}) => runMissionAction(missionId, action, payload),
             onRefresh: () => refreshMissionSummary(missionId),
           },
           actionState,
@@ -405,7 +405,7 @@ export default function App({ client: providedClient }: { client?: OrchestratorC
       default:
         return renderPlaceholderView(route.page);
     }
-  }, [actionState, approvalDecisionState, approvalsState, artifactsState, bugsState, client, createMission, dashboardState, decideApproval, dryRunMessage, integrationState, missionCreateState, missionCreateValues, missionState, missionsState, projectsState, queueState, refreshDashboard, refreshMissionSummary, route, runDashboardDemo, runMissionDryRun, updateMissionCreateValue, workerRunsState]);
+  }, [actionState, approvalDecisionState, approvalsState, artifactsState, bugsState, client, createMission, dashboardState, decideApproval, dryRunMessage, integrationState, missionCreateState, missionCreateValues, missionState, missionsState, projectsState, queueState, refreshDashboard, refreshMissionSummary, route, runDashboardDemo, runMissionAction, updateMissionCreateValue, workerRunsState]);
 
   return (
     <div className="app-shell">
@@ -662,7 +662,7 @@ function renderMissionActions(
               type="button"
               key={entry.action}
               disabled={busy || !canQueue}
-              onClick={() => void actions.onRunAction(entry.action as MissionDryRunAction, {})}
+              onClick={() => void actions.onRunAction(entry.action, {})}
               title={title}
             >
               {realActionButtonLabel(entry)}
