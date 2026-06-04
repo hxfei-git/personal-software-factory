@@ -1190,6 +1190,7 @@ describe("worker runner", () => {
       manualActionRequired: true,
     });
     expect(wrapper.output).toMatchObject({
+      recommendedNextAction: "Inject an approved local Codex runner or handle this action manually.",
       canQueue: true,
       canExecute: false,
       blockers: [expect.objectContaining({
@@ -1201,6 +1202,13 @@ describe("worker runner", () => {
       })],
     });
     expect(String(wrapper.output.reason)).toContain("requires an injected Codex runner");
+    const events = await storage.listMissionEvents("mission-real");
+    const actionResult = events.find((event) => event.type === "mission.action_result");
+    expect(actionResult?.payload).toMatchObject({
+      canQueue: true,
+      canExecute: false,
+      blockers: [expect.objectContaining({ key: "execution.codex.injected_runner_missing", blocks: ["execute"] })],
+    });
     await expect(storage.getMission("mission-real")).resolves.toMatchObject({ status: MissionStatus.fixing });
   });
 
@@ -1269,9 +1277,31 @@ describe("worker runner", () => {
       now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
     });
 
-    expect(wrapper.output).toMatchObject({ status, reason, summary: reason });
+    expect(wrapper.output).toMatchObject({
+      status,
+      reason,
+      summary: reason,
+      recommendedNextAction: "Inspect Codex worker output and Worker Runner logs before retrying.",
+      canQueue: true,
+      canExecute: false,
+      blockers: [expect.objectContaining({
+        key: "execution.codex.unclassified_execution_blocker",
+        blocks: ["execute"],
+        source: "worker_runner",
+      })],
+    });
+    expect(wrapper.output).not.toMatchObject({
+      blockers: expect.arrayContaining([expect.objectContaining({ key: "execution.codex.injected_runner_missing" })]),
+    });
     await expect(storage.getMission("mission-real")).resolves.toMatchObject({ status: MissionStatus.fixing });
-    expect(await storage.listMissionEvents("mission-real")).not.toEqual(expect.arrayContaining([
+    const events = await storage.listMissionEvents("mission-real");
+    const actionResult = events.find((event) => event.type === "mission.action_result");
+    expect(actionResult?.payload).toMatchObject({
+      canQueue: true,
+      canExecute: false,
+      blockers: [expect.objectContaining({ key: "execution.codex.unclassified_execution_blocker", blocks: ["execute"] })],
+    });
+    expect(events).not.toEqual(expect.arrayContaining([
       expect.objectContaining({
         type: "mission.status.auto_transition",
         payload: expect.objectContaining({ to: MissionStatus.ready_for_review }),
@@ -1418,19 +1448,31 @@ describe("worker runner", () => {
       childArtifactIds: ["artifact-mission-real-github-pr-preview"],
     });
     expect(wrapper.output).toMatchObject({
+      recommendedNextAction: "Configure ENABLE_REAL_GITHUB, GITHUB_TOKEN, GITHUB_OWNER, and GITHUB_REPO before retrying.",
       canQueue: true,
       canExecute: false,
-      blockers: expect.arrayContaining([
-        expect.objectContaining({ key: "execution.integration.injected_transport_missing", blocks: ["execute"] }),
-        expect.objectContaining({ key: "policy.integration.operation_gate_disabled", blocks: ["execute"] }),
-      ]),
+      blockers: [expect.objectContaining({
+        category: "configuration",
+        key: "configuration.env.github.missing_or_disabled",
+        blocks: ["execute"],
+        source: "integration",
+      })],
     });
+    const githubBlockerKeys = (wrapper.output.blockers as Array<{ key: string }>).map((blocker) => blocker.key);
+    expect(githubBlockerKeys).toEqual(["configuration.env.github.missing_or_disabled"]);
     await expect(storage.getArtifact("artifact-mission-real-github-pr-preview")).resolves.toMatchObject({
       type: "technical_notes",
       path: "missions/mission-real/github-pr-preview.md",
       content: expect.stringContaining("Preview only"),
     });
     expect(JSON.stringify(await storage.getArtifact("artifact-mission-real-github-pr-preview"))).not.toContain("secret-value");
+    const events = await storage.listMissionEvents("mission-real");
+    const actionResult = events.find((event) => event.type === "mission.action_result");
+    expect(actionResult?.payload).toMatchObject({
+      canQueue: true,
+      canExecute: false,
+      blockers: [expect.objectContaining({ key: "configuration.env.github.missing_or_disabled", blocks: ["execute"] })],
+    });
   });
 
   it("persists github.pr fake transport success with PR URL without exposing tokens", async () => {

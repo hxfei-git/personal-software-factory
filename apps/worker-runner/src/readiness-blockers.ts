@@ -24,34 +24,38 @@ export function deriveWorkerReadiness(blockers: WorkerReadinessBlocker[], fallba
 }
 
 export function codexManualActionBlocker(reason: string): WorkerReadinessBlocker {
-  const key = reason.includes("repoUrl")
-    ? "policy.codex.local_mirror_required"
-    : reason.includes("branchName")
-      ? "policy.codex.branch_policy"
-      : "execution.codex.injected_runner_missing";
+  const key = codexBlockerKey(reason);
+  const policyBlocker = key.startsWith("policy.");
   return {
-    category: key.startsWith("policy.") ? "policy" : "execution",
+    category: policyBlocker ? "policy" : "execution",
     key,
     message: reason,
-    recommendedNextAction: key === "execution.codex.injected_runner_missing"
-      ? "Inject an approved local Codex runner or handle this action manually."
-      : "Review route preflight and Worker Runner defense-in-depth policy before retrying.",
-    severity: key.startsWith("policy.") ? "blocking" : "manual_action",
+    recommendedNextAction: codexRecommendedNextActionForKey(key),
+    severity: policyBlocker ? "blocking" : "manual_action",
     blocks: ["execute"],
     source: "worker_runner",
-    details: { jobType: "codex.real", defenseInDepth: key.startsWith("policy.") },
+    details: { jobType: "codex.real", defenseInDepth: policyBlocker },
   };
 }
 
 export function githubResultBlockers(result: GitHubRealResult): WorkerReadinessBlocker[] {
   const blockers: WorkerReadinessBlocker[] = [];
   const manualActions = result.outputs.manualActions.map((action) => action.toLowerCase());
-  const defaultManualAction = result.decision !== "succeeded"
-    && result.realNetworkCall === false
-    && result.outputs.requests.length === 0
-    && manualActions.length > 0;
+  const reasonTexts = [...manualActions, result.message.toLowerCase()];
 
-  if (manualActions.some((action) => action.includes("transport")) || defaultManualAction) {
+  if (reasonTexts.some((reason) => reason.includes("enable_real_github") || reason.includes("github_token") || reason.includes("not fully configured"))) {
+    blockers.push({
+      category: "configuration",
+      key: "configuration.env.github.missing_or_disabled",
+      message: "GitHub real mode is disabled or required environment is missing.",
+      recommendedNextAction: "Configure ENABLE_REAL_GITHUB, GITHUB_TOKEN, GITHUB_OWNER, and GITHUB_REPO before retrying.",
+      severity: "manual_action",
+      blocks: ["execute"],
+      source: "integration",
+      details: { jobType: "github.pr", provider: "github" },
+    });
+  }
+  if (manualActions.some((action) => action.includes("transport") || action.includes("allownetwork"))) {
     blockers.push({
       category: "execution",
       key: "execution.integration.injected_transport_missing",
@@ -63,7 +67,19 @@ export function githubResultBlockers(result: GitHubRealResult): WorkerReadinessB
       details: { jobType: "github.pr", provider: "github" },
     });
   }
-  if (manualActions.some((action) => action.includes("operation gate") || action.includes("allowpushbranch") || action.includes("allowcreatepullrequest")) || defaultManualAction) {
+  if (reasonTexts.some((reason) => reason.includes("non-protected branch") || reason.includes("protected branch"))) {
+    blockers.push({
+      category: "policy",
+      key: "policy.integration.protected_branch_refused",
+      message: "GitHub PR refused a protected branch operation.",
+      recommendedNextAction: "Choose an approved non-protected source branch before retrying GitHub PR handling.",
+      severity: "manual_action",
+      blocks: ["execute"],
+      source: "integration",
+      details: { jobType: "github.pr", provider: "github", protectedBranchRefused: true },
+    });
+  }
+  if (manualActions.some((action) => action.includes("operation gate") || action.includes("allowpushbranch") || action.includes("allowcreatepullrequest"))) {
     blockers.push({
       category: "policy",
       key: "policy.integration.operation_gate_disabled",
@@ -88,6 +104,30 @@ export function githubResultBlockers(result: GitHubRealResult): WorkerReadinessB
     });
   }
   return sortWorkerBlockers(blockers);
+}
+
+function codexBlockerKey(reason: string): WorkerReadinessBlocker["key"] {
+  const lowerReason = reason.toLowerCase();
+  if (reason.includes("repoUrl")) {
+    return "policy.codex.local_mirror_required";
+  }
+  if (reason.includes("branchName")) {
+    return "policy.codex.branch_policy";
+  }
+  if (lowerReason.includes("injected codex runner") || lowerReason.includes("no injected codex runner")) {
+    return "execution.codex.injected_runner_missing";
+  }
+  return "execution.codex.unclassified_execution_blocker";
+}
+
+function codexRecommendedNextActionForKey(key: WorkerReadinessBlocker["key"]): string {
+  if (key === "execution.codex.injected_runner_missing") {
+    return "Inject an approved local Codex runner or handle this action manually.";
+  }
+  if (key.startsWith("policy.")) {
+    return "Review route preflight and Worker Runner defense-in-depth policy before retrying.";
+  }
+  return "Inspect Codex worker output and Worker Runner logs before retrying.";
 }
 
 export function sortWorkerBlockers(blockers: WorkerReadinessBlocker[]): WorkerReadinessBlocker[] {

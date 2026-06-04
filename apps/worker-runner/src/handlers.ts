@@ -280,7 +280,7 @@ function toCodexRealHandlerResult(result: CodexExecutionResult): WorkerJobHandle
     childArtifactIds: result.artifacts.map((artifact) => artifact.id),
     childBugReportIds: [],
     summary: result.reason,
-    recommendedNextAction,
+    recommendedNextAction: readiness.recommendedNextAction,
     status: result.status,
     reason: result.reason,
     canQueue: readiness.canQueue,
@@ -394,9 +394,7 @@ function toGitHubPrHandlerResult(result: GitHubRealResult, job: QueueWorkerJob):
     childArtifactIds: [artifact.id],
     childBugReportIds: [],
     summary: result.message,
-    recommendedNextAction: result.safeToRun
-      ? "Review GitHub PR result and PR URL before advancing the Mission."
-      : "Review PR preview and complete missing GitHub approval, env, route, operation, or transport gates.",
+    recommendedNextAction: readiness.recommendedNextAction,
     status: result.decision,
     manualActionRequired: result.decision !== "succeeded",
     reason: result.message,
