@@ -2,66 +2,46 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add focused B3 contract tests for the remaining B2 readiness/blocker and safety gaps without repeating existing coverage or enabling real execution.
+**Goal:** Add focused B3 contract tests and the smallest production-code fixes needed to lock readiness/blocker safety gaps left after B2.
 
-**Architecture:** Keep the current B2 boundaries: Orchestrator remains the canonical API response outlet, Hub consumes API readiness, Worker Runner maps already queued results to execute blockers, and integrations keep their existing adapter contracts. Production changes are limited to missing readiness fields, redaction, or preserving existing API-provided ordering needed by the tests.
+**Architecture:** Keep Orchestrator API as the canonical response outlet and preserve the B2 duplicated local types in Hub, Worker Runner, and integrations. Add tests only at the high-risk API, Hub, and Worker Runner boundaries; integrations and auto-fix-loop remain covered by existing tests unless a new B3 assertion exposes a real gap.
 
-**Tech Stack:** TypeScript monorepo, pnpm workspaces, Vitest, Fastify Orchestrator API, React/Vite Hub, Worker Runner with `@psf/worker-runtime`, existing readiness/blocker helpers.
-
----
-
-## Scope
-
-Implement only the approved B3 gap tests from `docs/superpowers/specs/2026-06-05-b3-contract-safety-test-reinforcement-design.md`.
-
-Do not add broad snapshot tests, shared schema migrations, cross-package test frameworks, provider clients, injected real transports, injected real runners, or A1 `ai-novelist` mirror proof.
-
-Some B3 tests may pass immediately because B2 already implemented the behavior. If a new contract test passes, keep it as reinforcement and skip the associated production edit.
-
-Default safety boundaries must remain disabled: no real Codex execution, real Playwright/browser execution, provider network calls, push, PR creation, deploy, monitor creation, or Plane sync.
-
-## File Map
-
-- Modify: `apps/orchestrator-api/tests/api.test.ts`  
-  Adds focused API 400 preflight contract/redaction assertions for `codex-real` local mirror failures.
-- Modify if needed: `apps/orchestrator-api/src/services.ts`  
-  Routes `codex-real` local mirror preflight failures through `blockedPreflightDetails(...)` with sanitized structured blockers if the new test fails.
-- Modify: `apps/hub/tests/hub.test.tsx`  
-  Adds focused tests for `canQueue` priority over legacy `safeToRun` and API blocker ordering.
-- Modify if needed: `apps/hub/src/App.tsx`  
-  Keeps button disabled logic based on `entry.canQueue ?? entry.safeToRun` and renders blockers in API order if the new tests fail.
-- Modify: `apps/worker-runner/tests/runner.test.ts`  
-  Strengthens defense-in-depth `codex.real` policy blocker assertions and default GitHub PR no-network assertions.
-- Modify if needed: `apps/worker-runner/src/handlers.ts` and `apps/worker-runner/src/readiness-blockers.ts`  
-  Adds missing readiness fields or stable blocker keys for blocked/manual-action outputs if the new tests fail.
-- Modify only if a focused assertion exposes a gap: `packages/integrations/tests/integrations.test.ts`, `packages/integrations/src/github-real.ts`  
-  Current integration coverage should be enough; do not touch unless a B3 test proves otherwise.
-- Modify at the end: `summary.md`, `docs/status/progress.md`, `docs/status/next-steps.md`, `docs/debug/debug.md`  
-  Records B3 completion, verification results, and next step A1. Do not add or delete Markdown in the implementation unless a later confirmed task requires it.
+**Tech Stack:** TypeScript monorepo, Vitest, Fastify Orchestrator API, React/Vite Hub, Worker Runner, pnpm workspaces.
 
 ---
 
-### Task 1: API 400 Preflight Contract For `codex-real`
+## File Structure
+
+- Modify `apps/orchestrator-api/tests/api.test.ts`: add B3 contract tests for `codex-real` 400 preflight readiness shape, redaction, and safety flags.
+- Modify `apps/orchestrator-api/src/services.ts`: only if tests fail, route `codex-real` local mirror and branch preflight errors through existing `buildReadinessBlocker`, `deriveReadinessState`, `blockedPreflightDetails`, and `sanitizeApiResponse` paths.
+- Modify `apps/hub/tests/hub.test.tsx`: add B3 contract tests for `canQueue` priority and API blocker order rendering.
+- Modify `apps/hub/src/App.tsx`: only if tests fail, keep `canQueue` as the button guard when present and render `blockers[]` directly in API order.
+- Modify `apps/worker-runner/tests/runner.test.ts`: strengthen `codex.real` defense-in-depth tests for remote repo and unsafe branch blocker shape.
+- Modify `apps/worker-runner/src/handlers.ts` or `apps/worker-runner/src/readiness-blockers.ts`: only if tests fail, ensure defense-in-depth results emit execute-only policy blockers while preserving queue semantics.
+- Modify `docs/debug/debug.md`: record B3 implementation verification results after running tests.
+- Modify `summary.md`: only if a later implementation task adds, moves, renames, or deletes Markdown. This plan already updates the document map for itself.
+
+Do not modify `packages/integrations/tests/integrations.test.ts` unless one of the B3 boundary tests proves an integration assertion is insufficient. Do not modify `packages/auto-fix-loop/tests/auto-fix-loop.test.ts`; its regression and safety coverage is already sufficient for B3.
+
+### Task 1: Orchestrator API 400 Preflight Contract
 
 **Files:**
 - Modify: `apps/orchestrator-api/tests/api.test.ts`
 - Modify if needed: `apps/orchestrator-api/src/services.ts`
 
-- [ ] **Step 1: Strengthen the existing local mirror preflight test**
+- [ ] **Step 1: Add the local mirror preflight contract test**
 
-In `apps/orchestrator-api/tests/api.test.ts`, replace the body of the existing test named `blocks codex-real preflight instead of using a GitHub HTTPS repo URL when no local mirror is provided` with this version. Keep the existing test name so related history remains easy to follow.
+In `apps/orchestrator-api/tests/api.test.ts`, place this test immediately after the existing test named `blocks codex-real preflight instead of using a GitHub HTTPS repo URL when no local mirror is provided`:
 
 ```ts
-  it("blocks codex-real preflight instead of using a GitHub HTTPS repo URL when no local mirror is provided", async () => {
+  it("returns canonical blockers and redacted details for codex-real local mirror preflight", async () => {
     const registryRoot = await createAiNovelistRegistryRoot();
-    const fakeSecret = "b3-api-preflight-secret-value";
+    const fakeSecret = "b3-api-preflight-secret";
     try {
       await withEnv({
         PSF_ACTION_EXECUTION_MODE: "queued",
         PSF_ENABLE_REAL_CODEX: "true",
-        PSF_LOCAL_REPO_ai_novelist: undefined,
-        PSF_LOCAL_REPO_AI_NOVELIST: undefined,
-        PSF_B3_PREFLIGHT_TOKEN: fakeSecret,
+        PSF_LOCAL_REPO_ai_novelist: `https://github.example/ai-novelist.git?token=${fakeSecret}`,
       }, async () => {
         const workerRuntime = new InProcessWorkerRuntime();
         const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime, registryRoot });
@@ -73,7 +53,8 @@ In `apps/orchestrator-api/tests/api.test.ts`, replace the body of the existing t
           url: `/missions/${EXAMPLE_MISSION_ID}/actions/codex-real`,
           payload: {
             approvalId: approval.id,
-            repoUrl: `https://github.com/hxfei-git/ai-novelist.git?token=${fakeSecret}`,
+            repoUrl: `https://github.com/example/ai-novelist.git?token=${fakeSecret}`,
+            workspaceRoot: `/tmp/${fakeSecret}`,
           },
         });
 
@@ -90,27 +71,22 @@ In `apps/orchestrator-api/tests/api.test.ts`, replace the body of the existing t
             realExternalCall: false,
             realPush: false,
             realDeploy: false,
-            recommendedNextAction: expect.stringContaining("local mirror"),
+            recommendedNextAction: expect.stringContaining("repoUrl"),
           }),
         });
         expect(body.details.blockers).toEqual(expect.arrayContaining([
           expect.objectContaining({
-            key: "policy.codex.local_mirror_required",
             category: "policy",
+            key: "policy.codex.local_mirror_required",
             severity: "blocking",
             blocks: ["queue", "execute"],
             source: "orchestrator",
-            details: expect.objectContaining({
-              action: "codex-real",
-              missingLocalMirror: true,
-            }),
+            details: expect.objectContaining({ action: "codex-real", missingLocalMirror: true }),
           }),
         ]));
         expect(JSON.stringify(body)).not.toContain(fakeSecret);
-        expect(JSON.stringify(body)).not.toContain("token=");
-        expect(body.message).toContain("local repository mirror");
-        expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(0);
         expect(await workerRuntime.listJobs()).toHaveLength(0);
+        expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(0);
       });
     } finally {
       await rm(registryRoot, { recursive: true, force: true });
@@ -118,38 +94,34 @@ In `apps/orchestrator-api/tests/api.test.ts`, replace the body of the existing t
   });
 ```
 
-- [ ] **Step 2: Run the focused API test**
+- [ ] **Step 2: Run the focused API test and observe the contract gap**
 
 Run:
 
 ```bash
-pnpm --filter @psf/orchestrator-api test -- --run tests/api.test.ts -t 'blocks codex-real preflight instead of using a GitHub HTTPS repo URL when no local mirror is provided'
+pnpm --filter @psf/orchestrator-api test -- --run tests/api.test.ts -t 'canonical blockers and redacted details for codex-real local mirror preflight'
 ```
 
-Expected if the gap still exists: FAIL because `body.details.canQueue`, `body.details.blockers`, or safety flags are missing for this `codex-real` preflight path.
+Expected before implementation: FAIL because the current local mirror preflight error does not expose the full canonical readiness fields and stable blocker key.
 
-Expected if B2 already covers it: PASS. If it passes, skip Step 3 and keep the test as contract reinforcement.
+- [ ] **Step 3: Route local mirror preflight through the readiness builder**
 
-- [ ] **Step 3: Add the minimal API preflight blocker implementation if the test fails**
-
-In `apps/orchestrator-api/src/services.ts`, change `assertCodexLocalRepoUrlAvailable` so the `badRequest(...)` details use `blockedPreflightDetails(...)` and the existing readiness helper.
-
-Replace the `throw badRequest(...)` block in `assertCodexLocalRepoUrlAvailable` with:
+In `apps/orchestrator-api/src/services.ts`, replace `assertCodexLocalRepoUrlAvailable` with this implementation:
 
 ```ts
+  function assertCodexLocalRepoUrlAvailable(mission: Mission, registryProject: RegistryProject, repoUrl: string | undefined) {
+    if (repoUrl && isLocalRepoUrl(repoUrl)) {
+      return;
+    }
     throw badRequest("MISSION_ACTION_PREFLIGHT_BLOCKED", "codex-real requires an explicitly provided local repository mirror; GitHub HTTPS/SSH remotes are not accepted as real Codex repoUrl values.", blockedPreflightDetails(buildReadinessBlocker({
       category: "policy",
       key: "policy.codex.local_mirror_required",
-      message: "codex-real requires an operator-prepared local repository mirror; remote GitHub HTTPS/SSH repo URLs are refused at route preflight.",
+      message: "codex-real requires an operator-provided local repository mirror; remote repository URLs are not accepted for execution preflight.",
       recommendedNextAction: `Provide repoUrl in the request body, or set ${localRepoEnvName(registryProject.project.id)} to a local mirror path under operator control.`,
       severity: "blocking",
       blocks: ["queue", "execute"],
       source: "orchestrator",
-      details: {
-        action: "codex-real",
-        missingLocalMirror: true,
-        evidence: "route_preflight",
-      },
+      details: { action: "codex-real", missingLocalMirror: true },
     }), {
       missionId: mission.id,
       projectId: mission.project_id,
@@ -157,32 +129,131 @@ Replace the `throw badRequest(...)` block in `assertCodexLocalRepoUrlAvailable` 
       action: "codex-real",
       missingLocalMirror: true,
     }));
+  }
 ```
 
-Do not include `repoUrl`, raw request body, raw environment values, or any token-like text in `details`.
+Do not add `repoUrl`, `workspaceRoot`, token values, raw request bodies, provider payloads, stdout, or stderr into blocker `details`.
 
-- [ ] **Step 4: Re-run the focused API test**
+- [ ] **Step 4: Verify the local mirror preflight test passes**
 
 Run:
 
 ```bash
-pnpm --filter @psf/orchestrator-api test -- --run tests/api.test.ts -t 'blocks codex-real preflight instead of using a GitHub HTTPS repo URL when no local mirror is provided'
+pnpm --filter @psf/orchestrator-api test -- --run tests/api.test.ts -t 'canonical blockers and redacted details for codex-real local mirror preflight'
 ```
 
-Expected: PASS.
+Expected after implementation: PASS.
 
-- [ ] **Step 5: Commit Task 1 if it changed code or tests**
+- [ ] **Step 5: Add the unsafe branch preflight contract test**
+
+In `apps/orchestrator-api/tests/api.test.ts`, place this test after the local mirror preflight contract test:
+
+```ts
+  it("returns canonical blockers for codex-real unsafe branch preflight", async () => {
+    const registryRoot = await createAiNovelistRegistryRoot();
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "psf-codex-workspaces-"));
+    const localMirror = join(workspaceRoot, "mirrors", "ai-novelist.git");
+    await mkdir(localMirror, { recursive: true });
+    try {
+      await withEnv({ PSF_ACTION_EXECUTION_MODE: "queued", PSF_ENABLE_REAL_CODEX: "true" }, async () => {
+        const workerRuntime = new InProcessWorkerRuntime();
+        const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime, registryRoot });
+        await seedDemoMission(storage);
+        const approval = await createApprovedApproval(server, EXAMPLE_MISSION_ID, "SECURITY_RISK");
+
+        const response = await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/actions/codex-real`,
+          payload: { approvalId: approval.id, repoUrl: localMirror, workspaceRoot, branchName: "main" },
+        });
+
+        expect(response.statusCode).toBe(400);
+        const body = response.json();
+        expect(body).toMatchObject({
+          code: "MISSION_ACTION_PREFLIGHT_BLOCKED",
+          details: expect.objectContaining({
+            action: "codex-real",
+            invalidBranchName: "main",
+            canQueue: false,
+            canExecute: false,
+            realNetworkCall: false,
+            realExternalCall: false,
+            realPush: false,
+            realDeploy: false,
+          }),
+        });
+        expect(body.details.blockers).toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            category: "policy",
+            key: "policy.codex.branch_policy",
+            severity: "blocking",
+            blocks: ["queue", "execute"],
+            source: "orchestrator",
+            details: expect.objectContaining({ action: "codex-real", invalidBranchName: "main" }),
+          }),
+        ]));
+        expect(await workerRuntime.listJobs()).toHaveLength(0);
+        expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(0);
+      });
+    } finally {
+      await rm(registryRoot, { recursive: true, force: true });
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+```
+
+- [ ] **Step 6: Run the unsafe branch test and observe the contract gap**
 
 Run:
+
+```bash
+pnpm --filter @psf/orchestrator-api test -- --run tests/api.test.ts -t 'canonical blockers for codex-real unsafe branch preflight'
+```
+
+Expected before implementation: FAIL because the current branch preflight error does not expose the full canonical readiness fields and stable blocker key.
+
+- [ ] **Step 7: Route branch preflight through the readiness builder**
+
+In `apps/orchestrator-api/src/services.ts`, replace `assertCodexBranchNameAllowed` with this implementation:
+
+```ts
+  function assertCodexBranchNameAllowed(mission: Mission, branchName: string) {
+    if (branchName === "main" || branchName === "master" || !branchName.startsWith("agent/")) {
+      throw badRequest("MISSION_ACTION_PREFLIGHT_BLOCKED", "codex-real branchName must be under agent/ and cannot be main or master.", blockedPreflightDetails(buildReadinessBlocker({
+        category: "policy",
+        key: "policy.codex.branch_policy",
+        message: "codex-real branchName must be under agent/ and cannot be main or master.",
+        recommendedNextAction: "Use a branch name such as agent/<project>-<mission> for real Codex work.",
+        severity: "blocking",
+        blocks: ["queue", "execute"],
+        source: "orchestrator",
+        details: { action: "codex-real", invalidBranchName: branchName },
+      }), {
+        missionId: mission.id,
+        projectId: mission.project_id,
+        action: "codex-real",
+        invalidBranchName: branchName,
+      }));
+    }
+  }
+```
+
+- [ ] **Step 8: Run focused API tests for this task**
+
+Run:
+
+```bash
+pnpm --filter @psf/orchestrator-api test -- --run tests/api.test.ts -t 'codex-real .*preflight'
+```
+
+Expected: PASS for the existing and new `codex-real` preflight tests. No WorkerRun or queue job should be created by blocked preflight responses.
+
+- [ ] **Step 9: Commit Task 1**
 
 ```bash
 git add apps/orchestrator-api/tests/api.test.ts apps/orchestrator-api/src/services.ts
-git commit -m "补强 Codex 预检阻塞合同" -m "为 codex-real local mirror 预检失败补充 canQueue、canExecute、blockers[]、recommendedNextAction 和默认安全 flags 断言。" -m "若实现有改动，仅复用现有 readiness blocker builder 和 API redaction 边界，不启用真实 Codex、provider network、push、PR 或 deploy。"
+git commit -m "补强 API 预检阻塞合同" -m "为 codex-real 本地镜像和分支策略预检补充 canonical readiness blockers、redacted details 和默认安全 flags。" -m "未启用真实 Codex、Playwright/browser、provider network、push、PR creation、deploy、monitor creation 或 Plane sync。"
 ```
-
-If Step 2 passed and only the test changed, commit only `apps/orchestrator-api/tests/api.test.ts` with the same commit message.
-
----
 
 ### Task 2: Hub `canQueue` Priority And API Blocker Order
 
@@ -190,237 +261,359 @@ If Step 2 passed and only the test changed, commit only `apps/orchestrator-api/t
 - Modify: `apps/hub/tests/hub.test.tsx`
 - Modify if needed: `apps/hub/src/App.tsx`
 
-- [ ] **Step 1: Add a focused Hub contract test**
+- [ ] **Step 1: Add the `canQueue` priority test**
 
-In `apps/hub/tests/hub.test.tsx`, add this test near the existing real-mode readiness test.
+In `apps/hub/tests/hub.test.tsx`, add this test near the existing Mission detail readiness tests:
 
-```tsx
-  it("uses canQueue over legacy safeToRun and preserves API blocker order", () => {
-    const firstBlocker = "First API blocker: route accepted the gated preview contract.";
-    const secondBlocker = "Second API blocker: injected transport is still missing.";
-    const readiness: NonNullable<MissionSummaryResponse["realModeReadiness"]> = {
-      codex: {
-        key: "codex",
-        label: "Codex real execution",
-        action: "codex-real",
-        enabled: false,
-        configured: true,
-        ready: false,
-        safeToRun: false,
-        canQueue: false,
-        canExecute: false,
-        realNetworkCall: false,
-        missingEnv: [],
-        message: "Codex route gate is blocked.",
-      },
-      qaPlaywright: {
-        key: "qaPlaywright",
-        label: "Playwright QA",
-        action: "qa-playwright",
-        enabled: false,
-        configured: true,
-        ready: false,
-        safeToRun: false,
-        canQueue: false,
-        canExecute: false,
-        realNetworkCall: false,
-        missingEnv: [],
-        message: "Playwright QA is blocked.",
-      },
-      qaAiExploratory: {
-        key: "qaAiExploratory",
-        label: "AI exploratory QA",
-        action: "qa-ai-exploratory",
-        enabled: false,
-        configured: true,
-        ready: false,
-        safeToRun: false,
-        canQueue: false,
-        canExecute: false,
-        realNetworkCall: false,
-        missingEnv: [],
-        message: "AI exploratory QA is blocked.",
-      },
-      fix: {
-        key: "fix",
-        label: "Real fix loop",
-        action: "fix-real",
-        enabled: false,
-        configured: true,
-        ready: false,
-        safeToRun: false,
-        canQueue: false,
-        canExecute: false,
-        realNetworkCall: false,
-        missingEnv: [],
-        message: "Fix real is blocked.",
-      },
-      github: {
-        key: "github",
-        label: "GitHub PR",
-        action: "github-pr",
-        enabled: true,
-        configured: true,
-        ready: true,
-        safeToRun: false,
-        canQueue: true,
-        canExecute: false,
-        realNetworkCall: false,
-        realExternalCall: false,
-        realPush: false,
-        realDeploy: false,
-        missingEnv: [],
-        requiredApprovalTypes: ["EXTERNAL_COST_RISK"],
-        approvedApprovalTypes: ["EXTERNAL_COST_RISK"],
-        missingApprovalTypes: [],
-        recommendedNextAction: "Create a PR preview/manual-action; no push or PR creation will occur.",
-        blockers: [
-          {
-            category: "policy",
-            key: "policy.github.preview_contract",
-            message: firstBlocker,
-            recommendedNextAction: "Review the queued PR preview result.",
-            severity: "manual_action",
-            blocks: ["execute"],
-            source: "orchestrator",
-          },
-          {
+```ts
+  it("uses canQueue instead of legacy safeToRun for guarded real-action buttons", () => {
+    const baseEntry = (entry: {
+      key: RealModeReadinessKey;
+      label: string;
+      action: MissionActionKind;
+    }) => ({
+      key: entry.key,
+      label: entry.label,
+      action: entry.action,
+      enabled: false,
+      configured: true,
+      ready: false,
+      safeToRun: false,
+      canQueue: false,
+      canExecute: false,
+      realNetworkCall: false as const,
+      missingEnv: [],
+      requiredApprovalTypes: [],
+      approvedApprovalTypes: [],
+      missingApprovalTypes: [],
+      message: "Manual action required.",
+    });
+    const onRunAction = vi.fn();
+    const queueableManualActionSummary: MissionSummaryResponse = {
+      ...missionSummary,
+      realModeReadiness: {
+        codex: baseEntry({ key: "codex", label: "Codex real execution", action: "codex-real" }),
+        qaPlaywright: baseEntry({ key: "qaPlaywright", label: "Playwright QA", action: "qa-playwright" }),
+        qaAiExploratory: baseEntry({ key: "qaAiExploratory", label: "AI exploratory QA", action: "qa-ai-exploratory" }),
+        fix: baseEntry({ key: "fix", label: "Real fix loop", action: "fix-real" }),
+        github: {
+          ...baseEntry({ key: "github", label: "GitHub PR", action: "github-pr" }),
+          safeToRun: false,
+          canQueue: true,
+          canExecute: false,
+          realExternalCall: false as const,
+          realPush: false as const,
+          realDeploy: false as const,
+          recommendedNextAction: "Review PR preview/manual-action output; no push or PR creation will occur.",
+          blockers: [{
             category: "execution",
             key: "execution.github.injected_transport_missing",
-            message: secondBlocker,
-            recommendedNextAction: "Inject a transport only in a later approved task.",
+            message: "Default GitHub PR path has no injected transport.",
+            recommendedNextAction: "Review PR preview/manual-action output; no push or PR creation will occur.",
             severity: "manual_action",
             blocks: ["execute"],
             source: "orchestrator",
-          },
-        ],
-        message: "GitHub PR can queue a gated preview, but execution remains manual-action.",
-      },
-      coolify: {
-        key: "coolify",
-        label: "Coolify staging deploy",
-        action: "deploy-staging",
-        enabled: false,
-        configured: false,
-        ready: false,
-        safeToRun: false,
-        canQueue: false,
-        canExecute: false,
-        realNetworkCall: false,
-        missingEnv: [],
-        message: "Coolify deploy is blocked.",
-      },
-      uptimeKuma: {
-        key: "uptimeKuma",
-        label: "Uptime Kuma monitor sync",
-        action: "monitor-sync",
-        enabled: false,
-        configured: false,
-        ready: false,
-        safeToRun: false,
-        canQueue: false,
-        canExecute: false,
-        realNetworkCall: false,
-        missingEnv: [],
-        message: "Monitor sync is blocked.",
-      },
-      plane: {
-        key: "plane",
-        label: "Plane sync",
-        action: "plane-sync",
-        enabled: false,
-        configured: false,
-        ready: false,
-        safeToRun: false,
-        canQueue: false,
-        canExecute: false,
-        realNetworkCall: false,
-        missingEnv: [],
-        message: "Plane sync is blocked.",
+          }],
+        },
+        coolify: baseEntry({ key: "coolify", label: "Coolify staging deploy", action: "deploy-staging" }),
+        uptimeKuma: baseEntry({ key: "uptimeKuma", label: "Uptime Kuma monitor sync", action: "monitor-sync" }),
+        plane: baseEntry({ key: "plane", label: "Plane sync", action: "plane-sync" }),
       },
     };
 
     const view = renderMissionDetailView({
-      state: { status: "success", data: { ...missionSummary, realModeReadiness: readiness } },
-      actions: { onRunAction: vi.fn(), onRefresh: vi.fn() },
+      state: { status: "success", data: queueableManualActionSummary },
+      actions: { onRunAction, onRefresh: vi.fn() },
       actionState: { loading: "", message: "", error: "" },
     });
 
     const button = findButtonByText(view, "Create PR preview/manual-action");
-    const text = textFromElement(view);
-
     expect(button.props.disabled).toBe(false);
-    expect(text).toContain("Queue: ready");
-    expect(text).toContain("Execute: manual-action");
-    expect(text).not.toContain("Run real");
-    expect(text.indexOf(firstBlocker)).toBeGreaterThanOrEqual(0);
-    expect(text.indexOf(secondBlocker)).toBeGreaterThanOrEqual(0);
-    expect(text.indexOf(firstBlocker)).toBeLessThan(text.indexOf(secondBlocker));
+    expect(textFromElement(view)).not.toContain("Run real");
+    button.props.onClick?.();
+    expect(onRunAction).toHaveBeenCalledWith("github-pr", {});
   });
 ```
+
 
 - [ ] **Step 2: Run the focused Hub test**
 
 Run:
 
 ```bash
-pnpm --filter @psf/hub test -- --run tests/hub.test.tsx -t 'uses canQueue over legacy safeToRun and preserves API blocker order'
+pnpm --filter @psf/hub test -- --run tests/hub.test.tsx -t 'uses canQueue instead of legacy safeToRun'
 ```
 
-Expected: PASS if current Hub already uses `entry.canQueue ?? entry.safeToRun` and renders blockers in array order. If it fails, continue to Step 3.
+Expected: PASS if current Hub already uses `entry.canQueue ?? entry.safeToRun`; FAIL if a regression has restored `safeToRun` as the primary guard.
 
-- [ ] **Step 3: Keep Hub button and blocker rendering aligned with the API if needed**
+- [ ] **Step 3: Fix Hub button guard only if Step 2 fails**
 
-If the test fails because the button is disabled, update `renderMissionActions` in `apps/hub/src/App.tsx` so the guarded real action loop uses this queue decision:
+If Step 2 fails because the button is disabled, replace the guarded-action map in `apps/hub/src/App.tsx` with this logic:
 
 ```tsx
+        {guardedRealActions.map((entry) => {
           const canQueue = entry.canQueue ?? entry.safeToRun;
+          const blockers = entry.blockers ?? [];
+          const title = [entry.recommendedNextAction ?? entry.message, ...blockers.map((blocker) => blocker.message)].filter(Boolean).join(" ");
+          return (
+            <button
+              type="button"
+              key={entry.action}
+              disabled={busy || !canQueue}
+              onClick={() => void actions.onRunAction(entry.action, {})}
+              title={title}
+            >
+              {realActionButtonLabel(entry)}
+            </button>
+          );
+        })}
 ```
 
-If the test fails because blocker order changes, keep `renderRealModeReadiness` as a direct map over the API array:
+Do not add local env, approval, transport, or provider inference in Hub.
 
-```tsx
-            {(entry.blockers ?? []).map((blocker) => (
-              <span key={blocker.key}>{`${blocker.severity} ${blocker.category}: ${blocker.message}`}</span>
-            ))}
+- [ ] **Step 4: Add the API blocker order rendering test**
+
+In `apps/hub/tests/hub.test.tsx`, add this test near the previous new Hub test:
+
+```ts
+  it("renders readiness blockers in API-provided order", () => {
+    const orderedSummary: MissionSummaryResponse = {
+      ...missionSummary,
+      realModeReadiness: {
+        codex: {
+          key: "codex",
+          label: "Codex real execution",
+          action: "codex-real",
+          enabled: true,
+          configured: true,
+          ready: true,
+          safeToRun: false,
+          canQueue: true,
+          canExecute: false,
+          realNetworkCall: false,
+          realExternalCall: false,
+          realPush: false,
+          realDeploy: false,
+          missingEnv: [],
+          requiredApprovalTypes: ["SECURITY_RISK"],
+          approvedApprovalTypes: ["SECURITY_RISK"],
+          missingApprovalTypes: [],
+          recommendedNextAction: "Use API blocker order.",
+          blockers: [
+            {
+              category: "execution",
+              key: "execution.second_from_api",
+              message: "Second blocker from API order.",
+              recommendedNextAction: "Review second blocker.",
+              severity: "manual_action",
+              blocks: ["execute"],
+              source: "orchestrator",
+            },
+            {
+              category: "policy",
+              key: "policy.first_by_sort_but_second_by_api",
+              message: "Policy blocker appears second in API order.",
+              recommendedNextAction: "Review policy blocker.",
+              severity: "blocking",
+              blocks: ["execute"],
+              source: "orchestrator",
+            },
+          ],
+          message: "Manual action required.",
+        },
+        qaPlaywright: {
+          key: "qaPlaywright",
+          label: "Playwright QA",
+          action: "qa-playwright",
+          enabled: false,
+          configured: true,
+          ready: false,
+          safeToRun: false,
+          canQueue: false,
+          canExecute: false,
+          realNetworkCall: false,
+          missingEnv: [],
+          message: "Manual action required.",
+        },
+        qaAiExploratory: {
+          key: "qaAiExploratory",
+          label: "AI exploratory QA",
+          action: "qa-ai-exploratory",
+          enabled: false,
+          configured: true,
+          ready: false,
+          safeToRun: false,
+          canQueue: false,
+          canExecute: false,
+          realNetworkCall: false,
+          missingEnv: [],
+          message: "Manual action required.",
+        },
+        fix: {
+          key: "fix",
+          label: "Real fix loop",
+          action: "fix-real",
+          enabled: false,
+          configured: true,
+          ready: false,
+          safeToRun: false,
+          canQueue: false,
+          canExecute: false,
+          realNetworkCall: false,
+          missingEnv: [],
+          message: "Manual action required.",
+        },
+        github: {
+          key: "github",
+          label: "GitHub PR",
+          action: "github-pr",
+          enabled: false,
+          configured: false,
+          ready: false,
+          safeToRun: false,
+          canQueue: false,
+          canExecute: false,
+          realNetworkCall: false,
+          missingEnv: [],
+          message: "Manual action required.",
+        },
+        coolify: {
+          key: "coolify",
+          label: "Coolify staging deploy",
+          action: "deploy-staging",
+          enabled: false,
+          configured: false,
+          ready: false,
+          safeToRun: false,
+          canQueue: false,
+          canExecute: false,
+          realNetworkCall: false,
+          missingEnv: [],
+          message: "Manual action required.",
+        },
+        uptimeKuma: {
+          key: "uptimeKuma",
+          label: "Uptime Kuma monitor sync",
+          action: "monitor-sync",
+          enabled: false,
+          configured: false,
+          ready: false,
+          safeToRun: false,
+          canQueue: false,
+          canExecute: false,
+          realNetworkCall: false,
+          missingEnv: [],
+          message: "Manual action required.",
+        },
+        plane: {
+          key: "plane",
+          label: "Plane sync",
+          action: "plane-sync",
+          enabled: false,
+          configured: false,
+          ready: false,
+          safeToRun: false,
+          canQueue: false,
+          canExecute: false,
+          realNetworkCall: false,
+          missingEnv: [],
+          message: "Manual action required.",
+        },
+      },
+    };
+
+    const view = renderMissionDetailView({
+      state: { status: "success", data: orderedSummary },
+      actions: { onRunAction: vi.fn(), onRefresh: vi.fn() },
+      actionState: { loading: "", message: "", error: "" },
+    });
+    const text = textFromElement(view);
+
+    expect(text.indexOf("Second blocker from API order.")).toBeLessThan(text.indexOf("Policy blocker appears second in API order."));
+  });
 ```
 
-Do not introduce Hub-side sorting or env/approval/transport inference.
-
-- [ ] **Step 4: Re-run the focused Hub test**
+- [ ] **Step 5: Run the focused blocker-order test**
 
 Run:
 
 ```bash
-pnpm --filter @psf/hub test -- --run tests/hub.test.tsx -t 'uses canQueue over legacy safeToRun and preserves API blocker order'
+pnpm --filter @psf/hub test -- --run tests/hub.test.tsx -t 'renders readiness blockers in API-provided order'
+```
+
+Expected: PASS if Hub maps `entry.blockers` directly. If it fails, remove local sorting and render `entry.blockers ?? []` directly.
+
+- [ ] **Step 6: Run focused Hub readiness tests**
+
+Run:
+
+```bash
+pnpm --filter @psf/hub test -- --run tests/hub.test.tsx -t 'real-mode readiness|canQueue|API-provided order'
 ```
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 2 if it changed tests or code**
-
-Run:
+- [ ] **Step 7: Commit Task 2**
 
 ```bash
 git add apps/hub/tests/hub.test.tsx apps/hub/src/App.tsx
-git commit -m "锁定 Hub 就绪合同展示" -m "新增 Hub 合同测试，确认 canQueue 优先于 legacy safeToRun，并按 API 返回顺序展示 blockers。" -m "如有实现调整，仅保持现有 API 消费语义，不新增 Hub 推断、不启用真实外部动作。"
+git commit -m "补强 Hub 就绪合同测试" -m "锁定 Hub 使用 canQueue 而非 legacy safeToRun 控制 gated action 按钮，并按 API 返回顺序展示 blockers。" -m "未启用真实 Codex、Playwright/browser、provider network、push、PR creation、deploy、monitor creation 或 Plane sync。"
 ```
 
----
+If `apps/hub/src/App.tsx` did not change because both tests already passed, omit it from `git add`:
 
-### Task 3: Worker Runner Defense-In-Depth Execute Blockers
+```bash
+git add apps/hub/tests/hub.test.tsx
+git commit -m "补强 Hub 就绪合同测试" -m "锁定 Hub 使用 canQueue 而非 legacy safeToRun 控制 gated action 按钮，并按 API 返回顺序展示 blockers。" -m "本提交只新增 Hub contract tests，现有 production code 已满足合同。"
+```
+
+### Task 3: Worker Runner Defense-In-Depth Blocker Semantics
 
 **Files:**
 - Modify: `apps/worker-runner/tests/runner.test.ts`
 - Modify if needed: `apps/worker-runner/src/readiness-blockers.ts`
 - Modify if needed: `apps/worker-runner/src/handlers.ts`
 
-- [ ] **Step 1: Strengthen remote repo defense-in-depth assertions**
+- [ ] **Step 1: Strengthen the remote repo defense-in-depth test**
 
-In `apps/worker-runner/tests/runner.test.ts`, find the parameterized test named `blocks codex.real %s before calling injected runner`. After the existing `expect(String(wrapper.output.reason)).toContain("codex.real queued job requires local repoUrl");`, add:
+In `apps/worker-runner/tests/runner.test.ts`, replace the current parameterized test named `blocks codex.real %s before calling injected runner` with this explicit test:
 
 ```ts
+  it("reports codex.real remote repo defense-in-depth as execute-only policy blocker", async () => {
+    let runnerCalls = 0;
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-real", MissionStatus.fixing)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload: { repoUrl: "https://github.com/example/ai-novelist.git", branchName: "agent/mission-real" },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        codexRunner: {
+          run: async () => {
+            runnerCalls += 1;
+            return codexResult("succeeded", "Should not run.");
+          },
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(runnerCalls).toBe(0);
     expect(wrapper.output).toMatchObject({
+      status: "manual_action",
+      manualActionRequired: true,
       canQueue: true,
       canExecute: false,
       blockers: [expect.objectContaining({
@@ -431,25 +624,58 @@ In `apps/worker-runner/tests/runner.test.ts`, find the parameterized test named 
         source: "worker_runner",
       })],
     });
+    expect(String(wrapper.output.reason)).toContain("codex.real queued job requires local repoUrl");
     const events = await storage.listMissionEvents("mission-real");
     const actionResult = events.find((event) => event.type === "mission.action_result");
     expect(actionResult?.payload).toMatchObject({
       canQueue: true,
       canExecute: false,
-      blockers: [expect.objectContaining({
-        key: "policy.codex.local_mirror_required",
-        blocks: ["execute"],
-        source: "worker_runner",
-      })],
+      blockers: [expect.objectContaining({ key: "policy.codex.local_mirror_required", blocks: ["execute"] })],
     });
+    await expect(storage.getMission("mission-real")).resolves.toMatchObject({ status: MissionStatus.fixing });
+  });
 ```
 
-- [ ] **Step 2: Strengthen unsafe branch defense-in-depth assertions**
+- [ ] **Step 2: Add the unsafe branch defense-in-depth test**
 
-In the test named `blocks unsafe codex.real branch %s before calling injected runner`, after `expect(String(wrapper.output.reason)).toContain("codex.real branchName must be under agent/");`, add:
+Add this test next to the remote repo test:
 
 ```ts
+  it("reports codex.real unsafe branch defense-in-depth as execute-only policy blocker", async () => {
+    let runnerCalls = 0;
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-real", MissionStatus.fixing)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
+    });
+    const job = buildWorkerJob({
+      id: "job-codex-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "codex.real",
+      mode: "real",
+      payload: { repoUrl: "/tmp/ai-novelist.git", branchName: "main" },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        codexRunner: {
+          run: async () => {
+            runnerCalls += 1;
+            return codexResult("succeeded", "Should not run.");
+          },
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(runnerCalls).toBe(0);
     expect(wrapper.output).toMatchObject({
+      status: "manual_action",
+      manualActionRequired: true,
       canQueue: true,
       canExecute: false,
       blockers: [expect.objectContaining({
@@ -460,32 +686,50 @@ In the test named `blocks unsafe codex.real branch %s before calling injected ru
         source: "worker_runner",
       })],
     });
+    expect(String(wrapper.output.reason)).toContain("codex.real branchName must be under agent/");
     const events = await storage.listMissionEvents("mission-real");
     const actionResult = events.find((event) => event.type === "mission.action_result");
     expect(actionResult?.payload).toMatchObject({
       canQueue: true,
       canExecute: false,
-      blockers: [expect.objectContaining({
-        key: "policy.codex.branch_policy",
-        blocks: ["execute"],
-        source: "worker_runner",
-      })],
+      blockers: [expect.objectContaining({ key: "policy.codex.branch_policy", blocks: ["execute"] })],
     });
+    await expect(storage.getMission("mission-real")).resolves.toMatchObject({ status: MissionStatus.fixing });
+  });
 ```
 
-- [ ] **Step 3: Run the focused Worker Runner tests**
+- [ ] **Step 3: Run focused Worker Runner tests**
 
 Run:
 
 ```bash
-pnpm --filter @psf/worker-runner test -- --run tests/runner.test.ts -t 'blocks codex.real|blocks unsafe codex.real branch'
+pnpm --filter @psf/worker-runner test -- --run tests/runner.test.ts -t 'defense-in-depth as execute-only policy blocker'
 ```
 
-Expected: PASS if B2 already maps these defense-in-depth failures to execute-only policy blockers. If it fails, continue to Step 4.
+Expected: PASS if the current mapper already emits execute-only policy blockers. FAIL if wrapper output or `mission.action_result` omits `canQueue`, `canExecute`, or `blockers` for these paths.
 
-- [ ] **Step 4: Add the minimal Worker Runner mapping if needed**
+- [ ] **Step 4: Fix Worker Runner blocker mapping only if Step 3 fails**
 
-If the blocker key is wrong, update `codexBlockerKey` in `apps/worker-runner/src/readiness-blockers.ts` to keep these mappings:
+If the remote repo or unsafe branch tests fail, inspect `codexManualActionBlocker` in `apps/worker-runner/src/readiness-blockers.ts`. It must keep this behavior:
+
+```ts
+export function codexManualActionBlocker(reason: string): WorkerReadinessBlocker {
+  const key = codexBlockerKey(reason);
+  const policyBlocker = key.startsWith("policy.");
+  return {
+    category: policyBlocker ? "policy" : "execution",
+    key,
+    message: reason,
+    recommendedNextAction: codexRecommendedNextActionForKey(key),
+    severity: policyBlocker ? "blocking" : "manual_action",
+    blocks: ["execute"],
+    source: "worker_runner",
+    details: { jobType: "codex.real", defenseInDepth: policyBlocker },
+  };
+}
+```
+
+If key inference is wrong, replace `codexBlockerKey` with:
 
 ```ts
 function codexBlockerKey(reason: string): WorkerReadinessBlocker["key"] {
@@ -503,73 +747,62 @@ function codexBlockerKey(reason: string): WorkerReadinessBlocker["key"] {
 }
 ```
 
-If `canQueue`, `canExecute`, or `blockers` are absent from wrapper output, keep `toCodexRealHandlerResult` in `apps/worker-runner/src/handlers.ts` deriving readiness for `blocked` and `manual_action` statuses:
+If wrapper output or `mission.action_result` omits readiness fields, do not change lifecycle logic. Confirm `toCodexRealHandlerResult` in `apps/worker-runner/src/handlers.ts` returns `canQueue`, `canExecute`, and `blockers` from `deriveWorkerReadiness`, and confirm `apps/worker-runner/src/runner.ts` already copies those fields into `buildSafeOutput` and `recordMissionActionResult`.
 
-```ts
-  const readiness = result.status === "blocked" || result.status === "manual_action"
-    ? deriveWorkerReadiness([codexManualActionBlocker(result.reason)], recommendedNextAction)
-    : deriveWorkerReadiness([], recommendedNextAction);
-```
-
-and ensure the returned object includes:
-
-```ts
-    canQueue: readiness.canQueue,
-    canExecute: readiness.canExecute,
-    blockers: readiness.blockers,
-```
-
-Do not change wrapper status lifecycle, Mission auto-transition rules, or queue semantics.
-
-- [ ] **Step 5: Re-run the focused Worker Runner tests**
+- [ ] **Step 5: Run Worker Runner contract tests**
 
 Run:
 
 ```bash
-pnpm --filter @psf/worker-runner test -- --run tests/runner.test.ts -t 'blocks codex.real|blocks unsafe codex.real branch'
+pnpm --filter @psf/worker-runner test -- --run tests/runner.test.ts -t 'codex.real|github.pr|canonical blockers'
 ```
 
-Expected: PASS.
+Expected: PASS. The blocked/manual-action paths must not transition Mission to `ready_for_review`, `released`, or any other success state.
 
-- [ ] **Step 6: Commit Task 3 if it changed tests or code**
+- [ ] **Step 6: Commit Task 3**
 
-Run:
+If production code changed:
 
 ```bash
 git add apps/worker-runner/tests/runner.test.ts apps/worker-runner/src/readiness-blockers.ts apps/worker-runner/src/handlers.ts
-git commit -m "锁定 Worker 执行阻塞语义" -m "补强 Worker Runner defense-in-depth 测试，确认已入队 codex.real policy blocker 只阻塞 execute 且不回写 queue 语义。" -m "如有实现调整，仅补 wrapper output 与 mission.action_result readiness 字段，不改变 WorkerRun lifecycle 或 Mission auto-transition。"
+git commit -m "补强 Worker Runner 阻塞合同" -m "锁定已入队 codex.real defense-in-depth policy blocker 只阻塞 execute，并同步 wrapper output 与 mission.action_result。" -m "未改变 WorkerRun lifecycle、Mission auto-transition、queue semantics 或真实外部动作默认禁用边界。"
 ```
 
----
+If only tests changed:
 
-### Task 4: Default GitHub PR Boundary Versus Fake Transport Success
+```bash
+git add apps/worker-runner/tests/runner.test.ts
+git commit -m "补强 Worker Runner 阻塞合同测试" -m "锁定已入队 codex.real defense-in-depth policy blocker 只阻塞 execute；现有 production code 已满足合同。" -m "未改变 WorkerRun lifecycle、Mission auto-transition、queue semantics 或真实外部动作默认禁用边界。"
+```
+
+### Task 4: Default GitHub PR Boundary And Final Documentation
 
 **Files:**
-- Modify: `apps/worker-runner/tests/runner.test.ts`
-- Modify if needed: `apps/worker-runner/src/handlers.ts`
+- Modify: `apps/orchestrator-api/tests/api.test.ts` or `apps/worker-runner/tests/runner.test.ts`
+- Modify: `docs/debug/debug.md`
 
-- [ ] **Step 1: Strengthen the default GitHub PR Worker Runner test**
+- [ ] **Step 1: Strengthen default GitHub PR no-network boundary in the existing Worker Runner test**
 
-In `apps/worker-runner/tests/runner.test.ts`, find the test named `keeps github.pr default manual-action without network and persists a PR preview artifact`. After the existing `expect(wrapper.output).toMatchObject({ recommendedNextAction: ... })` block and before artifact assertions, add:
+In `apps/worker-runner/tests/runner.test.ts`, update the existing test named `keeps github.pr default manual-action without network and persists a PR preview artifact` by adding these assertions after `expect(wrapper.output).toMatchObject({ recommendedNextAction: ... })`:
+
+```ts
+    expect(wrapper.output).toMatchObject({
+      canQueue: true,
+      canExecute: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocks: ["execute"], source: "integration" }),
+      ]),
+    });
+```
+
+Then add these assertions before the artifact assertion:
 
 ```ts
     const githubChild = await storage.getWorkerRun("worker-run-mission-real-github-pr");
     expect(githubChild).toMatchObject({
-      output: expect.objectContaining({
-        realNetworkCall: false,
-        realExternalCall: false,
-        pushed: false,
-      }),
-      metadata: expect.objectContaining({
-        realNetworkCall: false,
-        pushed: false,
-      }),
+      output: expect.objectContaining({ realNetworkCall: false, realExternalCall: false, pushed: false }),
+      metadata: expect.objectContaining({ realNetworkCall: false, pushed: false }),
     });
-```
-
-After the artifact assertion for `artifact-mission-real-github-pr-preview`, add:
-
-```ts
     const previewArtifact = await storage.getArtifact("artifact-mission-real-github-pr-preview");
     expect(previewArtifact).toMatchObject({
       metadata: expect.objectContaining({ realNetworkCall: false, pushed: false }),
@@ -578,229 +811,109 @@ After the artifact assertion for `artifact-mission-real-github-pr-preview`, add:
     expect(previewArtifact?.content).toContain("Pushed: false");
 ```
 
-This locks the default Worker Runner path. It does not conflict with the existing fake transport success test, where injected transport deliberately produces `realNetworkCall:true`.
+The Worker Runner child output and preview artifact use `pushed:false` for the no-push boundary. Do not migrate this child schema to a new `realPush` field in B3.
 
-- [ ] **Step 2: Run the focused GitHub PR default test**
-
-Run:
-
-```bash
-pnpm --filter @psf/worker-runner test -- --run tests/runner.test.ts -t 'keeps github.pr default manual-action without network and persists a PR preview artifact'
-```
-
-Expected: PASS if the default child WorkerRun and preview artifact already preserve no-network metadata. If it fails, continue to Step 3.
-
-- [ ] **Step 3: Add minimal no-network fields if needed**
-
-If child output or metadata lacks the fields, update `createGitHubPrWorkerRun` in `apps/worker-runner/src/handlers.ts` so the child output includes:
-
-```ts
-      realNetworkCall: result.realNetworkCall,
-      safeToRun: result.safeToRun,
-      configured: result.configured,
-      missingEnv: result.missingEnv,
-      requests: result.outputs.requests,
-      manualActions: result.outputs.manualActions,
-      pushed: false,
-      realExternalCall: result.realNetworkCall,
-```
-
-and metadata includes:
-
-```ts
-      realNetworkCall: result.realNetworkCall,
-      pushed: false,
-```
-
-If the preview artifact lacks the safety text or metadata, update `createGitHubPrPreviewArtifact` so its content includes:
-
-```ts
-    `- Real network call: ${result.realNetworkCall}`,
-    `- Pushed: false`,
-```
-
-and metadata includes:
-
-```ts
-metadata: { generatedBy: "worker-runner", provider: "github", realNetworkCall: result.realNetworkCall, pushed: false },
-```
-
-Do not add `realPush:true`, do not create PRs, and do not add any real transport.
-
-- [ ] **Step 4: Re-run the focused GitHub PR default test**
+- [ ] **Step 2: Run the default GitHub PR boundary test**
 
 Run:
 
 ```bash
-pnpm --filter @psf/worker-runner test -- --run tests/runner.test.ts -t 'keeps github.pr default manual-action without network and persists a PR preview artifact'
+pnpm --filter @psf/worker-runner test -- --run tests/runner.test.ts -t 'keeps github.pr default manual-action without network'
+```
+
+Expected: PASS if default Worker Runner GitHub PR child output and preview artifact already preserve no-network/no-push semantics through `realNetworkCall:false` and `pushed:false`.
+
+- [ ] **Step 3: Run focused package verification**
+
+Run the smallest meaningful checks for changed surfaces:
+
+```bash
+pnpm --filter @psf/orchestrator-api test -- --run tests/api.test.ts -t 'codex-real .*preflight|gated real actions|real-mode readiness'
+pnpm --filter @psf/hub test -- --run tests/hub.test.tsx -t 'real-mode readiness|canQueue|API-provided order'
+pnpm --filter @psf/worker-runner test -- --run tests/runner.test.ts -t 'codex.real|github.pr|canonical blockers|defense-in-depth'
 ```
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 4 if it changed tests or code**
+- [ ] **Step 4: Run full changed-package tests and typechecks**
 
 Run:
 
 ```bash
-git add apps/worker-runner/tests/runner.test.ts apps/worker-runner/src/handlers.ts
-git commit -m "锁定 GitHub 预览默认安全边界" -m "补强 Worker Runner GitHub PR default manual-action 测试，确认 fake transport 的 realNetworkCall:true 不污染默认 preview/no-network 路径。" -m "保持默认不 push、不创建 PR、不调用 provider network。"
-```
-
----
-
-### Task 5: Focused Verification And Documentation Rollup
-
-**Files:**
-- Modify: `docs/debug/debug.md`
-- Modify: `docs/status/progress.md`
-- Modify: `docs/status/next-steps.md`
-- Modify: `summary.md`
-
-- [ ] **Step 1: Run focused package tests**
-
-Run the smallest checks for touched surfaces:
-
-```bash
-pnpm --filter @psf/orchestrator-api test -- --run tests/api.test.ts -t 'codex-real preflight|gated real actions|real-mode readiness'
-pnpm --filter @psf/hub test -- --run tests/hub.test.tsx -t 'canQueue|real-mode readiness|guarded real actions'
-pnpm --filter @psf/worker-runner test -- --run tests/runner.test.ts -t 'codex.real|github.pr default manual-action'
-```
-
-Expected: PASS for each command.
-
-If a `-t` pattern does not match the exact local test name after edits, run the package file directly:
-
-```bash
-pnpm --filter @psf/orchestrator-api test -- --run tests/api.test.ts
-pnpm --filter @psf/hub test -- --run tests/hub.test.tsx
-pnpm --filter @psf/worker-runner test -- --run tests/runner.test.ts
-```
-
-Expected: PASS for each command.
-
-- [ ] **Step 2: Run broader checks only after focused checks pass**
-
-Run:
-
-```bash
+pnpm --filter @psf/orchestrator-api test
 pnpm --filter @psf/orchestrator-api typecheck
+pnpm --filter @psf/hub test
 pnpm --filter @psf/hub typecheck
+pnpm --filter @psf/worker-runner test
 pnpm --filter @psf/worker-runner typecheck
+```
+
+Expected: all commands PASS.
+
+- [ ] **Step 5: Run workspace safety checks**
+
+Run:
+
+```bash
 pnpm check
 git diff --check
-```
-
-Expected: PASS. `git diff --check` should produce no output.
-
-- [ ] **Step 3: Update `docs/debug/debug.md` with verification results**
-
-Add this entry near the top of `## 当前条目`, above the B2 entry. Adjust command result counts only to match actual terminal output; keep the safety statement unchanged.
-
-```markdown
-### 2026-06-05 - B3 合同与安全测试缺口精补
-
-- 背景: 用户确认 B3 只做 B2 readiness/blocker 合同的缺口精补，不重复已有 B2 覆盖，也不进入 A1 local mirror proof。
-- 现象: B2 已有合同实现和多处测试，但 API 400 preflight、Hub `canQueue` 优先、Hub blocker 顺序、Worker Runner defense-in-depth execute-only blocker、GitHub PR fake transport 与默认 no-network 边界仍需要聚焦回归测试锁定。
-- 范围: `apps/orchestrator-api/tests/api.test.ts`、`apps/hub/tests/hub.test.tsx`、`apps/worker-runner/tests/runner.test.ts`，以及为通过测试所需的最小 production-code 调整。
-- 调查: 对照 B3 设计确认已有覆盖不重复新增；fake transport `realNetworkCall:true` 只保留在受控 injected transport 测试中，默认 API/Worker Runner preview/manual-action path 必须继续 no-network。
-- 修复: 补充 B3 focused contract tests，并仅在必要时补齐 400 preflight blocker details、Hub API readiness 消费或 Worker Runner blocked/manual-action readiness mapping。
-- 验证: Focused checks 通过：`pnpm --filter @psf/orchestrator-api test -- --run tests/api.test.ts ...`、`pnpm --filter @psf/hub test -- --run tests/hub.test.tsx ...`、`pnpm --filter @psf/worker-runner test -- --run tests/runner.test.ts ...`。Broader checks 通过：`pnpm --filter @psf/orchestrator-api typecheck`、`pnpm --filter @psf/hub typecheck`、`pnpm --filter @psf/worker-runner typecheck`、`pnpm check`、`git diff --check`。
-- 后续: 执行 A1 前，仍需 operator-prepared `ai-novelist` local mirror，并人工验证 passport commands、local URL 和 selectors；默认仍不启用真实 Codex、Playwright/browser、provider network、push、PR creation、deploy、monitor creation 或 Plane sync。
-```
-
-- [ ] **Step 4: Update current status docs**
-
-In `docs/status/progress.md`, change the B3 line in `## 当前执行路线` from B3 being next to B3 being complete and A1 being next. Use this wording:
-
-```markdown
-B1 文档差异审计与最小必要清理已完成。B2 控制面 readiness/blocker 合同收敛已完成并进入当前实现事实：`safeToRun` 只作为 legacy route-level queue readiness 字段保留，新的判断优先使用 `canQueue`、`canExecute`、`blockers[]` 和 `recommendedNextAction`。B3 合同与安全测试缺口精补已完成；下一步执行 A1，在 operator-prepared `ai-novelist` local mirror 上证明 gated-runner path。
-```
-
-In `docs/status/next-steps.md`, replace the B3 bullet with:
-
-```markdown
-3. B3 合同与安全测试缺口精补已完成；下一步执行 A1：只在 operator-prepared `ai-novelist` local mirror 上证明 gated-runner path。Passport 中 `manual-verification-required` 的 commands、local URL 和 selectors 必须先人工验证。
-```
-
-In `summary.md`, update the current problems/improvement backlog only where wording says B3 still needs to be done. Use this replacement for the current problem item about B3:
-
-```markdown
-2. B3 已用 focused contract tests 锁定 B2 readiness/blocker 的高风险边界；后续仍需避免新 route、worker 或 integration path 绕过 `canQueue`、`canExecute`、`blockers[]` 和默认安全 flags。
-```
-
-If a line says `下一步执行 B3 合同回归测试和必要最小调整，最后执行 A1`, replace it with:
-
-```markdown
-后续顺序：B1 文档差异审计与最小必要清理已完成，B2 readiness/blocker 合同收敛已完成，B3 合同与安全测试缺口精补已完成；下一步执行 A1 `ai-novelist` local mirror gated-runner proof。
-```
-
-- [ ] **Step 5: Run documentation consistency checks**
-
-Run:
-
-```bash
 node scripts/check-phase1-structure.mjs
-git diff --check
-```
-
-Expected: `node scripts/check-phase1-structure.mjs` passes and validates the expected file/directory counts. `git diff --check` produces no output.
-
-- [ ] **Step 6: Commit Task 5 documentation rollup**
-
-Run:
-
-```bash
-git add docs/debug/debug.md docs/status/progress.md docs/status/next-steps.md summary.md
-git commit -m "记录 B3 合同测试收口" -m "更新当前事实源和调试记录，记录 B3 focused contract tests、验证结果和 A1 作为下一步。" -m "默认安全边界保持不启用真实 Codex、Playwright/browser、provider network、push、PR creation、deploy、monitor creation 或 Plane sync。"
-```
-
----
-
-### Task 6: Final Workspace Verification
-
-**Files:**
-- No production files expected. Commit only if verification uncovers a required fix.
-
-- [ ] **Step 1: Run final workspace checks**
-
-Run:
-
-```bash
-pnpm typecheck
-pnpm test
-pnpm check
-node scripts/check-phase1-structure.mjs
-git diff --check
 git status --short --branch
 ```
 
-Expected:
+Expected: `pnpm check`, `git diff --check`, and `node scripts/check-phase1-structure.mjs` PASS. `git status --short --branch` should show only intentional B3 implementation and docs changes before the final commit.
 
-- `pnpm typecheck`: PASS.
-- `pnpm test`: PASS.
-- `pnpm check`: PASS.
-- `node scripts/check-phase1-structure.mjs`: PASS.
-- `git diff --check`: no output.
-- `git status --short --branch`: clean except branch ahead count.
+- [ ] **Step 6: Update `docs/debug/debug.md` with B3 verification**
 
-- [ ] **Step 2: If final verification requires a fix, make the smallest fix and commit**
+Append this entry near the top of `## 当前条目` in `docs/debug/debug.md`, above the B2 entry:
 
-If a check fails, inspect the failure, make only the minimal scoped change, rerun the failed command, then rerun the final workspace checks from Step 1.
+```markdown
+### 2026-06-05 - B3 合同安全测试精补
 
-Commit any required final fix with a Chinese title and body. Use a message shaped like:
-
-```bash
-git add apps/orchestrator-api/tests/api.test.ts apps/orchestrator-api/src/services.ts apps/hub/tests/hub.test.tsx apps/hub/src/App.tsx apps/worker-runner/tests/runner.test.ts apps/worker-runner/src/handlers.ts apps/worker-runner/src/readiness-blockers.ts docs/debug/debug.md docs/status/progress.md docs/status/next-steps.md summary.md
-git commit -m "修正 B3 验证收口问题" -m "根据最终验证结果修正 B3 合同测试或文档收口问题。" -m "未启用真实 Codex、Playwright/browser、provider network、push、PR creation、deploy、monitor creation 或 Plane sync。"
+- 背景: 根据 B3 设计补强 readiness/blocker 合同缺口，重点覆盖 API 400 preflight、Hub canQueue 优先、Hub blocker 顺序、Worker Runner defense-in-depth execute-only blockers，以及默认 GitHub PR preview/manual-action no-network 边界。
+- 现象: B2 已完成主合同收敛，但若缺少聚焦 contract tests，后续可能把 legacy safeToRun 重新当作真实执行 ready，或把已入队 Worker Runner defense-in-depth blocker 误写成 queue rejected。
+- 范围: `apps/orchestrator-api/tests/api.test.ts`、`apps/hub/tests/hub.test.tsx`、`apps/worker-runner/tests/runner.test.ts`，以及必要最小 production-code 调整。
+- 调查: 先补缺口测试，复用现有 readiness/blocker builder、Hub API readiness 展示、Worker Runner mapper 和 integration fake transport 测试边界；未新增共享 schema 迁移或真实 provider runner/transport。
+- 修复: 400 preflight、Hub readiness 消费和 Worker Runner execute-only blocker 合同已由 B3 tests 锁住；默认 GitHub PR preview/manual-action 仍保持 no-network/no-push 安全边界。
+- 验证: `pnpm --filter @psf/orchestrator-api test -- --run tests/api.test.ts -t 'codex-real .*preflight|gated real actions|real-mode readiness'` 通过；`pnpm --filter @psf/hub test -- --run tests/hub.test.tsx -t 'real-mode readiness|canQueue|API-provided order'` 通过；`pnpm --filter @psf/worker-runner test -- --run tests/runner.test.ts -t 'codex.real|github.pr|canonical blockers|defense-in-depth'` 通过；`pnpm --filter @psf/orchestrator-api test` 通过；`pnpm --filter @psf/orchestrator-api typecheck` 通过；`pnpm --filter @psf/hub test` 通过；`pnpm --filter @psf/hub typecheck` 通过；`pnpm --filter @psf/worker-runner test` 通过；`pnpm --filter @psf/worker-runner typecheck` 通过；`pnpm check` 通过；`git diff --check` 通过；`node scripts/check-phase1-structure.mjs` 通过。
+- 后续: B3 完成后继续按路线进入 A1 `ai-novelist` local mirror gated-runner proof；真实 Codex、Playwright/browser、provider network、push、PR creation、deploy、monitor creation 和 Plane sync 仍需后续明确批准。
 ```
 
-- [ ] **Step 3: Report completion**
+If a focused command fails during implementation and is fixed, include the failed command and the fixed command in the `验证` line before committing. Do not record secret values or long raw logs.
 
-In the final response, include:
+- [ ] **Step 7: Commit Task 4**
 
-- implemented test gaps;
-- production-code files changed, if any;
-- verification commands and results;
-- documentation files updated;
-- final commit hashes;
-- explicit note that no real external execution was enabled.
+```bash
+git add apps/worker-runner/tests/runner.test.ts docs/debug/debug.md
+git commit -m "记录 B3 合同测试验证" -m "补强默认 GitHub PR preview/manual-action no-network 边界，并记录 B3 focused contract test 与 workspace verification 结果。" -m "默认安全边界保持不启用真实 Codex、Playwright/browser、provider network、push、PR creation、deploy、monitor creation 或 Plane sync。"
+```
+
+If `apps/worker-runner/tests/runner.test.ts` was committed in Task 3 and Task 4 only updates docs, use:
+
+```bash
+git add docs/debug/debug.md
+git commit -m "记录 B3 合同测试验证" -m "记录 B3 focused contract test 与 workspace verification 结果；本提交只更新调试验证文档。" -m "默认安全边界保持不启用真实 Codex、Playwright/browser、provider network、push、PR creation、deploy、monitor creation 或 Plane sync。"
+```
+
+## Final Review
+
+- [ ] **Step 1: Confirm no unexpected files changed**
+
+Run:
+
+```bash
+git status --short --branch
+git log --oneline -6
+```
+
+Expected: branch contains only focused B3 commits after the B3 plan/design commits. Working tree is clean.
+
+- [ ] **Step 2: Report completion**
+
+Final response should include:
+
+- changed surfaces;
+- commits created;
+- verification commands run;
+- confirmation that `docs/debug/debug.md` was updated for verification;
+- confirmation that no real Codex, Playwright/browser, provider network, push, PR creation, deploy, monitor creation, or Plane sync was enabled.
