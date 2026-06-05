@@ -52,6 +52,16 @@ pnpm psf queues:status
 
 ## 当前条目
 
+### 2026-06-05 - B3 合同安全测试精补
+
+- 背景: 根据 B3 设计补强 readiness/blocker 合同缺口，覆盖 API 400 preflight、Hub `canQueue` 优先、Hub blocker 顺序、Worker Runner defense-in-depth execute-only blockers，以及默认 GitHub PR preview/manual-action no-network 边界。
+- 现象: B2 已完成主合同收敛，但缺少聚焦 contract tests 时，后续可能把 legacy `safeToRun` 重新当作真实执行 ready，或把已入队 Worker Runner defense-in-depth blocker 误写成 queue rejected。
+- 范围: `apps/orchestrator-api/src/services.ts`、`apps/orchestrator-api/tests/api.test.ts`、`apps/hub/tests/hub.test.tsx`、`apps/worker-runner/src/handlers.ts` 和 `apps/worker-runner/tests/runner.test.ts`。
+- 调查: 先按 TDD 补缺口测试；API canonical preflight tests 的 RED 显示旧 400 body 缺少 `canQueue`、`canExecute`、安全 flags 和 `blockers[]`；Worker GitHub PR 边界 RED 显示 child WorkerRun metadata 缺少 `realExternalCall:false`；Hub 新 contract tests 直接通过，说明现有 Hub production code 已按 API readiness 消费 `canQueue` 和 blocker 顺序。
+- 修复: `codex-real` 本地镜像和 unsafe branch preflight 通过 readiness blocker builder 输出 canonical 400 details；Hub 增加 `canQueue` 优先与 API blocker 顺序回归测试；Worker Runner 锁定已入队 `codex.real` policy blockers 只阻塞 execute，并补齐 GitHub PR child WorkerRun no-external-call metadata；未新增共享 schema 迁移或真实 provider runner/transport。
+- 验证: RED: `pnpm --filter @psf/orchestrator-api test -- tests/api.test.ts -t "canonical"` 先失败，2 failed / 86 skipped，原因是新 tests 期望 canonical readiness fields；修复后同命令通过，2 passed / 86 skipped。RED: `pnpm --filter @psf/worker-runner test -- tests/runner.test.ts -t "blocks codex.real|blocks unsafe codex.real branch|keeps github.pr default manual-action"` 先失败，原因是 GitHub PR child WorkerRun metadata 缺少 `realExternalCall:false`；修复后同命令通过，7 passed / 39 skipped。Final checks 通过：`pnpm --filter @psf/orchestrator-api test -- tests/api.test.ts -t "codex-real .*preflight|gated real actions|real-mode readiness"` 8 passed / 80 skipped；`pnpm --filter @psf/hub test -- tests/hub.test.tsx -t "real-mode readiness|canQueue|API-provided order"` 3 passed / 35 skipped；`pnpm --filter @psf/worker-runner test -- tests/runner.test.ts -t "codex.real|github.pr|canonical blockers|defense-in-depth"` 22 passed / 24 skipped；`pnpm --filter @psf/orchestrator-api test` 91 passed；`pnpm --filter @psf/orchestrator-api typecheck` 通过；`pnpm --filter @psf/hub test` 38 passed；`pnpm --filter @psf/hub typecheck` 通过；`pnpm --filter @psf/worker-runner test` 46 passed；`pnpm --filter @psf/worker-runner typecheck` 通过；`pnpm check` 通过；`git diff --check` 通过；`node scripts/check-phase1-structure.mjs` 通过。
+- 后续: B3 完成后可继续进入 A1 `ai-novelist` local mirror gated-runner proof；真实 Codex、Playwright/browser、provider network、push、PR creation、deploy、monitor creation 和 Plane sync 仍需后续明确批准。
+
 ### 2026-06-05 - B2 控制面 readiness/blocker 合同收敛
 
 - 背景: 用户确认进入 B2 实施阶段，目标是让 blocked/manual-action 状态在 API、Hub、Worker Runner 和 integrations 中可操作、可测试、可展示，同时保持默认安全边界。
