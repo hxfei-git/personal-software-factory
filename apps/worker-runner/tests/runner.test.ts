@@ -1152,11 +1152,12 @@ describe("worker runner", () => {
 
   it.each([
     [{ passport: projectPassport() }, "missing local repoUrl"],
-    [{ repoUrl: "https://github.com/example/ai-novelist.git" }, "remote repoUrl"],
+    [{ repoUrl: "https://github.com/example/ai-novelist.git", branchName: "agent/mission-real" }, "remote repoUrl"],
     [{ repoUrl: "git@github.com:example/ai-novelist.git" }, "scp-style remote repoUrl"],
   ])("blocks codex.real %s before calling injected runner", async (payload, _label) => {
     let runnerCalls = 0;
     const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-real", MissionStatus.fixing)],
       workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
     });
     const job = buildWorkerJob({
@@ -1188,13 +1189,39 @@ describe("worker runner", () => {
     expect(wrapper.output).toMatchObject({
       status: "manual_action",
       manualActionRequired: true,
+      canQueue: true,
+      canExecute: false,
+      blockers: [expect.objectContaining({
+        category: "policy",
+        key: "policy.codex.local_mirror_required",
+        severity: "blocking",
+        blocks: ["execute"],
+        source: "worker_runner",
+      })],
     });
     expect(String(wrapper.output.reason)).toContain("codex.real queued job requires local repoUrl");
+    const events = await storage.listMissionEvents("mission-real");
+    const actionResult = events.find((event) => event.type === "mission.action_result");
+    expect(actionResult?.payload).toMatchObject({
+      status: "manual_action",
+      manualActionRequired: true,
+      canQueue: true,
+      canExecute: false,
+      blockers: [expect.objectContaining({
+        category: "policy",
+        key: "policy.codex.local_mirror_required",
+        severity: "blocking",
+        blocks: ["execute"],
+        source: "worker_runner",
+      })],
+    });
+    await expect(storage.getMission("mission-real")).resolves.toMatchObject({ status: MissionStatus.fixing });
   });
 
   it.each(["main", "master", "feature/mission-real"])("blocks unsafe codex.real branch %s before calling injected runner", async (branchName) => {
     let runnerCalls = 0;
     const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-real", MissionStatus.fixing)],
       workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "codex.real", "job-codex-real")],
     });
     const job = buildWorkerJob({
@@ -1226,8 +1253,33 @@ describe("worker runner", () => {
     expect(wrapper.output).toMatchObject({
       status: "manual_action",
       manualActionRequired: true,
+      canQueue: true,
+      canExecute: false,
+      blockers: [expect.objectContaining({
+        category: "policy",
+        key: "policy.codex.branch_policy",
+        severity: "blocking",
+        blocks: ["execute"],
+        source: "worker_runner",
+      })],
     });
     expect(String(wrapper.output.reason)).toContain("codex.real branchName must be under agent/");
+    const events = await storage.listMissionEvents("mission-real");
+    const actionResult = events.find((event) => event.type === "mission.action_result");
+    expect(actionResult?.payload).toMatchObject({
+      status: "manual_action",
+      manualActionRequired: true,
+      canQueue: true,
+      canExecute: false,
+      blockers: [expect.objectContaining({
+        category: "policy",
+        key: "policy.codex.branch_policy",
+        severity: "blocking",
+        blocks: ["execute"],
+        source: "worker_runner",
+      })],
+    });
+    await expect(storage.getMission("mission-real")).resolves.toMatchObject({ status: MissionStatus.fixing });
   });
 
   it("returns manual_action for codex.real default handler when no injected Codex runner is configured", async () => {
@@ -1534,9 +1586,25 @@ describe("worker runner", () => {
       "execution.integration.manual_action",
     ]);
     expect(githubBlockerKeys).not.toContain("configuration.env.github.missing_or_disabled");
+    await expect(storage.getWorkerRun("worker-run-mission-real-github-pr")).resolves.toMatchObject({
+      output: expect.objectContaining({
+        realNetworkCall: false,
+        realExternalCall: false,
+        pushed: false,
+      }),
+      metadata: expect.objectContaining({
+        realNetworkCall: false,
+        realExternalCall: false,
+        pushed: false,
+      }),
+    });
     await expect(storage.getArtifact("artifact-mission-real-github-pr-preview")).resolves.toMatchObject({
       type: "technical_notes",
       path: "missions/mission-real/github-pr-preview.md",
+      content: expect.stringMatching(/no-network[\s\S]*no-push/),
+      metadata: expect.objectContaining({ safetyBoundary: "no-network/no-push" }),
+    });
+    await expect(storage.getArtifact("artifact-mission-real-github-pr-preview")).resolves.toMatchObject({
       content: expect.stringContaining("Preview only"),
     });
     expect(JSON.stringify(await storage.getArtifact("artifact-mission-real-github-pr-preview"))).not.toContain("secret-value");

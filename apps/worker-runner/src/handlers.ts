@@ -454,6 +454,7 @@ function createGitHubPrWorkerRun(job: QueueWorkerJob, result: GitHubRealResult):
       jobId: job.id,
       jobType: job.type,
       realNetworkCall: result.realNetworkCall,
+      realExternalCall: result.realNetworkCall,
       pushed: false,
     },
     error: result.errors.join("\n") || undefined,
@@ -467,6 +468,8 @@ function createGitHubPrPreviewArtifact(job: QueueWorkerJob, result: GitHubRealRe
   const preview = safeRecord(job.payload.prPreview);
   const title = stringValue(preview?.title) ?? `GitHub PR preview for ${job.missionId}`;
   const body = stringValue(preview?.body) ?? result.message;
+  const networkBoundary = result.realNetworkCall ? "network-enabled" : "no-network";
+  const pushBoundary = "no-push";
   const content = [
     "# GitHub PR Preview",
     "",
@@ -476,6 +479,8 @@ function createGitHubPrPreviewArtifact(job: QueueWorkerJob, result: GitHubRealRe
     `- Decision: ${result.decision}`,
     `- Real network call: ${result.realNetworkCall}`,
     `- Pushed: false`,
+    `- Network boundary: ${networkBoundary}`,
+    `- Push boundary: ${pushBoundary}`,
     "",
     body,
   ].join("\n");
@@ -488,7 +493,7 @@ function createGitHubPrPreviewArtifact(job: QueueWorkerJob, result: GitHubRealRe
     content,
     mime_type: "text/markdown",
     size: Buffer.byteLength(content, "utf8"),
-    metadata: { generatedBy: "worker-runner", provider: "github", realNetworkCall: result.realNetworkCall, pushed: false },
+    metadata: { generatedBy: "worker-runner", provider: "github", realNetworkCall: result.realNetworkCall, pushed: false, safetyBoundary: `${networkBoundary}/${pushBoundary}` },
     created_at: job.createdAt,
   };
 }
