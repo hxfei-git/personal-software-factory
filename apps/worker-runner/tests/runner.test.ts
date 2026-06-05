@@ -1601,8 +1601,11 @@ describe("worker runner", () => {
     await expect(storage.getArtifact("artifact-mission-real-github-pr-preview")).resolves.toMatchObject({
       type: "technical_notes",
       path: "missions/mission-real/github-pr-preview.md",
-      content: expect.stringMatching(/no-network[\s\S]*no-push/),
-      metadata: expect.objectContaining({ safetyBoundary: "no-network/no-push" }),
+      content: expect.stringContaining("Real network call: false"),
+      metadata: expect.objectContaining({ realNetworkCall: false, pushed: false }),
+    });
+    await expect(storage.getArtifact("artifact-mission-real-github-pr-preview")).resolves.toMatchObject({
+      content: expect.stringContaining("Pushed: false"),
     });
     await expect(storage.getArtifact("artifact-mission-real-github-pr-preview")).resolves.toMatchObject({
       content: expect.stringContaining("Preview only"),
