@@ -52,6 +52,16 @@ pnpm psf queues:status
 
 ## 当前条目
 
+### 2026-06-05 - A1 ai-novelist 本地镜像证明阻断
+
+- 背景: 执行 A1 `ai-novelist` local mirror gated-runner proof，目标是在隔离 mirror 上证明至少一个本地目标 Web 可观测事件，同时允许目标 app 内部使用 DeepSeek provider 配置；PSF 自身不得启用真实 provider transport、push、PR、deploy 或 browser automation。
+- 现象: 聚焦脚本测试和 typecheck 通过；`DEEPSEEK_API_KEY` 存在但未输出。A1 proof 成功准备/验证 source 与 mirror git metadata，但目标 Web 启动失败，原因是隔离 mirror 中缺少已验证命令依赖 `.venv/bin/ai-novelist`。
+- 范围: `scripts/a1-ai-novelist-proof.ts`、`scripts/psf.ts`、`workspaces/mirrors/ai-novelist`、`artifacts/a1/ai-novelist-local-mirror-deepseek-proof.json`、`docs/architecture/structure.md`、`docs/security/safety.md`、`docs/status/progress.md`、`docs/status/next-steps.md` 和 `summary.md`。
+- 调查: Source checkout `/home/ubuntu/1.project/ai-novelist` 位于 clean `main...origin/main`；PSF implementation worktree 位于 clean `a1-local-mirror-deepseek-proof`；A1 mirror 位于 clean `agent/a1-local-mirror-deepseek-proof`。Artifact 摘要显示 `status: "manual_action"`、`canQueue: true`、`canExecute: false`、blocker `target.web_start_failed`、`targetProvider: "deepseek"`、`targetProviderBoundary: "ai-novelist-web"`、`targetAppProviderCall: "not_observed"`、`webProcessStarted: false`、`webProcessStopped: false`。Artifact secret-like scan 为 0 hits；没有保存 DeepSeek prompt/response 原文或 provider payload。
+- 修复: 未把 manual-action 伪造成 proof success；保留 artifact 作为 sanitized evidence，并更新事实源说明 A1 当前阻断在 mirror dependency/web command provisioning。PSF 安全 flags 在 artifact 和 CLI response 中均保持 `realNetworkCall: false`、`realExternalCall: false`、`realPush: false` 和 `realDeploy: false`；DeepSeek 只作为目标 app 内部 provider metadata 记录。
+- 验证: Focused checks 通过：`pnpm exec vitest run scripts/a1-ai-novelist-proof.test.ts` 23 passed；`pnpm exec vitest run scripts/psf.test.ts -t "a1 proof"` 3 passed / 21 skipped；`pnpm typecheck:scripts` 通过。A1 proof 命令 `pnpm psf a1:ai-novelist-proof --confirm-web-command --source /home/ubuntu/1.project/ai-novelist --target-url http://127.0.0.1:8000/api/projects --json --skip-db` 返回 manual-action blocker `target.web_start_failed`，sanitized log summary 为 `.venv/bin/ai-novelist` missing。Artifact sanitized scan 通过，secret-like hits 为 0。Final checks 通过：`pnpm test:scripts` 47 passed；`pnpm typecheck:scripts` 通过；`git diff --check` 通过；`node scripts/check-phase1-structure.mjs` 通过并验证 40 files 和 26 directories；`pnpm check` 通过，typecheck 17/17 packages、workspace tests 17/17 packages、script tests 47/47。Implementation baseline 曾在 fresh worktree 中因未生成 Prisma Client 导致 `pnpm typecheck:scripts` 失败，运行 `pnpm db:generate` 后通过；本 Task 5 rerun 未复现该失败。
+- 后续: 在隔离 mirror 中由 operator 明确准备/验证 Web 启动命令和依赖，或把 A1 command template 改为经过 operator 确认的可复现 setup/start command 后重试。重试仍不得把本次 proof success 扩大成 passport commands/selectors 全局 verified，除非每个 command/selector 都在同次 evidence 中明确验证。
+
 ### 2026-06-05 - B3 合同安全测试精补
 
 - 背景: 根据 B3 设计补强 readiness/blocker 合同缺口，覆盖 API 400 preflight、Hub `canQueue` 优先、Hub blocker 顺序、Worker Runner defense-in-depth execute-only blockers，以及默认 GitHub PR preview/manual-action no-network 边界。

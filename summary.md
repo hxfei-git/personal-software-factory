@@ -24,13 +24,14 @@
 - Hub Web 通过 Orchestrator 读取数据，不直接修改文件系统、数据库或外部 provider。
 - 集成 dry-run 和真实模式 readiness surface 默认保持 `realNetworkCall: false`。
 - B2 readiness/blocker 合同已收敛：Orchestrator canonical response、Hub、Worker Runner 和 integrations 现在共享 `canQueue`、`canExecute`、`blockers[]` 与 `recommendedNextAction` 语义。
+- A1 `ai-novelist` local mirror proof 已产出 sanitized manual-action evidence：source/mirror git metadata 可观测，但目标 Web command 因隔离 mirror 缺少 `.venv/bin/ai-novelist` 被阻断。
 - `ai-novelist` 已作为 readiness metadata 注册，但不会把未验证命令伪装成安全可执行。
 
 ## 当前问题
 
 1. 文档仍有漂移风险：新增活跃文档如果复用旧阶段语言，必须明确标为历史语境，不能当作当前事实。
 2. B3 已用 focused contract tests 锁定 API、Hub、Worker Runner 的 readiness/blocker 高风险边界；后续新增或修改 route gate、worker gate、provider gate、approval、injected runner/transport、本地 workspace 检查时，必须同步补充同级别 contract tests。
-3. `ai-novelist` 执行仍未验证：passport commands、selectors、本地 URL 行为和 E2E 入口需要在真实 checkout 中人工验证。
+3. `ai-novelist` A1 当前是 manual-action：passport commands、selectors、本地 URL 行为和 E2E 入口仍未全局验证；本次只证明 source/mirror git metadata 与阻断输出，目标 Web 因隔离 mirror 缺少 `.venv/bin/ai-novelist` 尚未启动。
 4. Hub API types、Mission schemas、Orchestrator service schemas、worker job schemas、integration types 之间仍有合同重复。
 5. Hub Mission Detail 已能展示 API 返回的 queue/execute readiness、blockers 和 recommended next action；后续仍可继续打磨不同 gated action 的按钮文案和 operator flow。
 6. 归档策略已用于完成的历史阶段材料，但未来仍可能有人把陈旧文档加到 `docs/archive/` 之外。
@@ -41,9 +42,9 @@
 
 - 已实现或已有 proof surface：TypeScript monorepo、Fastify Orchestrator API、React/Vite Hub、Prisma storage、Mission state machine、MissionEvent auditing、optional BullMQ queue runtime、Worker Runner、Project Passport/Registry、deterministic planner、dry-run workers、deterministic QA and local Codex proof surfaces、fix/regression enforcement、GitHub PR preview artifact，以及 default-safe integration adapters。
 - Contract-only 或 manual-action：`codex.real`、`qa.playwright`、`qa.ai_exploratory`、`fix.real`、`github.pr`、`deploy.coolify`、`monitor.uptime_kuma` 和 `plane.sync`。这些路径需要 gate、approval、queue/runtime wiring、injected runner 或 injected transport 才能继续推进；默认仍保持 `realNetworkCall: false`、`realExternalCall: false`、`realPush: false` 和 `realDeploy: false`。
-- 未验证：`ai-novelist` 的 operator-prepared local mirror、passport commands、local URL、E2E command、deterministic selectors 和目标项目本地运行行为。Passport 中的 `manual-verification-required` 不得当作已验证事实。
+- A1 manual-action：`ai-novelist` 的隔离 local mirror 已能准备/验证 git metadata，但目标 Web command 依赖未在 mirror 中满足，local URL、E2E command、deterministic selectors 和目标项目本地运行行为仍未证明。Passport 中的 `manual-verification-required` 不得当作已验证事实。
 - 暂缓：GitHub/Coolify/Uptime Kuma/Plane provider network calls、push、真实 PR 创建、部署、monitor 创建、Plane sync、Temporal 和 LangGraph。Temporal/LangGraph 继续遵守 ADR 0005 的证据门槛。
-- 后续顺序：B1 文档差异审计与最小必要清理、B2 readiness/blocker 合同收敛、B3 合同回归测试和必要最小调整均已完成；下一步执行 A1 `ai-novelist` local mirror gated-runner proof。
+- 后续顺序：B1 文档差异审计与最小必要清理、B2 readiness/blocker 合同收敛、B3 合同回归测试和必要最小调整均已完成；A1 `ai-novelist` local mirror proof 已运行并返回 manual-action，下一步是准备/验证隔离 mirror 的 Web command 依赖后重试。
 
 ## 改进待办
 
@@ -55,7 +56,7 @@
 
 ### P1
 
-- 在启用真实 worker 执行前，在真实 checkout 中验证 `ai-novelist` 的 install、dev、build、test、lint 和 E2E 命令。
+- 为 A1 重试准备 operator-confirmed `ai-novelist` mirror setup/start command，并在隔离 mirror 中验证 install、dev、build、test、lint、local URL 和 E2E 命令；不要把一次 proof 结果扩大成 passport 全局 verified。
 - 在新增或修改 gated real action 时，沿用 B3 focused contract tests 方式锁定 readiness/blocker 输出边界。
 - 减少重复类型合同；若重复有价值，则补充聚焦的 contract tests。
 - 继续让 Hub 真实模式 blocker 精确指向缺失的 approval、gate、env var、本地 mirror、target URL、runner 或 transport，并避免按钮文案暗示立即真实执行。
@@ -97,6 +98,7 @@
 - 活跃 docs 和索引已更新为当前实现指导。
 - B2 readiness/blocker 合同已实施：`safeToRun` 保留为 legacy route-level queue readiness；Orchestrator、Hub、Worker Runner 和 integrations 使用 `canQueue`、`canExecute`、排序后的 `blockers[]` 和 `recommendedNextAction` 表达 blocked/manual-action 状态。
 - B3 合同安全测试精补已完成：API 400 preflight、Hub `canQueue` 优先和 blocker 顺序、Worker Runner execute-only blockers、GitHub PR preview/manual-action no-network 边界，以及 repo URL trim 分类和 unsafe branch redaction 均已由 focused tests 锁定。
+- A1 proof command 已接入并运行；当前结果是 `manual_action` blocker `target.web_start_failed`，sanitized artifact 记录在 `artifacts/a1/ai-novelist-local-mirror-deepseek-proof.json`。
 - 活跃参考文档中的 stale current-phase wording 已修正，同时保留必要历史含义。
 - runtime、local development、safety、operations 文档已使用 default-safe 加 gated real contract wording。
 - API、provider、Codex、queue、approval、progress 引用已描述 dry-run/status 行为和 gated real adapter 或 runner contract，保持 default-disabled/default-safe execution。
@@ -105,7 +107,8 @@
 ## 残余风险
 
 - 未来完成的 phase material 仍需避免进入活跃指导；低价值历史应在当前事实捕获后删除，持久决策才进入 ADR。
-- 真实执行仍需要明确后续任务和批准；当前文档地图不代表任何外部调用能力已启用。
+- 真实执行仍需要明确后续任务和批准；当前文档地图和 A1 manual-action artifact 不代表任何 PSF 外部调用能力已启用。
+- A1 manual-action 结果容易被误读为 ai-novelist 已验证；后续必须明确区分本次 observed metadata、阻断原因和未来 command/selector 逐项验证。
 - 文档地图的准确性依赖后续每次 Markdown 新增、移动、改名、删除时同步更新 `summary.md`。
 
 ## Markdown 文档地图

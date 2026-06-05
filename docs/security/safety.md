@@ -31,6 +31,12 @@ Review the output for disabled real-action fields. Integration status may report
 
 Do not place real provider credentials in prompts, logs, artifacts, Hub UI, API responses, PR bodies, Issue bodies, or dry-run outputs. `.env.example` must remain placeholder-only. `VITE_PSF_API_TOKEN` is browser-visible and must only contain a local throwaway token.
 
+## A1 Target-App Provider Boundary
+
+A1 `ai-novelist` local mirror proof may verify that the target app is configured to use DeepSeek, but that provider relationship belongs to the target app process, not PSF. PSF may record sanitized metadata such as `targetProvider: "deepseek"`, `targetProviderBoundary: "ai-novelist-web"`, and `targetAppProviderCall`, but it must not store DeepSeek prompt/response text, provider payloads, API keys, full env values, or long raw logs.
+
+PSF safety fields stay independent from target-app provider metadata. Unless a later approved task wires an explicit PSF provider transport, A1 readiness, manual-action output, and artifact evidence must keep `realNetworkCall: false`, `realExternalCall: false`, `realPush: false`, and `realDeploy: false`. A target Web startup or cleanup failure is not a warning-only condition; if the process cannot be started, observed, or confirmed stopped, the proof must remain `manual_action` with a safe next action.
+
 ## Reset Safety
 
 `pnpm psf demo:reset` previews by default. It deletes only scoped demo data when `DEMO_RESET_CONFIRM=1`, and it refuses non-demo Mission IDs. Use `--skip-db` when local PostgreSQL is unavailable or when only file cleanup is intended.

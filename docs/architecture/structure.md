@@ -84,7 +84,11 @@ Gated real integration results 会输出 execute-only readiness blockers，用�
 
 ## ai-novelist Readiness
 
-`projects/ai-novelist/project.passport.yaml` 是第一个 managed project 的 readiness metadata。其 commands 和 selectors 标记为 manual-verification-required，因为真实仓库未在此 workspace 中验证。worker 不得声称该项目可运行，直到人工验证真实 checkout、commands、URLs 和 deterministic selectors。
+`projects/ai-novelist/project.passport.yaml` 是第一个 managed project 的 readiness metadata。其 commands 和 selectors 标记为 manual-verification-required；worker 不得声称该项目可运行，直到人工验证真实 checkout、commands、URLs 和 deterministic selectors。
+
+A1 已接入 `pnpm psf a1:ai-novelist-proof`，用于在 `workspaces/mirrors/ai-novelist` 下准备或验证隔离 mirror、记录 source/mirror git metadata、启动 operator-confirmed 本地 Web 命令、观测 target URL，并写入 redacted artifact。当前 A1 run 产出 `manual_action` evidence：source 和 mirror 均为 clean git state，但隔离 mirror 缺少 `.venv/bin/ai-novelist`，因此 Web process 未启动，target URL 未观测成功。该结果只证明 mirror/readiness guard 能正确阻断，不能把 passport commands、selectors 或 local URL 提升为全局 verified。
+
+A1 允许目标 app 内部使用 DeepSeek 配置作为 `targetProvider: "deepseek"` / `targetProviderBoundary: "ai-novelist-web"` metadata，但 PSF 不拥有 DeepSeek transport，也不把目标 app provider 行为计入 PSF `realNetworkCall` 或 `realExternalCall`。当前 artifact 中 `targetAppProviderCall` 为 `not_observed`，PSF `realNetworkCall`、`realExternalCall`、`realPush` 和 `realDeploy` 继续为 `false`。
 
 ## 当前 Source Priority
 

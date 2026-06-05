@@ -1,0 +1,46 @@
+{
+  "status": "manual_action",
+  "canQueue": true,
+  "canExecute": false,
+  "blockers": [
+    {
+      "category": "target",
+      "key": "target.web_start_failed",
+      "message": "A1 could not start or observe the ai-novelist Web process.",
+      "recommendedNextAction": "Inspect the local ai-novelist Web startup output and retry after the target app can start locally.",
+      "severity": "manual_action",
+      "blocks": [
+        "execute"
+      ],
+      "source": "a1-proof",
+      "details": {
+        "targetUrl": "http://127.0.0.1:8000/api/projects",
+        "logSummary": "spawn .venv/bin/ai-novelist ENOENT"
+      }
+    }
+  ],
+  "recommendedNextAction": "Inspect the local ai-novelist Web startup output and retry after the target app can start locally.",
+  "evidence": {
+    "createdAt": "2026-06-05T11:40:36.469Z",
+    "sourcePath": "/home/ubuntu/1.project/ai-novelist",
+    "mirrorPath": "/home/ubuntu/1.project/personal-software-factory/.worktrees/a1-local-mirror-deepseek-proof/workspaces/mirrors/ai-novelist",
+    "targetUrl": "http://127.0.0.1:8000/api/projects",
+    "targetProvider": "deepseek",
+    "targetProviderBoundary": "ai-novelist-web",
+    "targetAppProviderCall": "not_observed",
+    "sourceBranch": "main",
+    "sourceHead": "68ff848",
+    "sourceStatusShort": "",
+    "mirrorBranch": "agent/a1-local-mirror-deepseek-proof",
+    "mirrorHead": "68ff848",
+    "mirrorStatusShort": "",
+    "commandTemplate": ".venv/bin/ai-novelist web --host 127.0.0.1 --port 8000 --provider deepseek",
+    "webProcessStarted": false,
+    "webProcessStopped": false,
+    "logSummary": "spawn .venv/bin/ai-novelist ENOENT"
+  },
+  "realNetworkCall": false,
+  "realExternalCall": false,
+  "realPush": false,
+  "realDeploy": false
+}

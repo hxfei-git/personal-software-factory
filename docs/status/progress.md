@@ -8,11 +8,13 @@
 
 ## 当前执行路线
 
-B1 文档差异审计与最小必要清理已完成。B2 控制面 readiness/blocker 合同收敛已完成并进入当前实现事实：`safeToRun` 只作为 legacy route-level queue readiness 字段保留，新的判断优先使用 `canQueue`、`canExecute`、`blockers[]` 和 `recommendedNextAction`。B3 合同安全测试精补已完成：API 400 preflight、Hub `canQueue` 优先和 blocker 顺序、Worker Runner execute-only blockers、GitHub PR preview/manual-action no-network 边界，以及 repo URL trim 分类和 unsafe branch redaction 均已由 focused tests 锁定。下一批工作进入 A1，在 operator-prepared `ai-novelist` local mirror 上证明 gated-runner path。
+B1 文档差异审计与最小必要清理已完成。B2 控制面 readiness/blocker 合同收敛已完成并进入当前实现事实：`safeToRun` 只作为 legacy route-level queue readiness 字段保留，新的判断优先使用 `canQueue`、`canExecute`、`blockers[]` 和 `recommendedNextAction`。B3 合同安全测试精补已完成：API 400 preflight、Hub `canQueue` 优先和 blocker 顺序、Worker Runner execute-only blockers、GitHub PR preview/manual-action no-network 边界，以及 repo URL trim 分类和 unsafe branch redaction 均已由 focused tests 锁定。A1 已运行 `ai-novelist` local mirror proof，并产出 sanitized `manual_action` evidence：source/mirror git metadata 可观测且 clean，但隔离 mirror 缺少 `.venv/bin/ai-novelist`，所以目标 Web 未启动，local target URL 尚未证明可达。
 
 GitHub、Coolify、Uptime Kuma、Plane、push、真实 PR 创建、部署、monitor 创建、Plane sync、Temporal 和 LangGraph 继续暂缓，直到本地 mirror gated-runner path 被证明且后续任务获得明确批准。
 
 ## 最新更新
+
+A1 `ai-novelist` local mirror proof 已接入 PSF CLI 并运行一次真实本地目标准备流程。结果不是 proof success，而是正确的 manual-action 阻断：`canQueue: true`、`canExecute: false`、blocker `target.web_start_failed`，sanitized evidence 写入 `artifacts/a1/ai-novelist-local-mirror-deepseek-proof.json`。本次没有启动 Web process，没有观测到 target app provider call，没有保存 DeepSeek prompt/response 原文；PSF `realNetworkCall`、`realExternalCall`、`realPush` 和 `realDeploy` 均保持 `false`。下一步需要在隔离 mirror 中准备/验证 operator-confirmed Web command 和依赖，再重试 target URL health/page observation。
 
 B3 合同安全测试精补已完成。API 400 preflight 现在用 focused contract tests 锁定 canonical blockers、`canQueue:false`、`canExecute:false`、默认安全 flags false、redacted details，以及 blocked preflight 不 enqueue job/WorkerRun。Hub tests 锁定 gated action button 优先使用 `canQueue` 而非 legacy `safeToRun`，并按 API 返回顺序展示 blockers。Worker Runner tests 锁定已入队 `codex.real` defense-in-depth policy blockers 只阻塞 execute，GitHub PR preview/manual-action 默认保持 no-network/no-push。最终 code review 修复了 whitespace-wrapped remote repo URL 分类和 unsafe branch details redaction 两个安全边界问题。默认仍不启用真实 Codex、Playwright/browser、provider network、push、PR creation、deploy、monitor creation 或 Plane sync，`realNetworkCall`、`realExternalCall`、`realPush` 和 `realDeploy` 在默认 gated real outputs 中继续为 `false`。
 
