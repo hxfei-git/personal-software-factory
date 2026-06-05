@@ -38,12 +38,32 @@ export function codexManualActionBlocker(reason: string): WorkerReadinessBlocker
   };
 }
 
-export function integrationResultBlockers(result: { blockers?: IntegrationReadinessBlocker[] }): WorkerReadinessBlocker[] {
-  if (!Array.isArray(result.blockers)) {
-    return [];
+export function integrationResultBlockers(result: {
+  blockers?: IntegrationReadinessBlocker[];
+  safeToRun?: boolean;
+  message?: string;
+  name?: string;
+  externalName?: string;
+}): WorkerReadinessBlocker[] {
+  if (Array.isArray(result.blockers) && result.blockers.length > 0) {
+    return sortWorkerBlockers(result.blockers.map(integrationBlockerToWorkerBlocker));
   }
 
-  return sortWorkerBlockers(result.blockers.map(integrationBlockerToWorkerBlocker));
+  return result.safeToRun === false ? [unclassifiedIntegrationBlocker(result)] : [];
+}
+
+function unclassifiedIntegrationBlocker(result: { message?: string; name?: string; externalName?: string }): WorkerReadinessBlocker {
+  const provider = result.name ?? result.externalName ?? "integration";
+  return {
+    category: "execution",
+    key: "execution.integration.unclassified_execution_blocker",
+    message: result.message ?? "Integration result requires manual inspection before execution is considered safe.",
+    recommendedNextAction: "Inspect the integration adapter output before retrying.",
+    severity: "manual_action",
+    blocks: ["execute"],
+    source: "integration",
+    details: { provider },
+  };
 }
 
 function integrationBlockerToWorkerBlocker(blocker: IntegrationReadinessBlocker): WorkerReadinessBlocker {

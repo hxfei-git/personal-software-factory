@@ -16,7 +16,7 @@ import { createInMemoryMissionStorage } from "@psf/orchestrator-api/storage";
 import { runDeterministicPlaywrightQa, type DeterministicQaInput } from "@psf/qa-worker";
 import type { CodexExecutionRequest } from "@psf/codex-worker";
 import { createDefaultJobHandler } from "../src/handlers.js";
-import { githubResultBlockers } from "../src/readiness-blockers.js";
+import { githubResultBlockers, integrationResultBlockers } from "../src/readiness-blockers.js";
 import { processWorkerJob } from "../src/runner.js";
 
 describe("worker runner", () => {
@@ -998,6 +998,26 @@ describe("worker runner", () => {
       canExecute: false,
       blockers: expect.arrayContaining([expect.objectContaining({ key: "configuration.env.COOLIFY_BASE_URL.missing", blocks: ["execute"] })]),
     });
+  });
+
+  it("maps unsafe generic integration result without blockers to an unclassified execution blocker", () => {
+    const result = {
+      name: "coolify",
+      externalName: "Coolify",
+      safeToRun: false,
+      message: "Coolify adapter result requires manual inspection before execution is considered safe.",
+      blockers: [],
+    };
+
+    const blockers = integrationResultBlockers(result);
+
+    expect(blockers).toEqual([expect.objectContaining({
+      category: "execution",
+      key: "execution.integration.unclassified_execution_blocker",
+      blocks: ["execute"],
+      source: "integration",
+      details: { provider: "coolify" },
+    })]);
   });
 
   it("persists codex.real child resources and records wrapper status and reason", async () => {

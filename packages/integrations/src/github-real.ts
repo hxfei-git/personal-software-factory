@@ -336,11 +336,8 @@ function sanitizeBlockerDetailValue(value: unknown, env: IntegrationEnv): unknow
   if (redacted && typeof redacted === "object") {
     return Object.fromEntries(
       Object.entries(redacted as Record<string, unknown>)
-        .filter(([, entry]) => entry !== undefined)
-        .map(([key, entry]) => [
-          key,
-          isUnsafeBlockerDetailName(key) ? REDACTED : sanitizeBlockerDetailValue(entry, env),
-        ]),
+        .filter(([key, entry]) => entry !== undefined && isSafeNestedBlockerDetailName(key))
+        .map(([key, entry]) => [key, sanitizeBlockerDetailValue(entry, env)]),
     );
   }
 
@@ -353,6 +350,10 @@ function isSafeBlockerDetailName(name: string): boolean {
 
 function isSafeEvidenceDetailName(name: string): boolean {
   return SAFE_EVIDENCE_DETAIL_KEYS.has(name);
+}
+
+function isSafeNestedBlockerDetailName(name: string): boolean {
+  return !isUnsafeBlockerDetailName(name) && (SAFE_BLOCKER_DETAIL_KEYS.has(name) || SAFE_EVIDENCE_DETAIL_KEYS.has(name));
 }
 
 function isUnsafeBlockerDetailName(name: string): boolean {

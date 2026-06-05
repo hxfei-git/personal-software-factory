@@ -718,6 +718,13 @@ describe("gated real integration adapters", () => {
             envName: "GITHUB_TOKEN",
             gate: "allowNetwork",
             operation: "createPullRequest",
+            status: {
+              summary: "safe nested status summary",
+              authorization: "Bearer nested-status-secret",
+              body: "nested-status-body-secret",
+              providerResponse: { message: "nested-status-provider-secret" },
+              result: { body: "nested-status-result-secret" },
+            },
             evidence: {
               summary: "provider returned a validation error",
               status: "failed",
@@ -764,6 +771,7 @@ describe("gated real integration adapters", () => {
       envName: "GITHUB_TOKEN",
       gate: "allowNetwork",
       operation: "createPullRequest",
+      status: { summary: "safe nested status summary" },
       evidence: {
         summary: "provider returned a validation error",
         status: "failed",
@@ -791,7 +799,13 @@ describe("gated real integration adapters", () => {
       "provider",
       "realPush",
       "resourceId",
+      "status",
     ]);
+    expect(Object.keys((result.blockers[0]?.details?.status as Record<string, unknown>) ?? {}).sort()).toEqual(["summary"]);
+    expect(result.blockers[0]?.details?.status).not.toHaveProperty("authorization");
+    expect(result.blockers[0]?.details?.status).not.toHaveProperty("body");
+    expect(result.blockers[0]?.details?.status).not.toHaveProperty("providerResponse");
+    expect(result.blockers[0]?.details?.status).not.toHaveProperty("result");
     expect(Object.keys((result.blockers[0]?.details?.evidence as Record<string, unknown>) ?? {}).sort()).toEqual([
       "artifactId",
       "count",
@@ -825,6 +839,10 @@ describe("gated real integration adapters", () => {
     expect(text).not.toContain("data-secret");
     expect(text).not.toContain("nested-header-secret");
     expect(text).not.toContain("nested-payload-secret");
+    expect(text).not.toContain("nested-status-secret");
+    expect(text).not.toContain("nested-status-body-secret");
+    expect(text).not.toContain("nested-status-provider-secret");
+    expect(text).not.toContain("nested-status-result-secret");
     expect(text).not.toContain(jwtLikeValue);
     expect(text).not.toContain("raw-bearer-secret");
     expect(text).not.toContain("ghp_real_secret");
