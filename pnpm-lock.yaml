@@ -38,6 +38,9 @@ importers:
       '@psf/qa-worker':
         specifier: workspace:*
         version: link:workers/qa-worker
+      '@psf/security':
+        specifier: workspace:*
+        version: link:packages/security
       '@psf/worker-runtime':
         specifier: workspace:*
         version: link:packages/worker-runtime
