@@ -775,23 +775,46 @@ describe("gated real integration adapters", () => {
         count: 1,
         operation: "createPullRequest",
         gate: "allowNetwork",
-        raw: "[REDACTED]",
-        result: "[REDACTED]",
-        providerResponse: "[REDACTED]",
-        headers: "[REDACTED]",
-        payload: "[REDACTED]",
-        links: "[REDACTED]",
       },
       action: "manual-review",
       resourceId: "mission-001",
       jobType: "github-pr-preview",
       realPush: false,
-      body: "[REDACTED]",
-      responseBody: "[REDACTED]",
-      providerResponse: "[REDACTED]",
-      requestBody: "[REDACTED]",
-      data: "[REDACTED]",
     });
+    expect(Object.keys(result.blockers[0]?.details ?? {}).sort()).toEqual([
+      "action",
+      "envName",
+      "evidence",
+      "gate",
+      "jobType",
+      "operation",
+      "provider",
+      "realPush",
+      "resourceId",
+    ]);
+    expect(Object.keys((result.blockers[0]?.details?.evidence as Record<string, unknown>) ?? {}).sort()).toEqual([
+      "artifactId",
+      "count",
+      "gate",
+      "operation",
+      "path",
+      "resourceId",
+      "status",
+      "statusCode",
+      "summary",
+      "url",
+    ]);
+    expect(result.blockers[0]?.details).not.toHaveProperty("body");
+    expect(result.blockers[0]?.details).not.toHaveProperty("responseBody");
+    expect(result.blockers[0]?.details).not.toHaveProperty("providerResponse");
+    expect(result.blockers[0]?.details).not.toHaveProperty("requestBody");
+    expect(result.blockers[0]?.details).not.toHaveProperty("data");
+    expect(result.blockers[0]?.details?.evidence).not.toHaveProperty("raw");
+    expect(result.blockers[0]?.details?.evidence).not.toHaveProperty("result");
+    expect(result.blockers[0]?.details?.evidence).not.toHaveProperty("providerResponse");
+    expect(result.blockers[0]?.details?.evidence).not.toHaveProperty("headers");
+    expect(result.blockers[0]?.details?.evidence).not.toHaveProperty("payload");
+    expect(result.blockers[0]?.details?.evidence).not.toHaveProperty("links");
     expect(text).not.toContain("raw-body-secret");
     expect(text).not.toContain("raw-response-secret");
     expect(text).not.toContain("provider-response-secret");

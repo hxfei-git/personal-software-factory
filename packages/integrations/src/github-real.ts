@@ -286,11 +286,8 @@ function sanitizeBlockerDetails(details: Record<string, unknown> | undefined, en
   if (!details) return undefined;
   const sanitized = Object.fromEntries(
     Object.entries(details)
-      .filter(([, entry]) => entry !== undefined)
-      .map(([key, entry]) => [
-        key,
-        isSafeBlockerDetailName(key) ? sanitizeSafeBlockerDetail(key, entry, env) : REDACTED,
-      ]),
+      .filter(([key, entry]) => entry !== undefined && isSafeBlockerDetailName(key))
+      .map(([key, entry]) => [key, sanitizeSafeBlockerDetail(key, entry, env)]),
   );
   return Object.keys(sanitized).length > 0 ? sanitized : undefined;
 }
@@ -308,11 +305,8 @@ function sanitizeEvidenceDetail(value: unknown, env: IntegrationEnv): unknown {
 
   return Object.fromEntries(
     Object.entries(redacted as Record<string, unknown>)
-      .filter(([, entry]) => entry !== undefined)
-      .map(([key, entry]) => [
-        key,
-        isSafeEvidenceDetailName(key) ? sanitizeScalarEvidenceValue(entry) : REDACTED,
-      ]),
+      .filter(([key, entry]) => entry !== undefined && isSafeEvidenceDetailName(key))
+      .map(([key, entry]) => [key, sanitizeScalarEvidenceValue(entry)]),
   );
 }
 

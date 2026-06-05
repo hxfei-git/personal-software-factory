@@ -1,4 +1,4 @@
-import type { GitHubRealResult } from "@psf/integrations";
+import type { GitHubRealResult, IntegrationReadinessBlocker } from "@psf/integrations";
 
 export interface WorkerReadinessBlocker {
   category: "queue_acceptance" | "approval" | "configuration" | "policy" | "execution" | "safety";
@@ -38,7 +38,28 @@ export function codexManualActionBlocker(reason: string): WorkerReadinessBlocker
   };
 }
 
+export function integrationResultBlockers(result: { blockers?: IntegrationReadinessBlocker[] }): WorkerReadinessBlocker[] {
+  if (!Array.isArray(result.blockers)) {
+    return [];
+  }
+
+  return sortWorkerBlockers(result.blockers.map(integrationBlockerToWorkerBlocker));
+}
+
+function integrationBlockerToWorkerBlocker(blocker: IntegrationReadinessBlocker): WorkerReadinessBlocker {
+  return {
+    ...blocker,
+    blocks: [...blocker.blocks],
+    source: "integration",
+    ...(blocker.details ? { details: { ...blocker.details } } : {}),
+  };
+}
+
 export function githubResultBlockers(result: GitHubRealResult): WorkerReadinessBlocker[] {
+  if (Array.isArray(result.blockers) && result.blockers.length > 0) {
+    return integrationResultBlockers(result);
+  }
+
   const blockers: WorkerReadinessBlocker[] = [];
   const manualActions = result.outputs.manualActions.map((action) => action.toLowerCase());
   const reasonTexts = [...manualActions, result.message.toLowerCase()];
@@ -55,12 +76,24 @@ export function githubResultBlockers(result: GitHubRealResult): WorkerReadinessB
       details: { jobType: "github.pr", provider: "github" },
     });
   }
-  if (manualActions.some((action) => action.includes("transport") || action.includes("allownetwork"))) {
+  if (manualActions.some((action) => action.includes("transport"))) {
     blockers.push({
       category: "execution",
       key: "execution.integration.injected_transport_missing",
       message: "GitHub PR requires an injected transport before any provider request.",
       recommendedNextAction: "Review PR preview/manual-action output; no push or PR creation occurred.",
+      severity: "manual_action",
+      blocks: ["execute"],
+      source: "integration",
+      details: { jobType: "github.pr", provider: "github" },
+    });
+  }
+  if (reasonTexts.some((reason) => reason.includes("allownetwork") || reason.includes("network gate"))) {
+    blockers.push({
+      category: "policy",
+      key: "policy.integration.network_gate_disabled",
+      message: "GitHub PR network gate is disabled by policy.",
+      recommendedNextAction: "Set gates.allowNetwork=true only after explicit approval, or keep the adapter in manual-action mode.",
       severity: "manual_action",
       blocks: ["execute"],
       source: "integration",

@@ -36,6 +36,7 @@ import {
   codexManualActionBlocker,
   deriveWorkerReadiness,
   githubResultBlockers,
+  integrationResultBlockers,
   type WorkerReadinessBlocker,
 } from "./readiness-blockers.js";
 import {
@@ -369,15 +370,19 @@ function toIntegrationHandlerResult(result: AnyIntegrationDryRunResult): WorkerJ
 }
 
 function toIntegrationRealHandlerResult(result: IntegrationRealHandlerResult): WorkerJobHandlerResult {
+  const readiness = deriveWorkerReadiness(integrationResultBlockers(result), result.safeToRun
+    ? "Review real integration result before advancing the Mission."
+    : "Complete the listed manual actions before enabling this real integration.");
   return {
     childWorkerRunIds: [],
     childQARunIds: [],
     childArtifactIds: [],
     childBugReportIds: [],
     summary: result.message,
-    recommendedNextAction: result.safeToRun
-      ? "Review real integration result before advancing the Mission."
-      : "Complete the listed manual actions before enabling this real integration.",
+    recommendedNextAction: readiness.recommendedNextAction,
+    canQueue: readiness.canQueue,
+    canExecute: readiness.canExecute,
+    blockers: readiness.blockers,
   };
 }
 
