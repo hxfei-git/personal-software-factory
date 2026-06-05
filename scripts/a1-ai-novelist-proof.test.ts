@@ -81,6 +81,9 @@ describe("A1 ai-novelist proof contract", () => {
     expect(result.status).toBe("manual_action");
     expect(result.blockers[0]?.key).toBe("target.deepseek_env_missing");
     expect(result.realNetworkCall).toBe(false);
+    expect(result.realExternalCall).toBe(false);
+    expect(result.realPush).toBe(false);
+    expect(result.realDeploy).toBe(false);
     expect(result.evidence.targetAppProviderCall).toBe("not_observed");
   });
 
@@ -100,6 +103,8 @@ describe("A1 ai-novelist proof contract", () => {
     expect(result.canExecute).toBe(true);
     expect(result.realNetworkCall).toBe(false);
     expect(result.realExternalCall).toBe(false);
+    expect(result.realPush).toBe(false);
+    expect(result.realDeploy).toBe(false);
     expect(result.evidence).toMatchObject({
       targetProvider: "deepseek",
       targetProviderBoundary: "ai-novelist-web",
@@ -108,6 +113,32 @@ describe("A1 ai-novelist proof contract", () => {
       webProcessStarted: true,
       webProcessStopped: true,
     });
+  });
+
+  test("redirect observation returns target_unreachable and still stops Web", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-a1-redirect-"));
+    const calls = proofCalls();
+
+    const result = await runA1AiNovelistProof({
+      cwd,
+      sourcePath: "/home/ubuntu/1.project/ai-novelist",
+      mirrorPath: "workspaces/mirrors/ai-novelist",
+      provider: "deepseek",
+      webCommandConfirmed: true,
+      targetUrl: "http://127.0.0.1:8000/api/projects",
+    }, fakeDeps({
+      calls,
+      deepseekConfigured: true,
+      targetObservation: { httpStatus: 302, responseType: "text/html" },
+    }));
+
+    expect(result.status).toBe("manual_action");
+    expect(result.blockers[0]?.key).toBe("observation.target_unreachable");
+    expect(result.evidence.targetHttpStatus).toBe(302);
+    expect(result.evidence.targetResponseType).toBe("text/html");
+    expect(result.evidence.targetAppProviderCall).toBe(false);
+    expect(result.evidence.webProcessStopped).toBe(true);
+    expect(calls.stopWeb).toBe(1);
   });
 
   test("cleanup failure turns the whole proof into manual_action", async () => {
@@ -396,6 +427,7 @@ interface ProofCalls {
   gitSnapshotPaths: string[];
   startWeb: number;
   observeTarget: number;
+  stopWeb: number;
 }
 
 function proofCalls(): ProofCalls {
@@ -407,6 +439,7 @@ function proofCalls(): ProofCalls {
     gitSnapshotPaths: [],
     startWeb: 0,
     observeTarget: 0,
+    stopWeb: 0,
   };
 }
 
@@ -421,6 +454,7 @@ function fakeDeps(overrides: Partial<{
   mirrorExpected: boolean;
   sourceGit: { branch: string; head: string; statusShort: string };
   mirrorGit: { branch: string; head: string; statusShort: string };
+  targetObservation: { httpStatus: number; responseType: string };
 }> = {}): A1ProofDeps {
   const calls = overrides.calls;
   let clonedMirrorPath: string | undefined;
@@ -486,9 +520,12 @@ function fakeDeps(overrides: Partial<{
     },
     observeTarget: async () => {
       if (calls) calls.observeTarget += 1;
-      return { httpStatus: 200, responseType: "application/json" };
+      return overrides.targetObservation ?? { httpStatus: 200, responseType: "application/json" };
     },
-    stopWeb: async () => true,
+    stopWeb: async () => {
+      if (calls) calls.stopWeb += 1;
+      return true;
+    },
     writeArtifact: async () => "artifacts/a1/ai-novelist-local-mirror-deepseek-proof.json",
     now: () => "2026-06-05T00:00:00.000Z",
   };

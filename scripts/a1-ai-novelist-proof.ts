@@ -684,12 +684,12 @@ async function continueTargetProof(input: {
     targetEvidence.targetResponseType = observation.responseType;
     targetEvidence.targetAppProviderCall = false;
 
-    if (observation.httpStatus < 200 || observation.httpStatus >= 400) {
+    if (observation.httpStatus < 200 || observation.httpStatus >= 300) {
       outcomeBlockers = [blocker({
         category: "observation",
         key: "observation.target_unreachable",
         message: "A1 could not observe a successful ai-novelist target response.",
-        recommendedNextAction: "Inspect the local ai-novelist Web process and retry after the target URL returns 2xx or 3xx.",
+        recommendedNextAction: "Inspect the local ai-novelist Web process and retry after the target URL returns 2xx.",
         severity: "manual_action",
         blocks: ["execute"],
         details: {
