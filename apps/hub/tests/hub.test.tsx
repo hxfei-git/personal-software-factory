@@ -428,6 +428,40 @@ function sampleIntegration(name: IntegrationStatus["name"]): IntegrationStatus {
   };
 }
 
+type TestReadinessMap = NonNullable<MissionSummaryResponse["realModeReadiness"]>;
+type TestReadinessEntry = TestReadinessMap[keyof TestReadinessMap];
+
+function testReadinessEntry(key: TestReadinessEntry["key"], label: string, action: TestReadinessEntry["action"]): TestReadinessEntry {
+  return {
+    key,
+    label,
+    action,
+    enabled: false,
+    configured: true,
+    ready: false,
+    safeToRun: false,
+    canQueue: false,
+    canExecute: false,
+    realNetworkCall: false,
+    missingEnv: [],
+    message: "Manual action required.",
+  };
+}
+
+function testRealModeReadiness(overrides: Partial<TestReadinessMap> = {}): TestReadinessMap {
+  return {
+    codex: testReadinessEntry("codex", "Codex real execution", "codex-real"),
+    qaPlaywright: testReadinessEntry("qaPlaywright", "Playwright QA", "qa-playwright"),
+    qaAiExploratory: testReadinessEntry("qaAiExploratory", "AI exploratory QA", "qa-ai-exploratory"),
+    fix: testReadinessEntry("fix", "Real fix loop", "fix-real"),
+    github: testReadinessEntry("github", "GitHub PR", "github-pr"),
+    coolify: testReadinessEntry("coolify", "Coolify staging deploy", "deploy-staging"),
+    uptimeKuma: testReadinessEntry("uptimeKuma", "Uptime Kuma monitor sync", "monitor-sync"),
+    plane: testReadinessEntry("plane", "Plane sync", "plane-sync"),
+    ...overrides,
+  };
+}
+
 const dashboard: DashboardResponse = {
   metrics: {
     projectCount: 1,
@@ -1696,6 +1730,103 @@ describe("Hub render helpers", () => {
     expect(text).not.toContain("super-secret-token");
     expect(text).not.toContain("github-summary-secret");
     expect(text).not.toContain("PLANE_API_TOKEN_VALUE");
+  });
+
+  it("uses canQueue instead of legacy safeToRun for guarded real-action buttons", async () => {
+    const onRunAction = vi.fn();
+    const view = renderMissionDetailView({
+      state: {
+        status: "success",
+        data: {
+          ...missionSummary,
+          realModeReadiness: testRealModeReadiness({
+            github: {
+              ...testReadinessEntry("github", "GitHub PR", "github-pr"),
+              configured: false,
+              safeToRun: false,
+              canQueue: true,
+              canExecute: false,
+              realExternalCall: false,
+              realPush: false,
+              realDeploy: false,
+              missingEnv: ["GITHUB_TOKEN"],
+              recommendedNextAction: "Review PR preview/manual-action output; no push or PR creation will occur.",
+              blockers: [
+                {
+                  category: "execution",
+                  key: "execution.github.injected_transport_missing",
+                  message: "Default GitHub PR path has no injected transport.",
+                  recommendedNextAction: "Review PR preview/manual-action output; no push or PR creation will occur.",
+                  severity: "manual_action",
+                  blocks: ["execute"],
+                  source: "orchestrator",
+                },
+              ],
+              message: "Missing GITHUB_TOKEN and PSF_ENABLE_REAL_GITHUB_PR=true.",
+            },
+          }),
+        },
+      },
+      actions: { onRunAction, onRefresh: vi.fn() },
+      actionState: { loading: "", message: "", error: "" },
+    });
+
+    const text = textFromElement(view);
+    const button = findButtonByText(view, "Create PR preview/manual-action");
+
+    expect(button.props.disabled).toBe(false);
+    expect(text).toContain("Queue: ready");
+    expect(text).toContain("Execute: manual-action");
+    expect(text).toContain("Default GitHub PR path has no injected transport.");
+    expect(text).not.toContain("Run real");
+
+    await button.props.onClick?.();
+
+    expect(onRunAction).toHaveBeenCalledWith("github-pr" satisfies MissionActionKind, {});
+  });
+
+  it("renders readiness blockers in API-provided order", () => {
+    const view = renderMissionDetailView({
+      state: {
+        status: "success",
+        data: {
+          ...missionSummary,
+          realModeReadiness: testRealModeReadiness({
+            codex: {
+              ...testReadinessEntry("codex", "Codex real execution", "codex-real"),
+              blockers: [
+                {
+                  category: "execution",
+                  key: "execution.codex.transport_missing",
+                  message: "Execution blocker should render first.",
+                  recommendedNextAction: "Review manual-action output first.",
+                  severity: "manual_action",
+                  blocks: ["execute"],
+                  source: "orchestrator",
+                },
+                {
+                  category: "policy",
+                  key: "policy.codex.queue_mode_required",
+                  message: "Policy blocker should render second.",
+                  recommendedNextAction: "Enable queued mode later.",
+                  severity: "blocking",
+                  blocks: ["queue", "execute"],
+                  source: "orchestrator",
+                },
+              ],
+            },
+          }),
+        },
+      },
+    });
+
+    const text = textFromElement(view);
+    const executionIndex = text.indexOf("Execution blocker should render first.");
+    const policyIndex = text.indexOf("Policy blocker should render second.");
+
+    expect(executionIndex).toBeGreaterThanOrEqual(0);
+    expect(policyIndex).toBeGreaterThanOrEqual(0);
+    expect(executionIndex).toBeLessThan(policyIndex);
   });
 
   it("renders mission detail when WorkerRun metadata and output are missing", () => {
