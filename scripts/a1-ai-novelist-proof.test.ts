@@ -84,6 +84,7 @@ describe("A1 ai-novelist proof contract", () => {
     const cwd = await mkdtemp(join(tmpdir(), "psf-a1-unexpected-mirror-"));
     await mkdir(join(cwd, "workspaces", "mirrors", "ai-novelist"), { recursive: true });
     await writeFile(join(cwd, "workspaces", "mirrors", "ai-novelist", "README.txt"), "not a repo\n", "utf8");
+    const calls = proofCalls();
 
     const result = await runA1AiNovelistProof({
       cwd,
@@ -92,11 +93,112 @@ describe("A1 ai-novelist proof contract", () => {
       provider: "deepseek",
       webCommandConfirmed: true,
       targetUrl: "http://127.0.0.1:8000/api/projects",
-    }, fakeDeps({ deepseekConfigured: true }));
+    }, fakeDeps({ deepseekConfigured: true, calls }));
 
     expect(result.status).toBe("blocked");
     expect(result.canQueue).toBe(false);
     expect(result.blockers[0]?.key).toBe("mirror.existing_path_unexpected");
+    expect(calls.cloneLocalRepo).toBe(0);
+  });
+
+  test("blocks traversal-style mirror paths before source git or clone operations", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-a1-bad-mirror-path-"));
+    const calls = proofCalls();
+
+    const result = await runA1AiNovelistProof({
+      cwd,
+      sourcePath: "/home/ubuntu/1.project/ai-novelist",
+      mirrorPath: "../ai-novelist",
+      provider: "deepseek",
+      webCommandConfirmed: true,
+      targetUrl: "http://127.0.0.1:8000/api/projects",
+    }, fakeDeps({ deepseekConfigured: true, calls }));
+
+    expect(result.status).toBe("blocked");
+    expect(result.blockers[0]?.key).toBe("mirror.path_unexpected");
+    expect(calls.gitSnapshot).toBe(0);
+    expect(calls.cloneLocalRepo).toBe(0);
+  });
+
+  test("blocks unexpected source path before git snapshot or clone", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-a1-bad-source-"));
+    const calls = proofCalls();
+
+    const result = await runA1AiNovelistProof({
+      cwd,
+      sourcePath: "/tmp/not-ai-novelist",
+      mirrorPath: "workspaces/mirrors/ai-novelist",
+      provider: "deepseek",
+      webCommandConfirmed: true,
+      targetUrl: "http://127.0.0.1:8000/api/projects",
+    }, fakeDeps({ deepseekConfigured: true, calls }));
+
+    expect(result.status).toBe("blocked");
+    expect(result.blockers[0]?.key).toBe("mirror.source_path_unexpected");
+    expect(calls.gitSnapshot).toBe(0);
+    expect(calls.cloneLocalRepo).toBe(0);
+  });
+
+  test("blocks missing source repo before git snapshot or clone", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-a1-missing-source-"));
+    const calls = proofCalls();
+
+    const result = await runA1AiNovelistProof({
+      cwd,
+      sourcePath: "/home/ubuntu/1.project/ai-novelist",
+      mirrorPath: "workspaces/mirrors/ai-novelist",
+      provider: "deepseek",
+      webCommandConfirmed: true,
+      targetUrl: "http://127.0.0.1:8000/api/projects",
+    }, fakeDeps({ deepseekConfigured: true, sourceExists: false, calls }));
+
+    expect(result.status).toBe("blocked");
+    expect(result.blockers[0]?.key).toBe("mirror.source_path_unexpected");
+    expect(calls.gitSnapshot).toBe(0);
+    expect(calls.cloneLocalRepo).toBe(0);
+  });
+
+  test("blocks source path that resolves to the mirror path", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-a1-source-is-mirror-"));
+    const calls = proofCalls();
+
+    const result = await runA1AiNovelistProof({
+      cwd,
+      sourcePath: join(cwd, "workspaces", "mirrors", "ai-novelist"),
+      mirrorPath: "workspaces/mirrors/ai-novelist",
+      provider: "deepseek",
+      webCommandConfirmed: true,
+      targetUrl: "http://127.0.0.1:8000/api/projects",
+    }, fakeDeps({ deepseekConfigured: true, sourceExists: true, sourceIsGitRepo: true, sourceExpected: true, calls }));
+
+    expect(result.status).toBe("blocked");
+    expect(result.blockers[0]?.key).toBe("mirror.source_path_unexpected");
+    expect(calls.gitSnapshot).toBe(0);
+    expect(calls.cloneLocalRepo).toBe(0);
+  });
+
+  test("blocks an existing git mirror that is not the expected ai-novelist repo", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-a1-wrong-git-mirror-"));
+    await mkdir(join(cwd, "workspaces", "mirrors", "ai-novelist"), { recursive: true });
+    const calls = proofCalls();
+
+    const result = await runA1AiNovelistProof({
+      cwd,
+      sourcePath: "/home/ubuntu/1.project/ai-novelist",
+      mirrorPath: "workspaces/mirrors/ai-novelist",
+      provider: "deepseek",
+      webCommandConfirmed: true,
+      targetUrl: "http://127.0.0.1:8000/api/projects",
+    }, fakeDeps({
+      calls,
+      deepseekConfigured: true,
+      mirrorIsGitRepo: true,
+      mirrorExpected: false,
+    }));
+
+    expect(result.status).toBe("blocked");
+    expect(result.blockers[0]?.key).toBe("mirror.existing_path_unexpected");
+    expect(calls.cloneLocalRepo).toBe(0);
   });
 
   test("stops when source main or master is dirty before mirror preparation", async () => {
@@ -118,16 +220,88 @@ describe("A1 ai-novelist proof contract", () => {
     expect(JSON.stringify(result)).not.toContain("DEEPSEEK_API_KEY");
   });
 
+  test("redacts secret-like source status from proof output", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-a1-redacted-source-status-"));
+    const secret = "sk-deepseek-review-secret";
+
+    const result = await runA1AiNovelistProof({
+      cwd,
+      sourcePath: "/home/ubuntu/1.project/ai-novelist",
+      mirrorPath: "workspaces/mirrors/ai-novelist",
+      provider: "deepseek",
+      webCommandConfirmed: true,
+      targetUrl: "http://127.0.0.1:8000/api/projects",
+    }, fakeDeps({
+      deepseekConfigured: true,
+      sourceGit: { branch: "main", head: "abc1234", statusShort: ` M src/app.py DEEPSEEK_API_KEY=${secret}` },
+    }));
+
+    const json = JSON.stringify(result);
+    expect(json).not.toContain(secret);
+    expect(json).not.toContain(`DEEPSEEK_API_KEY=${secret}`);
+    expect(json).toContain("[REDACTED]");
+  });
+
+  test("does not start or observe ai-novelist Web during Task 2", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-a1-no-web-lifecycle-"));
+    const calls = proofCalls();
+
+    const result = await runA1AiNovelistProof({
+      cwd,
+      sourcePath: "/home/ubuntu/1.project/ai-novelist",
+      mirrorPath: "workspaces/mirrors/ai-novelist",
+      provider: "deepseek",
+      webCommandConfirmed: true,
+      targetUrl: "http://127.0.0.1:8000/api/projects",
+    }, fakeDeps({ calls, deepseekConfigured: true }));
+
+    expect(result.status).toBe("manual_action");
+    expect(result.blockers[0]?.key).toBe("target.web_lifecycle_required");
+    expect(calls.startWeb).toBe(0);
+    expect(calls.observeTarget).toBe(0);
+  });
+
 });
 
 
+interface ProofCalls {
+  cloneLocalRepo: number;
+  gitSnapshot: number;
+  startWeb: number;
+  observeTarget: number;
+}
+
+function proofCalls(): ProofCalls {
+  return {
+    cloneLocalRepo: 0,
+    gitSnapshot: 0,
+    startWeb: 0,
+    observeTarget: 0,
+  };
+}
+
 function fakeDeps(overrides: Partial<{
+  calls: ProofCalls;
   deepseekConfigured: boolean;
+  sourceExists: boolean;
+  sourceIsGitRepo: boolean;
+  sourceExpected: boolean;
+  mirrorExists: boolean;
+  mirrorIsGitRepo: boolean;
+  mirrorExpected: boolean;
   sourceGit: { branch: string; head: string; statusShort: string };
   mirrorGit: { branch: string; head: string; statusShort: string };
 }> = {}): A1ProofDeps {
+  const calls = overrides.calls;
   return {
     pathExists: async (path) => {
+      const normalized = normalizePath(path);
+      if (normalized === "/home/ubuntu/1.project/ai-novelist" || normalized.endsWith("/not-ai-novelist")) {
+        return overrides.sourceExists ?? true;
+      }
+      if (normalized.endsWith("/workspaces/mirrors/ai-novelist") && overrides.mirrorExists !== undefined) {
+        return overrides.mirrorExists;
+      }
       try {
         await access(path);
         return true;
@@ -135,16 +309,50 @@ function fakeDeps(overrides: Partial<{
         return false;
       }
     },
-    isGitRepo: async (path) => !path.includes("workspaces/mirrors/ai-novelist"),
-    cloneLocalRepo: async () => undefined,
-    gitSnapshot: async (path) => path.includes("workspaces/mirrors")
-      ? overrides.mirrorGit ?? { branch: "agent/a1-local-mirror-deepseek-proof", head: "def5678", statusShort: "" }
-      : overrides.sourceGit ?? { branch: "main", head: "abc1234", statusShort: "" },
+    isGitRepo: async (path) => {
+      const normalized = normalizePath(path);
+      if (normalized === "/home/ubuntu/1.project/ai-novelist" || normalized.endsWith("/not-ai-novelist")) {
+        return overrides.sourceIsGitRepo ?? true;
+      }
+      if (normalized.endsWith("/workspaces/mirrors/ai-novelist")) {
+        return overrides.mirrorIsGitRepo ?? false;
+      }
+      return false;
+    },
+    isExpectedAiNovelistRepo: async (path) => {
+      const normalized = normalizePath(path);
+      if (normalized === "/home/ubuntu/1.project/ai-novelist") {
+        return overrides.sourceExpected ?? true;
+      }
+      if (normalized.endsWith("/workspaces/mirrors/ai-novelist")) {
+        return overrides.mirrorExpected ?? true;
+      }
+      return false;
+    },
+    cloneLocalRepo: async () => {
+      if (calls) calls.cloneLocalRepo += 1;
+    },
+    gitSnapshot: async (path) => {
+      if (calls) calls.gitSnapshot += 1;
+      return normalizePath(path).includes("/workspaces/mirrors/")
+        ? overrides.mirrorGit ?? { branch: "agent/a1-local-mirror-deepseek-proof", head: "def5678", statusShort: "" }
+        : overrides.sourceGit ?? { branch: "main", head: "abc1234", statusShort: "" };
+    },
     deepseekConfigured: () => overrides.deepseekConfigured ?? false,
-    startWeb: async () => ({ pid: 1234 }),
-    observeTarget: async () => ({ httpStatus: 200, responseType: "application/json" }),
+    startWeb: async () => {
+      if (calls) calls.startWeb += 1;
+      throw new Error("startWeb must not be called by Task 2 proof");
+    },
+    observeTarget: async () => {
+      if (calls) calls.observeTarget += 1;
+      throw new Error("observeTarget must not be called by Task 2 proof");
+    },
     stopWeb: async () => true,
     writeArtifact: async () => "artifacts/a1/ai-novelist-local-mirror-deepseek-proof.json",
     now: () => "2026-06-05T00:00:00.000Z",
   };
+}
+
+function normalizePath(path: string): string {
+  return path.split("\\").join("/");
 }

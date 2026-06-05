@@ -77,6 +77,7 @@ export interface A1ProofInput {
 export interface A1ProofDeps {
   pathExists(path: string): Promise<boolean>;
   isGitRepo(path: string): Promise<boolean>;
+  isExpectedAiNovelistRepo(path: string): Promise<boolean>;
   cloneLocalRepo(sourcePath: string, mirrorPath: string): Promise<void>;
   gitSnapshot(path: string): Promise<GitSnapshot>;
   deepseekConfigured(): boolean;
@@ -86,6 +87,8 @@ export interface A1ProofDeps {
   writeArtifact(cwd: string, result: A1ProofResult): Promise<string>;
   now(): string;
 }
+
+const EXPECTED_A1_MIRROR_PATH = "workspaces/mirrors/ai-novelist";
 
 const severityOrder: Record<A1BlockerSeverity, number> = {
   blocking: 0,
@@ -157,19 +160,69 @@ export async function runA1AiNovelistProof(input: A1ProofInput, deps: A1ProofDep
   const cwd = resolve(input.cwd);
   const sourcePath = resolve(cwd, input.sourcePath);
   const mirrorPath = resolve(cwd, input.mirrorPath);
-  const sourceGit = await deps.gitSnapshot(sourcePath);
-
   const evidence: A1ProofEvidence = {
     createdAt: deps.now(),
     sourcePath,
-    sourceBranch: sourceGit.branch,
-    sourceHead: sourceGit.head,
-    sourceStatusShort: sourceGit.statusShort,
     mirrorPath,
     targetUrl: input.targetUrl,
     targetProvider: input.provider,
     targetProviderBoundary: "ai-novelist-web",
     targetAppProviderCall: "not_observed",
+  };
+
+  if (!isExpectedA1MirrorPathInput(input.mirrorPath)) {
+    return withArtifact(cwd, deps, buildA1ProofResult({
+      blockers: [blocker({
+        category: "mirror",
+        key: "mirror.path_unexpected",
+        message: "A1 mirror path must be the expected local ai-novelist mirror path.",
+        recommendedNextAction: `Use ${EXPECTED_A1_MIRROR_PATH} as the A1 mirror path before preparing the proof.`,
+        severity: "blocking",
+        blocks: ["queue", "execute"],
+        details: { mirrorPath: input.mirrorPath, expectedMirrorPath: EXPECTED_A1_MIRROR_PATH, resolvedMirrorPath: mirrorPath },
+      })],
+      evidence,
+    }));
+  }
+
+  if (sourcePath === mirrorPath) {
+    return withArtifact(cwd, deps, sourcePathUnexpectedResult(evidence, sourcePath, "Source path resolves to the configured mirror path."));
+  }
+
+  const sourceExists = await deps.pathExists(sourcePath);
+  const sourceIsGitRepo = sourceExists ? await deps.isGitRepo(sourcePath) : false;
+  const sourceIsExpectedRepo = sourceIsGitRepo ? await deps.isExpectedAiNovelistRepo(sourcePath) : false;
+  if (!sourceExists || !sourceIsGitRepo || !sourceIsExpectedRepo) {
+    return withArtifact(cwd, deps, sourcePathUnexpectedResult(evidence, sourcePath, "Source path is not the expected ai-novelist git repo.", {
+      sourceExists,
+      sourceIsGitRepo,
+      sourceIsExpectedRepo,
+    }));
+  }
+
+  let sourceGit: GitSnapshot;
+  try {
+    sourceGit = await deps.gitSnapshot(sourcePath);
+  } catch (error) {
+    return withArtifact(cwd, deps, buildA1ProofResult({
+      blockers: [blocker({
+        category: "mirror",
+        key: "mirror.source_status_unreadable",
+        message: "A1 could not read source git status before mirror preparation.",
+        recommendedNextAction: "Inspect the ai-novelist source repository and retry after git status is readable.",
+        severity: "blocking",
+        blocks: ["queue", "execute"],
+        details: { sourcePath, error: error instanceof Error ? error.message : String(error) },
+      })],
+      evidence,
+    }));
+  }
+
+  const sourceEvidence: A1ProofEvidence = {
+    ...evidence,
+    sourceBranch: sourceGit.branch,
+    sourceHead: sourceGit.head,
+    sourceStatusShort: sourceGit.statusShort,
   };
 
   if (isProtectedSourceBranch(sourceGit.branch) && sourceGit.statusShort.trim().length > 0) {
@@ -183,14 +236,15 @@ export async function runA1AiNovelistProof(input: A1ProofInput, deps: A1ProofDep
         blocks: ["queue", "execute"],
         details: { sourcePath, branch: sourceGit.branch, statusShort: sourceGit.statusShort },
       })],
-      evidence,
+      evidence: sourceEvidence,
     }));
   }
 
   const mirrorExists = await deps.pathExists(mirrorPath);
   if (mirrorExists) {
     const mirrorIsGitRepo = await deps.isGitRepo(mirrorPath);
-    if (!mirrorIsGitRepo) {
+    const mirrorIsExpectedRepo = mirrorIsGitRepo ? await deps.isExpectedAiNovelistRepo(mirrorPath) : false;
+    if (!mirrorIsGitRepo || !mirrorIsExpectedRepo) {
       return withArtifact(cwd, deps, buildA1ProofResult({
         blockers: [blocker({
           category: "mirror",
@@ -199,9 +253,9 @@ export async function runA1AiNovelistProof(input: A1ProofInput, deps: A1ProofDep
           recommendedNextAction: "Inspect workspaces/mirrors/ai-novelist and either remove it manually or point A1 at a verified mirror.",
           severity: "blocking",
           blocks: ["queue", "execute"],
-          details: { mirrorPath },
+          details: { mirrorPath, mirrorIsGitRepo, mirrorIsExpectedRepo },
         })],
-        evidence,
+        evidence: sourceEvidence,
       }));
     }
   } else {
@@ -217,10 +271,34 @@ export async function runA1AiNovelistProof(input: A1ProofInput, deps: A1ProofDep
     host: input.host,
     port: input.port,
   }, deps, {
-    ...evidence,
+    ...sourceEvidence,
     mirrorBranch: mirrorGit.branch,
     mirrorHead: mirrorGit.head,
     mirrorStatusShort: mirrorGit.statusShort,
+  });
+}
+
+function isExpectedA1MirrorPathInput(mirrorPath: string): boolean {
+  return mirrorPath.split("\\").join("/") === EXPECTED_A1_MIRROR_PATH;
+}
+
+function sourcePathUnexpectedResult(
+  evidence: A1ProofEvidence,
+  sourcePath: string,
+  reason: string,
+  details: Record<string, unknown> = {},
+): A1ProofResult {
+  return buildA1ProofResult({
+    blockers: [blocker({
+      category: "mirror",
+      key: "mirror.source_path_unexpected",
+      message: "Source path is not the expected ai-novelist repository for A1 mirror preparation.",
+      recommendedNextAction: "Point A1 at the verified ai-novelist source repository before preparing a mirror.",
+      severity: "blocking",
+      blocks: ["queue", "execute"],
+      details: { sourcePath, reason, ...details },
+    })],
+    evidence,
   });
 }
 
