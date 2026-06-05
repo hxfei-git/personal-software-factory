@@ -124,7 +124,7 @@ export function githubResultBlockers(result: GitHubRealResult): WorkerReadinessB
       details: { jobType: "github.pr", provider: "github", realPush: false },
     });
   }
-  if (result.decision !== "succeeded" && blockers.length === 0) {
+  if ((result.decision !== "succeeded" || result.safeToRun === false) && blockers.length === 0) {
     blockers.push({
       category: "execution",
       key: "execution.integration.unclassified_execution_blocker",

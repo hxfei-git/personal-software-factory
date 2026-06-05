@@ -1637,6 +1637,53 @@ describe("worker runner", () => {
     expect(keys).not.toContain("policy.integration.operation_gate_disabled");
   });
 
+  it("maps legacy unsafe github.pr success without blockers to an unclassified execution blocker", () => {
+    const blockers = githubResultBlockers({
+      name: "github",
+      externalName: "GitHub",
+      mode: "real",
+      realEnabled: true,
+      realNetworkCall: false,
+      configured: true,
+      missingEnv: [],
+      safeToRun: false,
+      message: "GitHub adapter result requires manual inspection before execution is considered safe.",
+      decision: "succeeded",
+      status: {
+        name: "github",
+        externalName: "GitHub",
+        mode: "real",
+        enabled: true,
+        configured: true,
+        healthy: true,
+        realEnabled: true,
+        realNetworkCall: false,
+        safeToRun: false,
+        requiredEnv: [],
+        missingEnv: [],
+        lastCheckedAt: "2026-05-31T00:00:00.000Z",
+        message: "GitHub adapter result requires manual inspection before execution is considered safe.",
+      },
+      outputs: {
+        branchName: "agent/mission-real",
+        baseBranch: "main",
+        requests: [],
+        manualActions: [],
+      },
+      logs: [],
+      errors: [],
+      blockers: [],
+      createdAt: "2026-05-31T00:00:00.000Z",
+    } as Parameters<typeof githubResultBlockers>[0]);
+
+    expect(blockers).toEqual([expect.objectContaining({
+      category: "execution",
+      key: "execution.integration.unclassified_execution_blocker",
+      blocks: ["execute"],
+      source: "integration",
+    })]);
+  });
+
   it("maps legacy github.pr allowNetwork manual action to a network gate blocker", () => {
     const blockers = githubResultBlockers({
       name: "github",
