@@ -9,7 +9,7 @@ import type {
   IntegrationDryRunResult,
   IntegrationStatus,
   Mission,
-  MissionDryRunAction,
+  MissionActionKind,
   MissionSummaryResponse,
   Project,
   QueueStatus,
@@ -76,7 +76,7 @@ export interface OrchestratorClient {
   retryWorkerRun: (id: string) => Promise<unknown>;
   listIntegrations: () => Promise<IntegrationStatus[]>;
   runIntegrationDryRun: (name: ExternalIntegrationName, payload?: Record<string, unknown>) => Promise<IntegrationDryRunResult>;
-  runMissionAction: (missionId: string, action: MissionDryRunAction, payload?: Record<string, unknown>) => Promise<DryRunActionResponse>;
+  runMissionAction: (missionId: string, action: MissionActionKind, payload?: Record<string, unknown>) => Promise<DryRunActionResponse>;
   runAiNovelistDemo: (payload?: Record<string, unknown>) => Promise<DryRunActionResponse>;
 }
 
@@ -155,7 +155,7 @@ export function createOrchestratorClient(options: OrchestratorClientOptions = {}
         body: JSON.stringify(payload),
       },
     ),
-    runMissionAction: (missionId: string, action: MissionDryRunAction, payload: Record<string, unknown> = {}) => request<DryRunActionResponse>(
+    runMissionAction: (missionId: string, action: MissionActionKind, payload: Record<string, unknown> = {}) => request<DryRunActionResponse>(
       `/missions/${encodeURIComponent(missionId)}/actions/${action}`,
       {
         method: "POST",

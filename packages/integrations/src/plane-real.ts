@@ -138,7 +138,12 @@ export async function runPlaneReal(input: PlaneRealInput = {}): Promise<PlaneRea
   }
 
   if (!input.transport || input.gates?.allowNetwork !== true) {
-    manualActions.push("Inject a transport and set gates.allowNetwork=true before any Plane request.");
+    if (!input.transport) {
+      manualActions.push("Inject a transport before any Plane request.");
+    }
+    if (input.gates?.allowNetwork !== true) {
+      manualActions.push("Set gates.allowNetwork=true before any Plane request.");
+    }
     return missingTransportResult(definition, input, outputs);
   }
 

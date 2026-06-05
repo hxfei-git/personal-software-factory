@@ -9,6 +9,7 @@ import { buildWorkerJob, InProcessWorkerRuntime, type QueuedJobRecord, type Queu
 import type { ApiAuthOptions } from "../src/auth.js";
 import { buildQueuedRealActionJob, type ActionExecutionMode } from "../src/actions.js";
 import { buildServer } from "../src/server.js";
+import { createMissionServices } from "../src/services.js";
 import { createInMemoryMissionStorage } from "../src/storage.js";
 
 describe("orchestrator api", () => {
@@ -964,6 +965,21 @@ describe("orchestrator api", () => {
           code: "MISSION_ACTION_PREFLIGHT_BLOCKED",
           details: expect.objectContaining({ action: "qa-playwright", missingTargetUrl: true }),
         });
+        const details = response.json().details;
+        expect(details).toMatchObject({
+          canQueue: false,
+          canExecute: false,
+        });
+        expect(details.blockers).toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            category: "configuration",
+            key: "configuration.target_url.missing",
+            severity: "blocking",
+            blocks: ["queue", "execute"],
+            source: "orchestrator",
+            details: expect.objectContaining({ action: "qa-playwright", missingTargetUrl: true }),
+          }),
+        ]));
         expect(response.json().message).toContain("target URL");
       });
     } finally {
@@ -1319,7 +1335,8 @@ describe("orchestrator api", () => {
         });
 
         expect(response.statusCode).toBe(200);
-        expect(response.json()).toMatchObject({
+        const body = response.json();
+        expect(body).toMatchObject({
           accepted: false,
           executionMode: "queued",
           missionId: EXAMPLE_MISSION_ID,
@@ -1330,7 +1347,24 @@ describe("orchestrator api", () => {
           realNetworkCall: false,
           realExternalCall: false,
         });
-        expect(response.json().recommendedNextAction).toContain(route.gate);
+        expect(body).toMatchObject({
+          canQueue: false,
+          canExecute: false,
+          realNetworkCall: false,
+          realExternalCall: false,
+          realPush: false,
+          realDeploy: false,
+        });
+        expect(body.blockers).toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            category: "queue_acceptance",
+            key: "queue_acceptance.route_gate." + route.gate,
+            severity: "blocking",
+            blocks: ["queue", "execute"],
+            source: "orchestrator",
+          }),
+        ]));
+        expect(body.recommendedNextAction).toContain(route.gate);
       }
 
       expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(0);
@@ -1351,7 +1385,8 @@ describe("orchestrator api", () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toMatchObject({
+      const body = response.json();
+      expect(body).toMatchObject({
         accepted: false,
         executionMode: "queued",
         missionId: EXAMPLE_MISSION_ID,
@@ -1363,7 +1398,17 @@ describe("orchestrator api", () => {
         realExternalCall: false,
         missingApprovalTypes: ["SECURITY_RISK"],
       });
-      expect(response.json().recommendedNextAction).toContain("SECURITY_RISK");
+      expect(body.blockers).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          category: "approval",
+          key: "approval.SECURITY_RISK.missing",
+          severity: "blocking",
+          blocks: ["queue", "execute"],
+          source: "orchestrator",
+          details: { action: "codex-real", approvalType: "SECURITY_RISK" },
+        }),
+      ]));
+      expect(body.recommendedNextAction).toContain("SECURITY_RISK");
       expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(0);
       expect(await workerRuntime.listJobs()).toHaveLength(0);
     });
@@ -1388,7 +1433,75 @@ describe("orchestrator api", () => {
         approvedApprovalTypes: [],
         missingApprovalTypes: ["SECURITY_RISK"],
       });
+      const codexReadiness = response.json().realModeReadiness.codex;
+      expect(codexReadiness).toMatchObject({
+        canQueue: false,
+        canExecute: false,
+        realNetworkCall: false,
+        realExternalCall: false,
+        realPush: false,
+        realDeploy: false,
+        recommendedNextAction: expect.stringContaining("SECURITY_RISK"),
+      });
+      expect(codexReadiness.blockers).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          category: "approval",
+          key: "approval.SECURITY_RISK.missing",
+          severity: "blocking",
+          blocks: ["queue", "execute"],
+          source: "orchestrator",
+          details: { action: "codex-real", approvalType: "SECURITY_RISK" },
+        }),
+        expect.objectContaining({
+          category: "execution",
+          key: "execution.codex.injected_runner_missing",
+          severity: "manual_action",
+          blocks: ["execute"],
+          source: "orchestrator",
+          details: expect.objectContaining({ action: "codex-real", evidence: "known_static" }),
+        }),
+      ]));
       expect(response.json().policyFailures).toContain("Codex real execution missing approvals: SECURITY_RISK.");
+    });
+  });
+
+  it("reports missing Worker Runtime in real-mode readiness policy failures", async () => {
+    await withEnv({ PSF_ENABLE_REAL_CODEX: "true" }, async () => {
+      const storage = createInMemoryMissionStorage({ projects: [projectExample] });
+      const services = createMissionServices(storage, { actionExecutionMode: "queued" });
+      await seedDemoMission(storage);
+      const approval = await services.createApproval(EXAMPLE_MISSION_ID, {
+        type: "SECURITY_RISK",
+        reason: "SECURITY_RISK approval for real action.",
+      });
+      await services.decideApproval(approval.id, {
+        status: "approved",
+        decidedBy: "local-user",
+        decision: "Approved for queued real action.",
+      });
+
+      const response = await services.getMissionSummary(EXAMPLE_MISSION_ID);
+
+      const codexReadiness = response.realModeReadiness.codex;
+      expect(codexReadiness).toMatchObject({
+        enabled: true,
+        ready: false,
+        safeToRun: false,
+        requiredApprovalTypes: ["SECURITY_RISK"],
+        approvedApprovalTypes: ["SECURITY_RISK"],
+        missingApprovalTypes: [],
+      });
+      expect(codexReadiness.blockers).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          category: "queue_acceptance",
+          key: "queue_acceptance.worker_runtime_missing",
+          severity: "blocking",
+          blocks: ["queue", "execute"],
+          source: "orchestrator",
+          details: { action: "codex-real" },
+        }),
+      ]));
+      expect(response.policyFailures).toContain("Codex real execution requires a configured Worker Runtime.");
     });
   });
 

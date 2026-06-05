@@ -89,6 +89,9 @@ async function recordMissionActionResult(
       ...(result.status === undefined ? {} : { status: result.status }),
       ...(result.manualActionRequired === undefined ? {} : { manualActionRequired: result.manualActionRequired }),
       ...(result.reason === undefined ? {} : { reason: result.reason }),
+      ...(result.canQueue === undefined ? {} : { canQueue: result.canQueue }),
+      ...(result.canExecute === undefined ? {} : { canExecute: result.canExecute }),
+      ...(result.blockers === undefined ? {} : { blockers: result.blockers }),
     },
     created_at: timestamp,
   });
@@ -300,6 +303,9 @@ function buildSafeOutput(job: QueueWorkerJob, result: WorkerJobHandlerResult): R
     ...(result.status === undefined ? {} : { status: result.status }),
     ...(result.manualActionRequired === undefined ? {} : { manualActionRequired: result.manualActionRequired }),
     ...(result.reason === undefined ? {} : { reason: result.reason }),
+    ...(result.canQueue === undefined ? {} : { canQueue: result.canQueue }),
+    ...(result.canExecute === undefined ? {} : { canExecute: result.canExecute }),
+    ...(result.blockers === undefined ? {} : { blockers: result.blockers }),
   };
 }
 

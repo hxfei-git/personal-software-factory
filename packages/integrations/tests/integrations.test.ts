@@ -19,6 +19,7 @@ import {
   type IntegrationTransportRequest,
   type IntegrationTransportResponse,
 } from "../src/index.js";
+import { buildRealResult } from "../src/github-real.js";
 
 const fixedNow = "2026-05-31T12:00:00.000Z";
 
@@ -467,6 +468,16 @@ describe("gated real integration adapters", () => {
         expect(result.safeToRun).toBe(false);
         expect(result.decision).toBe("manual_action");
         expect(result.message).toContain("Manual action");
+        expect(result.blockers.length).toBeGreaterThan(0);
+        expect(result.blockers[0]).toMatchObject({
+          severity: "manual_action",
+          blocks: ["execute"],
+          source: "integration",
+        });
+        expect(textOf(result)).not.toContain("ghp_real_secret");
+        expect(textOf(result)).not.toContain("coolify_real_secret");
+        expect(textOf(result)).not.toContain("kuma_real_secret");
+        expect(textOf(result)).not.toContain("plane_real_secret");
       }
     }
     expect(calls).toHaveLength(0);
@@ -544,6 +555,301 @@ describe("gated real integration adapters", () => {
     expect(result.realNetworkCall).toBe(false);
     expect(result.message).toContain("protected branch");
     expect(calls).toHaveLength(0);
+  });
+
+  it("returns a GitHub operation gate blocker when no operation gate is enabled", async () => {
+    const { calls, transport } = createTransport([{ status: 201, json: { number: 42 } }]);
+
+    const result = await runGitHubReal({
+      env: configuredEnv,
+      now: fixedNow,
+      mission: missionInput,
+      transport,
+      gates: { allowNetwork: true },
+    });
+
+    expect(result.decision).toBe("manual_action");
+    expect(result.message).toContain("operation gate");
+    expect(result.message).not.toContain("transport");
+    expect(result.realNetworkCall).toBe(false);
+    expect(result.blockers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        key: "policy.integration.operation_gate_disabled",
+        blocks: ["execute"],
+        source: "integration",
+      }),
+    ]));
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each([
+    ["GitHub", (transport: IntegrationTransport) => runGitHubReal({
+      env: configuredEnv,
+      now: fixedNow,
+      mission: missionInput,
+      transport,
+      gates: { allowNetwork: false },
+    })],
+    ["Coolify", (transport: IntegrationTransport) => runCoolifyReal({
+      env: configuredEnv,
+      now: fixedNow,
+      deployment: { project: "psf", environment: "staging", stagingUrl: "https://staging.example.test" },
+      transport,
+      gates: { allowNetwork: false },
+    })],
+    ["Uptime Kuma", (transport: IntegrationTransport) => runUptimeKumaReal({
+      env: configuredEnv,
+      now: fixedNow,
+      monitor: { project: "psf", stagingUrl: "https://staging.example.test" },
+      transport,
+      gates: { allowNetwork: false },
+    })],
+    ["Plane", (transport: IntegrationTransport) => runPlaneReal({
+      env: configuredEnv,
+      now: fixedNow,
+      mission: missionInput,
+      bugs: [],
+      transport,
+      gates: { allowNetwork: false },
+    })],
+  ])("returns only a network gate blocker for %s when transport is present but allowNetwork is disabled", async (_name, run) => {
+    const { calls, transport } = createTransport([{ status: 201, json: { number: 42 } }]);
+
+    const result = await run(transport);
+
+    expect(result.decision).toBe("manual_action");
+    expect(result.message).toContain("allowNetwork");
+    expect(result.message).not.toContain("transport");
+    expect(result.realNetworkCall).toBe(false);
+    expect(result.blockers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        category: "policy",
+        key: "policy.integration.network_gate_disabled",
+        blocks: ["execute"],
+        source: "integration",
+      }),
+    ]));
+    expect(result.blockers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "execution.integration.injected_transport_missing" }),
+    ]));
+    expect(calls).toHaveLength(0);
+  });
+
+  it("adds an unclassified integration blocker to failed provider results", async () => {
+    const { transport } = createTransport([{ status: 422, json: { message: "validation failure" } }]);
+
+    const result = await runGitHubReal({
+      env: configuredEnv,
+      now: fixedNow,
+      mission: missionInput,
+      sourceSha: "abc123",
+      transport,
+      gates: { allowNetwork: true, allowPushBranch: true, allowCreatePullRequest: true },
+    });
+
+    expect(result.decision).toBe("failed");
+    expect(result.safeToRun).toBe(false);
+    expect(result.outputs.manualActions).toEqual([]);
+    expect(result.blockers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        category: "execution",
+        key: "execution.integration.unclassified_execution_blocker",
+        blocks: ["execute"],
+        source: "integration",
+        recommendedNextAction: "Inspect the integration adapter output before retrying.",
+      }),
+    ]));
+  });
+
+  it("adds an unclassified blocker when caller-provided blockers are empty for unsafe results", () => {
+    const result = buildRealResult(
+      {
+        name: "github",
+        externalName: "github",
+        requiredEnv: ["GITHUB_TOKEN", "GITHUB_OWNER", "GITHUB_REPO"],
+        enableRealEnv: "ENABLE_REAL_GITHUB",
+      },
+      { env: configuredEnv, now: fixedNow },
+      {
+        decision: "degraded",
+        message: "GitHub network unavailable after injected transport failure.",
+        outputs: { manualActions: [] },
+        safeToRun: false,
+        blockers: [],
+      },
+    );
+
+    expect(result.blockers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        category: "execution",
+        key: "execution.integration.unclassified_execution_blocker",
+        blocks: ["execute"],
+        source: "integration",
+      }),
+    ]));
+  });
+
+  it("redacts unsafe caller-provided blocker details while preserving allowlisted metadata", () => {
+    const jwtLikeValue = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature";
+
+    const result = buildRealResult(
+      {
+        name: "github",
+        externalName: "github",
+        requiredEnv: ["GITHUB_TOKEN", "GITHUB_OWNER", "GITHUB_REPO"],
+        enableRealEnv: "ENABLE_REAL_GITHUB",
+      },
+      { env: configuredEnv, now: fixedNow },
+      {
+        decision: "manual_action",
+        message: "Manual action required: custom blocker detail safety test.",
+        outputs: { manualActions: [] },
+        safeToRun: false,
+        blockers: [{
+          category: "execution",
+          key: "execution.integration.manual_action",
+          message: "Manual action required: inspect custom blocker details.",
+          recommendedNextAction: "Inspect the integration adapter output before retrying.",
+          severity: "manual_action",
+          blocks: ["execute"],
+          source: "integration",
+          details: {
+            provider: "github",
+            envName: "GITHUB_TOKEN",
+            gate: "allowNetwork",
+            operation: "createPullRequest",
+            status: {
+              summary: "safe nested status summary",
+              authorization: "Bearer nested-status-secret",
+              body: "nested-status-body-secret",
+              providerResponse: { message: "nested-status-provider-secret" },
+              result: { body: "nested-status-result-secret" },
+            },
+            evidence: {
+              summary: "provider returned a validation error",
+              status: "failed",
+              statusCode: 422,
+              url: "https://evidence.example.test/log?safe=visible",
+              path: "artifacts/mission-001/qa-report.md",
+              resourceId: "mission-001",
+              artifactId: "artifact-001",
+              count: 1,
+              operation: "createPullRequest",
+              gate: "allowNetwork",
+              raw: { token: "nested-raw-secret" },
+              result: { body: "nested-result-secret" },
+              providerResponse: { message: "nested-provider-response-secret" },
+              headers: { authorization: "Bearer nested-header-secret" },
+              payload: { body: "nested-payload-secret" },
+              links: ["https://evidence.example.test/log?safe=visible"],
+            },
+            action: "manual-review",
+            resourceId: "mission-001",
+            jobType: "github-pr-preview",
+            realPush: false,
+            body: "raw-body-secret",
+            responseBody: "raw-response-secret",
+            providerResponse: { message: "provider-response-secret" },
+            requestBody: { token: "request-body-secret" },
+            data: { secret: "data-secret" },
+            jwt: "jwt-real-secret",
+            jwtLikeValue,
+            bearer: "bearer-real-secret",
+            bearerValue: "Bearer raw-bearer-secret",
+            sessionId: "session-real-secret",
+            apiToken: "api-token-real-secret",
+            envSecretValue: "ghp_real_secret",
+          },
+        }],
+      },
+    );
+
+    const text = textOf(result);
+
+    expect(result.blockers[0]?.details).toMatchObject({
+      provider: "github",
+      envName: "GITHUB_TOKEN",
+      gate: "allowNetwork",
+      operation: "createPullRequest",
+      status: { summary: "safe nested status summary" },
+      evidence: {
+        summary: "provider returned a validation error",
+        status: "failed",
+        statusCode: 422,
+        url: "https://evidence.example.test/log?safe=visible",
+        path: "artifacts/mission-001/qa-report.md",
+        resourceId: "mission-001",
+        artifactId: "artifact-001",
+        count: 1,
+        operation: "createPullRequest",
+        gate: "allowNetwork",
+      },
+      action: "manual-review",
+      resourceId: "mission-001",
+      jobType: "github-pr-preview",
+      realPush: false,
+    });
+    expect(Object.keys(result.blockers[0]?.details ?? {}).sort()).toEqual([
+      "action",
+      "envName",
+      "evidence",
+      "gate",
+      "jobType",
+      "operation",
+      "provider",
+      "realPush",
+      "resourceId",
+      "status",
+    ]);
+    expect(Object.keys((result.blockers[0]?.details?.status as Record<string, unknown>) ?? {}).sort()).toEqual(["summary"]);
+    expect(result.blockers[0]?.details?.status).not.toHaveProperty("authorization");
+    expect(result.blockers[0]?.details?.status).not.toHaveProperty("body");
+    expect(result.blockers[0]?.details?.status).not.toHaveProperty("providerResponse");
+    expect(result.blockers[0]?.details?.status).not.toHaveProperty("result");
+    expect(Object.keys((result.blockers[0]?.details?.evidence as Record<string, unknown>) ?? {}).sort()).toEqual([
+      "artifactId",
+      "count",
+      "gate",
+      "operation",
+      "path",
+      "resourceId",
+      "status",
+      "statusCode",
+      "summary",
+      "url",
+    ]);
+    expect(result.blockers[0]?.details).not.toHaveProperty("body");
+    expect(result.blockers[0]?.details).not.toHaveProperty("responseBody");
+    expect(result.blockers[0]?.details).not.toHaveProperty("providerResponse");
+    expect(result.blockers[0]?.details).not.toHaveProperty("requestBody");
+    expect(result.blockers[0]?.details).not.toHaveProperty("data");
+    expect(result.blockers[0]?.details?.evidence).not.toHaveProperty("raw");
+    expect(result.blockers[0]?.details?.evidence).not.toHaveProperty("result");
+    expect(result.blockers[0]?.details?.evidence).not.toHaveProperty("providerResponse");
+    expect(result.blockers[0]?.details?.evidence).not.toHaveProperty("headers");
+    expect(result.blockers[0]?.details?.evidence).not.toHaveProperty("payload");
+    expect(result.blockers[0]?.details?.evidence).not.toHaveProperty("links");
+    expect(text).not.toContain("raw-body-secret");
+    expect(text).not.toContain("raw-response-secret");
+    expect(text).not.toContain("provider-response-secret");
+    expect(text).not.toContain("nested-raw-secret");
+    expect(text).not.toContain("nested-result-secret");
+    expect(text).not.toContain("nested-provider-response-secret");
+    expect(text).not.toContain("request-body-secret");
+    expect(text).not.toContain("data-secret");
+    expect(text).not.toContain("nested-header-secret");
+    expect(text).not.toContain("nested-payload-secret");
+    expect(text).not.toContain("nested-status-secret");
+    expect(text).not.toContain("nested-status-body-secret");
+    expect(text).not.toContain("nested-status-provider-secret");
+    expect(text).not.toContain("nested-status-result-secret");
+    expect(text).not.toContain(jwtLikeValue);
+    expect(text).not.toContain("raw-bearer-secret");
+    expect(text).not.toContain("ghp_real_secret");
+    expect(text).not.toContain("jwt-real-secret");
+    expect(text).not.toContain("bearer-real-secret");
+    expect(text).not.toContain("session-real-secret");
+    expect(text).not.toContain("api-token-real-secret");
   });
 
   it.each([

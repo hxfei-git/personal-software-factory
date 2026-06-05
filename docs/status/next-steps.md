@@ -2,11 +2,12 @@
 
 ## 推荐下一批工作
 
-1. 先执行 B1：审计当前架构与 `docs/vision/plan.md` 的差异，更新当前事实源，并做最小必要文档清理。不要默认删除 Markdown；如需删除、移动、改名或新增 Markdown，必须同步 `summary.md` 文档地图。
-2. 再执行 B2：定义 readiness/blocker 合同，区分 `canQueue` 与 `canExecute` 或等价结构化 `blockers[]`，避免当前 `safeToRun` 被误读成真实执行已可发生。
-3. 再执行 B3：补 Mission summary readiness、approval gate、queue wrapper、GitHub PR preview、fix/regression evidence 和 secret redaction 的合同回归测试。
-4. 最后执行 A1：只在 operator-prepared `ai-novelist` local mirror 上证明 gated-runner path。Passport 中 `manual-verification-required` 的 commands、local URL 和 selectors 必须先人工验证。
+1. B1 文档差异审计与最小必要清理已完成；继续维护 `summary.md` 文档地图，任何 Markdown 新增、删除、移动或改名都必须同步更新。
+2. B2 readiness/blocker 合同收敛已完成；`safeToRun` 只保留为 legacy route-level queue readiness，新判断优先使用 `canQueue`、`canExecute`、`blockers[]` 和 `recommendedNextAction`。
+3. 下一步执行 B3：补 Mission summary readiness、approval gate、queue wrapper、GitHub PR preview、fix/regression evidence、integration result 和 secret redaction 的 focused contract tests，并只做必要最小 production-code 调整。
+4. 然后执行 A1：只在 operator-prepared `ai-novelist` local mirror 上证明 gated-runner path。Passport 中 `manual-verification-required` 的 commands、local URL 和 selectors 必须先人工验证。
 5. 暂不扩展外部 provider；在本地 mirror gated-runner path 被证明之前，GitHub、Coolify、Uptime Kuma、Plane 和其他 provider network calls 必须继续禁用。
+
 
 ## 真实 Codex 前
 

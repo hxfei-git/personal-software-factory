@@ -64,13 +64,13 @@ Public read endpoint for Mission detail screens. Returns the Mission, Project, c
 
 Additional summary fields are derived only from Orchestrator-owned records and sanitized API values:
 
-- `realModeReadiness`: entries for `codex`, `qaPlaywright`, `qaAiExploratory`, `fix`, `github`, `coolify`, `uptimeKuma`, and `plane`. Each entry includes `enabled`, `configured`, `ready`, `safeToRun`, `missingEnv`, `requiredApprovalTypes`, `approvedApprovalTypes`, `missingApprovalTypes`, `message`, and `realNetworkCall: false`. `safeToRun` is false when a real action requires an approval type that is not present as an approved Approval on that Mission.
-- `policyFailures`: human-readable blockers such as missing `PSF_ACTION_EXECUTION_MODE=queued`, disabled `PSF_ENABLE_REAL_*` gates, missing provider environment variables, missing approved Mission approvals, or missing Worker Runtime configuration.
+- `realModeReadiness`: entries for `codex`, `qaPlaywright`, `qaAiExploratory`, `fix`, `github`, `coolify`, `uptimeKuma`, and `plane`. Each entry keeps legacy `safeToRun` for compatibility, but new consumers should use `canQueue`, `canExecute`, sorted `blockers[]`, and `recommendedNextAction`. `safeToRun` only means route-level queue readiness and does not prove real execution can happen. Blocker details are redacted safe metadata only. Safety flags remain explicit false by default: `realNetworkCall:false`, `realExternalCall:false`, `realPush:false`, and `realDeploy:false`.
+- `policyFailures`: legacy human-readable blockers such as missing `PSF_ACTION_EXECUTION_MODE=queued`, disabled `PSF_ENABLE_REAL_*` gates, missing provider environment variables, missing approved Mission approvals, or missing Worker Runtime configuration. New UI and tests should prefer the structured readiness blockers.
 - `externalLinks`: `githubPrUrl`, `deploymentUrl`, `monitorUrl`, and `planeIssueUrl` when those safe URLs are present on the Mission, WorkerRuns, Artifacts, or Approvals.
 - `deploymentStatus`, `monitorStatus`, and `planeStatus`: latest relevant WorkerRun-derived status summaries.
 - `artifactRetention`: Artifact retention metadata from `metadata.retentionClass`, `metadata.path`, and `metadata.missing`.
 
-These fields are visibility only. They do not trigger real external calls, and `realNetworkCall` remains `false`. Token, password, and secret-like values are redacted before the response is sent.
+These fields are visibility only. They do not trigger real external calls, and default safety flags remain false. Token, password, authorization, credential, session, JWT, bearer, provider payload, and secret-like values are redacted before the response is sent.
 
 The route returns `404 NOT_FOUND` when the Mission or linked Project is missing.
 

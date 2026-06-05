@@ -44,7 +44,7 @@ Hub 的写操作只允许通过受保护的 Orchestrator API 调用完成，例�
 
 Orchestrator API 拥有 control-plane HTTP surface。`apps/orchestrator-api/src/server.ts` 负责 Fastify route wiring，`services.ts` 负责 request validation 和 response building，`storage.ts` 抽象 in-memory 与 Prisma-backed persistence。
 
-API 暴露 health、dashboard、project registry sync、Project Passport read、Mission creation/planning/summary/actions、Approval records、WorkerRun records、Artifact records、BugReport records、QARun records、queue status，以及 integration dry-run/status routes。
+API 暴露 health、dashboard、project registry sync、Project Passport read、Mission creation/planning/summary/actions、Approval records、WorkerRun records、Artifact records、BugReport records、QARun records、queue status，以及 integration dry-run/status routes。Mission summary、gated real action blocked/manual-action response 和 route preflight error body 由 Orchestrator 作为 canonical response outlet 输出 readiness 合同：`safeToRun` 保留为 legacy route-level queue readiness 字段，新增判断优先使用 `canQueue`、`canExecute`、排序后的 `blockers[]` 和 `recommendedNextAction`。`canExecute` 必须隐含 `canQueue`，summary readiness 在证据不足时只能输出 known static blocker 或 requires-verification blocker，不能声称真实执行已经可发生。
 
 除非为了本地开发或测试明确关闭，write routes 都要求 bearer-token auth。
 
@@ -72,11 +72,13 @@ Dry-run jobs 包括 `mission.plan`, `codex.dry_run`, `qa.dry_run`, `qa.dry_run_w
 
 Gated real-mode contract jobs 包括 `codex.real`, `qa.playwright`, `qa.ai_exploratory`, `fix.real`, `github.pr`, `deploy.coolify`, `monitor.uptime_kuma`, 和 `plane.sync`。
 
-默认 Worker Runner path 仍保持安全。Real handlers 会返回 blocked 或 manual-action output，除非完整 gate chain 被有意满足。
+默认 Worker Runner path 仍保持安全。Real handlers 会返回 blocked 或 manual-action output，除非完整 gate chain 被有意满足。Worker Runner 会在 wrapper output 和 `mission.action_result` 中保留 `canQueue`、`canExecute`、`blockers[]` 和 `recommendedNextAction`；已入队 job 不会被结果 mapper 回写成 queue 不可接受，worker defense-in-depth blocker 通常只 `blocks: ["execute"]`。
 
 ## Integration 边界
 
 GitHub、Coolify、Uptime Kuma 和 Plane adapters 暴露 dry-run/status 行为以及 gated real adapter code paths。默认 API、CLI、Hub、tests 和 Worker Runner paths 不会调用外部 provider API。
+
+Gated real integration results 会输出 execute-only readiness blockers，用于表达 missing env/manual actions、transport gate、network gate、operation gate、policy/safety gate 或无法分类的 unsafe/manual-action result。`safeToRun: false` 本身不是 blocker 原因；mapper 必须从具体 gate 或 adapter output 生成 blocker，缺少具体原因时只能输出 unclassified manual-action blocker 并要求人工检查 adapter output。Blocker `details` 只允许 redacted/sanitized metadata，例如枚举、env var 名称、action/resource id、安全路径和 boolean flags，不允许 token、password、authorization、credential、session、JWT、bearer、secret-like value、原始 provider payload 或长错误文本。
 
 `realNetworkCall` 必须保持 `false`，除非 gated real adapter 在明确批准的 run 中实际调用 injected transport。默认路径下 `realExternalCall`、`realPush` 和 `realDeploy` 必须保持 false。
 

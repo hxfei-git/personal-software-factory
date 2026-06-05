@@ -202,6 +202,8 @@ export interface IntegrationDryRunResult {
 }
 
 export type MissionDryRunAction = "plan" | "codex-dry-run" | "qa-dry-run" | "fix-dry-run" | "loop-dry-run";
+export type GatedRealActionKind = "codex-real" | "qa-playwright" | "qa-ai-exploratory" | "fix-real" | "github-pr" | "deploy-staging" | "monitor-sync" | "plane-sync";
+export type MissionActionKind = MissionDryRunAction | GatedRealActionKind;
 
 export interface InlineDryRunActionResponse {
   accepted?: true;
@@ -276,15 +278,33 @@ export interface HealthSignal {
 
 export type RealModeReadinessKey = "codex" | "qaPlaywright" | "qaAiExploratory" | "fix" | "github" | "coolify" | "uptimeKuma" | "plane";
 
+export interface ReadinessBlocker {
+  category: "queue_acceptance" | "approval" | "configuration" | "policy" | "execution" | "safety";
+  key: string;
+  message: string;
+  recommendedNextAction: string;
+  severity: "blocking" | "manual_action" | "warning" | "info";
+  blocks: Array<"queue" | "execute">;
+  source: "orchestrator" | "worker_runner" | "integration" | "worker";
+  details?: JsonRecord;
+}
+
 export interface RealModeReadinessEntry {
   key: RealModeReadinessKey;
   label: string;
-  action: string;
+  action: GatedRealActionKind;
   enabled: boolean;
   configured: boolean;
   ready: boolean;
   safeToRun: boolean;
+  canQueue?: boolean;
+  canExecute?: boolean;
+  blockers?: ReadinessBlocker[];
+  recommendedNextAction?: string;
   realNetworkCall: false;
+  realExternalCall?: false;
+  realPush?: false;
+  realDeploy?: false;
   missingEnv: string[];
   requiredApprovalTypes?: string[];
   approvedApprovalTypes?: string[];

@@ -128,9 +128,9 @@ Task 9 wires these real/gated job contracts into Worker Runner handlers:
 - `monitor.uptime_kuma`: maps to the gated Uptime Kuma real adapter with no transport and network gates disabled by default.
 - `plane.sync`: maps to the gated Plane real adapter with no transport and network gates disabled by default.
 
-The real/gated handlers preserve queue wrapper output semantics: the wrapper records `childWorkerRunIds`, `childQARunIds`, `childArtifactIds`, `childBugReportIds`, `summary`, and `recommendedNextAction`, while child resources are persisted when the underlying runner returns them. `github.pr` now persists a child integration WorkerRun plus `github-pr-preview.md` Artifact even when the default result is manual-action/no-network.
+The real/gated handlers preserve queue wrapper output semantics: the wrapper records `childWorkerRunIds`, `childQARunIds`, `childArtifactIds`, `childBugReportIds`, `summary`, `canQueue`, `canExecute`, `blockers[]`, and `recommendedNextAction`, while child resources are persisted when the underlying runner returns them. Already accepted wrapper jobs keep queue semantics (`canQueue: true`) and express later defense-in-depth failures as execute blockers instead of retroactively making the queue decision false. `github.pr` now persists a child integration WorkerRun plus `github-pr-preview.md` Artifact even when the default result is manual-action/no-network.
 
-Worker Runner completions also record Mission-level audit events. Successful or blocked action handling appends `mission.action_result` with the action outcome, child resource IDs, and safe recommended next action. Worker Runner may also append `mission.status.auto_transition` when the result maps to a conservative legal Mission status transition; if the state machine rejects the transition, the Mission status is left unchanged and the action result event remains the audit record.
+Worker Runner completions also record Mission-level audit events. Successful or blocked action handling appends `mission.action_result` with the action outcome, child resource IDs, `canQueue`, `canExecute`, sorted `blockers[]`, and safe recommended next action. Worker Runner may also append `mission.status.auto_transition` when the result maps to a conservative legal Mission status transition; if the state machine rejects the transition, the Mission status is left unchanged and the action result event remains the audit record.
 
 Unknown job types are rejected by the Zod schema before enqueue. Payloads are recursively rejected when keys look like tokens, passwords, secrets, API keys, authorization headers, or credentials.
 
@@ -138,7 +138,7 @@ Unknown job types are rejected by the Zod schema before enqueue. Payloads are re
 
 The Orchestrator API exposes explicit protected routes for real/gated contracts only; it does not expose arbitrary command submission or generic queue submission. Each route maps to one whitelisted job type and one route-specific gate. If the API is not in `PSF_ACTION_EXECUTION_MODE=queued`, or the route gate is not exactly `true`, the response is a blocked/manual payload and no WorkerRun or queue job is created.
 
-When accepted, the API creates the queue wrapper WorkerRun and enqueues the contract job with `mode: real`. The API still sets `realNetworkCall: false`, `realExternalCall: false`, `realPush: false`, and `realDeploy: false`. Worker Runner then evaluates the job through the gated handler listed above.
+When accepted, the API creates the queue wrapper WorkerRun and enqueues the contract job with `mode: real`. The API still sets `realNetworkCall: false`, `realExternalCall: false`, `realPush: false`, and `realDeploy: false`. Worker Runner then evaluates the job through the gated handler listed above and returns blocked/manual-action readiness fields when runner, transport, target URL, selector verification, command policy, workspace guard, operation gate, or safety gate conditions are missing.
 
 ## Safety Boundary
 

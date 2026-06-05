@@ -60,6 +60,8 @@ This package does not enable real Codex execution, network calls, pushes, pull r
 
 `ENABLE_REAL_*` and `PSF_ENABLE_REAL_*` values are readiness signals only in current default-safe operation. Doctor warns when they are enabled, and integrations must still return `realNetworkCall: false` until a later approved task intentionally wires real provider calls.
 
+Readiness responses must not use legacy `safeToRun` as proof that real execution can happen. New API, Hub, Worker Runner, and integration surfaces should prefer `canQueue`, `canExecute`, sorted `blockers[]`, and `recommendedNextAction`. `canExecute` must imply `canQueue`; if queue blockers exist, execution remains blocked even when some execution prerequisites appear satisfied. Blocker `details` must be redacted/sanitized metadata only: env var names, enum values, action/resource ids, safe paths, or boolean gate flags. Do not emit token, password, authorization, credential, session, JWT, bearer, secret-like values, raw provider payloads, or long raw error text in readiness details.
+
 Before any real action is allowed by a future approved task, the operator must verify approvals, queue mode, Worker Runner health, artifact/workspace roots, redaction, token rotation procedures, backup/restore procedures, and action-specific provider configuration. Real Codex must use an operator-prepared mirror under `PSF_WORKSPACE_ROOT/mirrors`, and the child process receives only an allowlisted non-secret environment.
 
 ## Retention And Recovery Safety

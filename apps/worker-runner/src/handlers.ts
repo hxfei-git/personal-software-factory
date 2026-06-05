@@ -33,6 +33,13 @@ import {
 } from "@psf/integrations";
 import type { CodexExecutionResult, CodexExecutionStatus, CodexRunner } from "@psf/codex-worker";
 import {
+  codexManualActionBlocker,
+  deriveWorkerReadiness,
+  githubResultBlockers,
+  integrationResultBlockers,
+  type WorkerReadinessBlocker,
+} from "./readiness-blockers.js";
+import {
   AiExploratoryQaRunner,
   runDeterministicPlaywrightQa,
   type AiExploratoryQaExecutor,
@@ -60,6 +67,9 @@ export interface WorkerJobHandlerResult {
   status?: string;
   manualActionRequired?: boolean;
   reason?: string;
+  canQueue?: boolean;
+  canExecute?: boolean;
+  blockers?: WorkerReadinessBlocker[];
   childWorkerRuns?: WorkerRun[];
   childQARuns?: QAReport[];
   childArtifacts?: Artifact[];
@@ -261,15 +271,22 @@ function toWorkflowHandlerResult(result: {
 }
 
 function toCodexRealHandlerResult(result: CodexExecutionResult): WorkerJobHandlerResult {
+  const recommendedNextAction = codexRecommendedNextAction(result);
+  const readiness = result.status === "blocked" || result.status === "manual_action"
+    ? deriveWorkerReadiness([codexManualActionBlocker(result.reason)], recommendedNextAction)
+    : deriveWorkerReadiness([], recommendedNextAction);
   return {
     childWorkerRunIds: [result.workerRun.id],
     childQARunIds: [],
     childArtifactIds: result.artifacts.map((artifact) => artifact.id),
     childBugReportIds: [],
     summary: result.reason,
-    recommendedNextAction: codexRecommendedNextAction(result),
+    recommendedNextAction: readiness.recommendedNextAction,
     status: result.status,
     reason: result.reason,
+    canQueue: readiness.canQueue,
+    canExecute: readiness.canExecute,
+    blockers: readiness.blockers,
     ...(result.status === "blocked" || result.status === "manual_action" ? { manualActionRequired: true } : {}),
     childWorkerRuns: [result.workerRun],
     childArtifacts: result.artifacts,
@@ -353,15 +370,19 @@ function toIntegrationHandlerResult(result: AnyIntegrationDryRunResult): WorkerJ
 }
 
 function toIntegrationRealHandlerResult(result: IntegrationRealHandlerResult): WorkerJobHandlerResult {
+  const readiness = deriveWorkerReadiness(integrationResultBlockers(result), result.safeToRun
+    ? "Review real integration result before advancing the Mission."
+    : "Complete the listed manual actions before enabling this real integration.");
   return {
     childWorkerRunIds: [],
     childQARunIds: [],
     childArtifactIds: [],
     childBugReportIds: [],
     summary: result.message,
-    recommendedNextAction: result.safeToRun
-      ? "Review real integration result before advancing the Mission."
-      : "Complete the listed manual actions before enabling this real integration.",
+    recommendedNextAction: readiness.recommendedNextAction,
+    canQueue: readiness.canQueue,
+    canExecute: readiness.canExecute,
+    blockers: readiness.blockers,
   };
 }
 
@@ -369,18 +390,22 @@ function toGitHubPrHandlerResult(result: GitHubRealResult, job: QueueWorkerJob):
   const workerRun = createGitHubPrWorkerRun(job, result);
   const artifact = createGitHubPrPreviewArtifact(job, result);
   const event = createGitHubPrEvent(job, result, workerRun.id, artifact.id);
+  const readiness = deriveWorkerReadiness(githubResultBlockers(result), result.safeToRun
+    ? "Review GitHub PR result and PR URL before advancing the Mission."
+    : "Review PR preview and complete missing GitHub approval, env, route, operation, or transport gates.");
   return {
     childWorkerRunIds: [workerRun.id],
     childQARunIds: [],
     childArtifactIds: [artifact.id],
     childBugReportIds: [],
     summary: result.message,
-    recommendedNextAction: result.safeToRun
-      ? "Review GitHub PR result and PR URL before advancing the Mission."
-      : "Review PR preview and complete missing GitHub approval, env, route, operation, or transport gates.",
+    recommendedNextAction: readiness.recommendedNextAction,
     status: result.decision,
     manualActionRequired: result.decision !== "succeeded",
     reason: result.message,
+    canQueue: readiness.canQueue,
+    canExecute: readiness.canExecute,
+    blockers: readiness.blockers,
     childWorkerRuns: [workerRun],
     childArtifacts: [artifact],
     childEvents: [event],

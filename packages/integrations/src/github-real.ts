@@ -5,10 +5,11 @@ import {
   resolveNow,
 } from "./base.js";
 import { buildGitHubPullRequestBody } from "./github.js";
-import { redactText, redactValue } from "./redaction.js";
+import { isSecretLikeName, redactText, redactValue } from "./redaction.js";
 import type { IntegrationDefinition, IntegrationEnv, IntegrationName, IntegrationStatus, MissionIntegrationInput } from "./types.js";
 
 const definition = INTEGRATION_DEFINITIONS.github;
+const REDACTED = "[REDACTED]";
 
 export type IntegrationTransportMethod = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
@@ -31,6 +32,17 @@ export interface IntegrationTransportResponse {
 export type IntegrationTransport = (request: IntegrationTransportRequest) => Promise<IntegrationTransportResponse>;
 export type RealIntegrationDecision = "manual_action" | "succeeded" | "failed" | "degraded";
 
+export interface IntegrationReadinessBlocker {
+  category: "queue_acceptance" | "approval" | "configuration" | "policy" | "execution" | "safety";
+  key: string;
+  message: string;
+  recommendedNextAction: string;
+  severity: "blocking" | "manual_action" | "warning" | "info";
+  blocks: Array<"queue" | "execute">;
+  source: "integration";
+  details?: Record<string, unknown>;
+}
+
 export type IntegrationRealStatus<TName extends IntegrationName = IntegrationName> = Omit<IntegrationStatus<TName>, "mode" | "realNetworkCall" | "safeToRun" | "healthy"> & {
   mode: "real";
   realNetworkCall: boolean;
@@ -47,6 +59,7 @@ export interface IntegrationRealResult<TName extends IntegrationName, TOutputs e
   configured: boolean;
   missingEnv: string[];
   safeToRun: boolean;
+  blockers: IntegrationReadinessBlocker[];
   message: string;
   decision: RealIntegrationDecision;
   status: IntegrationRealStatus<TName>;
@@ -93,6 +106,310 @@ export interface GitHubRealOutputs {
 
 export type GitHubRealResult = IntegrationRealResult<"github", GitHubRealOutputs>;
 
+function integrationBlockersFromResult(input: {
+  integrationName: IntegrationName;
+  decision: RealIntegrationDecision;
+  message: string;
+  missingEnv: string[];
+  outputs: object;
+  safeToRun: boolean;
+}): IntegrationReadinessBlocker[] {
+  const blockers: IntegrationReadinessBlocker[] = [];
+
+  for (const envName of input.missingEnv) {
+    blockers.push({
+      category: "configuration",
+      key: `configuration.env.${envName}.missing`,
+      message: `${input.integrationName} is missing required environment variable ${envName}.`,
+      recommendedNextAction: `Configure ${envName} for ${input.integrationName} or keep the adapter in manual-action mode.`,
+      severity: "blocking",
+      blocks: ["execute"],
+      source: "integration",
+      details: { provider: input.integrationName, envName },
+    });
+  }
+
+  for (const manualAction of manualActionsFromOutputs(input.outputs)) {
+    blockers.push(...blockersFromManualAction(input.integrationName, manualAction));
+  }
+
+  if ((input.decision !== "succeeded" || input.safeToRun === false) && blockers.length === 0) {
+    blockers.push(unclassifiedIntegrationBlocker(input.integrationName, input.message));
+  }
+
+  return blockers;
+}
+
+function unclassifiedIntegrationBlocker(provider: IntegrationName, message: string): IntegrationReadinessBlocker {
+  return {
+    category: "execution",
+    key: "execution.integration.unclassified_execution_blocker",
+    message,
+    recommendedNextAction: "Inspect the integration adapter output before retrying.",
+    severity: "manual_action",
+    blocks: ["execute"],
+    source: "integration",
+    details: { provider },
+  };
+}
+
+function manualActionsFromOutputs(outputs: object): string[] {
+  const manualActions = (outputs as { manualActions?: unknown }).manualActions;
+
+  if (!Array.isArray(manualActions) || !manualActions.every((value) => typeof value === "string")) {
+    return [];
+  }
+
+  return manualActions;
+}
+
+function blockersFromManualAction(provider: IntegrationName, manualAction: string): IntegrationReadinessBlocker[] {
+  const normalized = manualAction.toLowerCase();
+  const blockers: IntegrationReadinessBlocker[] = [];
+
+  if (normalized.includes("transport")) {
+    blockers.push({
+      category: "execution",
+      key: "execution.integration.injected_transport_missing",
+      message: "Integration requires an injected transport before any provider request.",
+      recommendedNextAction: "Inject an approved transport only after explicit approval, or keep the adapter in manual-action mode.",
+      severity: "manual_action",
+      blocks: ["execute"],
+      source: "integration",
+      details: { provider },
+    });
+  }
+
+  if (normalized.includes("allownetwork") || normalized.includes("network gate")) {
+    blockers.push({
+      category: "policy",
+      key: "policy.integration.network_gate_disabled",
+      message: "Integration network gate is disabled by policy.",
+      recommendedNextAction: "Set gates.allowNetwork=true only after explicit approval, or keep the adapter in manual-action mode.",
+      severity: "manual_action",
+      blocks: ["execute"],
+      source: "integration",
+      details: { provider },
+    });
+  }
+
+  if (blockers.length > 0) {
+    return blockers;
+  }
+
+  if (
+    normalized.includes("operation gate") ||
+    normalized.includes("allowpushbranch") ||
+    normalized.includes("allowcreatepullrequest") ||
+    normalized.includes("allowupdatepullrequestbody") ||
+    normalized.includes("allowpostqacomment") ||
+    normalized.includes("approveproductiondeploy") ||
+    normalized.includes("approve production") ||
+    normalized.includes("requires approval") ||
+    (normalized.includes("production") && normalized.includes("approval"))
+  ) {
+    return [{
+      category: "policy",
+      key: "policy.integration.operation_gate_disabled",
+      message: "Integration operation gate is disabled by policy.",
+      recommendedNextAction: "Keep the adapter in manual-action mode until operation gates are explicitly approved.",
+      severity: "manual_action",
+      blocks: ["execute"],
+      source: "integration",
+      details: { provider },
+    }];
+  }
+
+  return [{
+    category: "execution",
+    key: "execution.integration.manual_action",
+    message: manualAction,
+    recommendedNextAction: "Inspect the integration adapter output before retrying.",
+    severity: "manual_action",
+    blocks: ["execute"],
+    source: "integration",
+    details: { provider },
+  }];
+}
+
+function sanitizeIntegrationBlockers(blockers: IntegrationReadinessBlocker[], env: IntegrationEnv): IntegrationReadinessBlocker[] {
+  return blockers.map((blocker) => {
+    const details = sanitizeBlockerDetails(blocker.details, env);
+    const sanitized: IntegrationReadinessBlocker = {
+      ...blocker,
+      blocks: ["execute"],
+      source: "integration",
+    };
+
+    if (details) {
+      sanitized.details = details;
+    } else {
+      delete sanitized.details;
+    }
+
+    return sanitized;
+  });
+}
+
+const SAFE_BLOCKER_DETAIL_KEYS = new Set([
+  "provider",
+  "envName",
+  "gate",
+  "operation",
+  "evidence",
+  "action",
+  "resourceId",
+  "jobType",
+  "realPush",
+  "status",
+  "statusCode",
+  "resourceType",
+]);
+
+const SAFE_EVIDENCE_DETAIL_KEYS = new Set([
+  "summary",
+  "status",
+  "statusCode",
+  "url",
+  "path",
+  "resourceId",
+  "artifactId",
+  "count",
+  "operation",
+  "gate",
+]);
+
+const JWT_LIKE_DETAIL_PATTERN = /^[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$/;
+const BARE_BEARER_DETAIL_PATTERN = /^Bearer\s+\S+/i;
+
+function sanitizeBlockerDetails(details: Record<string, unknown> | undefined, env: IntegrationEnv): Record<string, unknown> | undefined {
+  if (!details) return undefined;
+  const sanitized = Object.fromEntries(
+    Object.entries(details)
+      .filter(([key, entry]) => entry !== undefined && isSafeBlockerDetailName(key))
+      .map(([key, entry]) => [key, sanitizeSafeBlockerDetail(key, entry, env)]),
+  );
+  return Object.keys(sanitized).length > 0 ? sanitized : undefined;
+}
+
+function sanitizeSafeBlockerDetail(key: string, value: unknown, env: IntegrationEnv): unknown {
+  return key === "evidence" ? sanitizeEvidenceDetail(value, env) : sanitizeBlockerDetailValue(value, env);
+}
+
+function sanitizeEvidenceDetail(value: unknown, env: IntegrationEnv): unknown {
+  const redacted = redactValue(value, env);
+
+  if (!redacted || typeof redacted !== "object" || Array.isArray(redacted)) {
+    return sanitizeScalarEvidenceValue(redacted);
+  }
+
+  return Object.fromEntries(
+    Object.entries(redacted as Record<string, unknown>)
+      .filter(([key, entry]) => entry !== undefined && isSafeEvidenceDetailName(key))
+      .map(([key, entry]) => [key, sanitizeScalarEvidenceValue(entry)]),
+  );
+}
+
+function sanitizeScalarEvidenceValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    return isUnsafeBlockerDetailText(value) ? REDACTED : value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean" || value === null) {
+    return value;
+  }
+
+  return REDACTED;
+}
+
+function sanitizeBlockerDetailValue(value: unknown, env: IntegrationEnv): unknown {
+  const redacted = redactValue(value, env);
+
+  if (typeof redacted === "string") {
+    return isUnsafeBlockerDetailText(redacted) ? REDACTED : redacted;
+  }
+
+  if (Array.isArray(redacted)) {
+    return redacted.map((entry) => sanitizeBlockerDetailValue(entry, env));
+  }
+
+  if (redacted && typeof redacted === "object") {
+    return Object.fromEntries(
+      Object.entries(redacted as Record<string, unknown>)
+        .filter(([key, entry]) => entry !== undefined && isSafeNestedBlockerDetailName(key))
+        .map(([key, entry]) => [key, sanitizeBlockerDetailValue(entry, env)]),
+    );
+  }
+
+  return redacted;
+}
+
+function isSafeBlockerDetailName(name: string): boolean {
+  return SAFE_BLOCKER_DETAIL_KEYS.has(name);
+}
+
+function isSafeEvidenceDetailName(name: string): boolean {
+  return SAFE_EVIDENCE_DETAIL_KEYS.has(name);
+}
+
+function isSafeNestedBlockerDetailName(name: string): boolean {
+  return !isUnsafeBlockerDetailName(name) && (SAFE_BLOCKER_DETAIL_KEYS.has(name) || SAFE_EVIDENCE_DETAIL_KEYS.has(name));
+}
+
+function isUnsafeBlockerDetailName(name: string): boolean {
+  const normalized = name.replace(/[\s_.-]/g, "").toLowerCase();
+  return isSecretLikeName(name) || [
+    "jwt",
+    "bearer",
+    "session",
+    "payload",
+    "headers",
+    "body",
+    "providerresponse",
+    "requestbody",
+    "responsebody",
+    "data",
+  ].some((secretName) => normalized.includes(secretName));
+}
+
+function isUnsafeBlockerDetailText(value: string): boolean {
+  return JWT_LIKE_DETAIL_PATTERN.test(value.trim()) || BARE_BEARER_DETAIL_PATTERN.test(value.trim());
+}
+
+function sortIntegrationBlockers(blockers: IntegrationReadinessBlocker[]): IntegrationReadinessBlocker[] {
+  const severityOrder: Record<IntegrationReadinessBlocker["severity"], number> = {
+    blocking: 0,
+    manual_action: 1,
+    warning: 2,
+    info: 3,
+  };
+  const categoryOrder: Record<IntegrationReadinessBlocker["category"], number> = {
+    queue_acceptance: 0,
+    approval: 1,
+    configuration: 2,
+    policy: 3,
+    execution: 4,
+    safety: 5,
+  };
+
+  return [...blockers].sort((left, right) => {
+    const severityDelta = severityOrder[left.severity] - severityOrder[right.severity];
+    if (severityDelta !== 0) return severityDelta;
+
+    const queueDelta = queueBlockRank(left) - queueBlockRank(right);
+    if (queueDelta !== 0) return queueDelta;
+
+    const categoryDelta = categoryOrder[left.category] - categoryOrder[right.category];
+    if (categoryDelta !== 0) return categoryDelta;
+
+    return left.key.localeCompare(right.key);
+  });
+}
+
+function queueBlockRank(blocker: IntegrationReadinessBlocker): number {
+  return blocker.blocks.includes("queue") ? 0 : 1;
+}
+
 export function buildRealResult<TName extends IntegrationName, TOutputs extends object>(
   integrationDefinition: IntegrationDefinition<TName>,
   input: { env?: IntegrationEnv; now?: string | (() => string) },
@@ -104,6 +421,7 @@ export function buildRealResult<TName extends IntegrationName, TOutputs extends 
     safeToRun?: boolean;
     logs?: string[];
     errors?: string[];
+    blockers?: IntegrationReadinessBlocker[];
   },
 ): IntegrationRealResult<TName, TOutputs> {
   const env = input.env ?? {};
@@ -113,6 +431,18 @@ export function buildRealResult<TName extends IntegrationName, TOutputs extends 
   const realEnabled = isRealEnabled(integrationDefinition, env);
   const safeToRun = fields.safeToRun ?? fields.decision === "succeeded";
   const realNetworkCall = fields.realNetworkCall ?? false;
+  let blockers = sanitizeIntegrationBlockers(fields.blockers ?? integrationBlockersFromResult({
+    integrationName: integrationDefinition.name,
+    decision: fields.decision,
+    message: fields.message,
+    missingEnv,
+    outputs: fields.outputs,
+    safeToRun,
+  }), env);
+  if ((fields.decision !== "succeeded" || safeToRun === false) && blockers.length === 0) {
+    blockers = sanitizeIntegrationBlockers([unclassifiedIntegrationBlocker(integrationDefinition.name, fields.message)], env);
+  }
+  blockers = sortIntegrationBlockers(blockers);
   const status: IntegrationRealStatus<TName> = {
     name: integrationDefinition.name,
     externalName: integrationDefinition.externalName,
@@ -137,6 +467,7 @@ export function buildRealResult<TName extends IntegrationName, TOutputs extends 
     configured,
     missingEnv,
     safeToRun,
+    blockers,
     message: fields.message,
     decision: fields.decision,
     status,
@@ -162,14 +493,52 @@ export function disabledRealResult<TName extends IntegrationName, TOutputs exten
   });
 }
 
+type ManualActionBlockerReason = "missing_transport" | "network_gate_disabled" | "missing_transport_and_network_gate" | "operation_gate_disabled";
+
+function inferTransportGateReason(input: { transport?: unknown; gates?: { allowNetwork?: boolean } }): ManualActionBlockerReason {
+  const missingTransport = !input.transport;
+  const networkGateDisabled = input.gates?.allowNetwork !== true;
+
+  if (missingTransport && networkGateDisabled) {
+    return "missing_transport_and_network_gate";
+  }
+
+  if (missingTransport) {
+    return "missing_transport";
+  }
+
+  if (networkGateDisabled) {
+    return "network_gate_disabled";
+  }
+
+  return "missing_transport_and_network_gate";
+}
+
+function manualActionBlockerMessage<TName extends IntegrationName>(
+  integrationDefinition: IntegrationDefinition<TName>,
+  reason: ManualActionBlockerReason,
+): string {
+  switch (reason) {
+    case "missing_transport":
+      return `Manual action required: ${integrationDefinition.externalName} real mode needs an injected transport; no network call was made.`;
+    case "network_gate_disabled":
+      return `Manual action required: ${integrationDefinition.externalName} real mode needs gates.allowNetwork=true; no network call was made.`;
+    case "operation_gate_disabled":
+      return `Manual action required: ${integrationDefinition.externalName} real mode needs an explicit operation gate; no network call was made.`;
+    case "missing_transport_and_network_gate":
+      return `Manual action required: ${integrationDefinition.externalName} real mode needs an injected transport and gates.allowNetwork=true; no network call was made.`;
+  }
+}
+
 export function missingTransportResult<TName extends IntegrationName, TOutputs extends object>(
   integrationDefinition: IntegrationDefinition<TName>,
-  input: { env?: IntegrationEnv; now?: string | (() => string) },
+  input: { env?: IntegrationEnv; now?: string | (() => string); transport?: unknown; gates?: { allowNetwork?: boolean } },
   outputs: TOutputs,
+  options: { reason?: ManualActionBlockerReason } = {},
 ): IntegrationRealResult<TName, TOutputs> {
   return buildRealResult(integrationDefinition, input, {
     decision: "manual_action",
-    message: `Manual action required: ${integrationDefinition.externalName} real mode needs an injected transport and allowNetwork gate; no network call was made.`,
+    message: manualActionBlockerMessage(integrationDefinition, options.reason ?? inferTransportGateReason(input)),
     outputs,
     safeToRun: false,
   });
@@ -260,7 +629,12 @@ export async function runGitHubReal(input: GitHubRealInput = {}): Promise<GitHub
   }
 
   if (!input.transport || input.gates?.allowNetwork !== true) {
-    manualActions.push("Inject a transport and set gates.allowNetwork=true before any GitHub request.");
+    if (!input.transport) {
+      manualActions.push("Inject a transport before any GitHub request.");
+    }
+    if (input.gates?.allowNetwork !== true) {
+      manualActions.push("Set gates.allowNetwork=true before any GitHub request.");
+    }
     return missingTransportResult(definition, input, initialOutputs);
   }
 
@@ -277,7 +651,7 @@ export async function runGitHubReal(input: GitHubRealInput = {}): Promise<GitHub
 
   if (input.gates.allowPushBranch !== true && input.gates.allowCreatePullRequest !== true) {
     manualActions.push("Set an explicit GitHub operation gate such as allowPushBranch or allowCreatePullRequest.");
-    return missingTransportResult(definition, input, initialOutputs);
+    return missingTransportResult(definition, input, initialOutputs, { reason: "operation_gate_disabled" });
   }
 
   const owner = env.GITHUB_OWNER as string;

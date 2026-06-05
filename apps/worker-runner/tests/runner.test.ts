@@ -16,6 +16,7 @@ import { createInMemoryMissionStorage } from "@psf/orchestrator-api/storage";
 import { runDeterministicPlaywrightQa, type DeterministicQaInput } from "@psf/qa-worker";
 import type { CodexExecutionRequest } from "@psf/codex-worker";
 import { createDefaultJobHandler } from "../src/handlers.js";
+import { githubResultBlockers, integrationResultBlockers } from "../src/readiness-blockers.js";
 import { processWorkerJob } from "../src/runner.js";
 
 describe("worker runner", () => {
@@ -952,6 +953,73 @@ describe("worker runner", () => {
     );
   }, 15_000);
 
+
+  it("carries canonical blockers from generic real integration handler to wrapper output", async () => {
+    const storage = createInMemoryMissionStorage({
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "deploy.coolify", "job-real")],
+    });
+    const job = buildWorkerJob({
+      id: "job-real",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "deploy.coolify",
+      mode: "real",
+      payload: { deployment: { project: "psf", environment: "staging" } },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd()),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(wrapper.output).toMatchObject({
+      canQueue: true,
+      canExecute: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          category: "configuration",
+          key: "configuration.env.COOLIFY_BASE_URL.missing",
+          blocks: ["execute"],
+          source: "integration",
+        }),
+      ]),
+    });
+    const blockerKeys = (wrapper.output.blockers as Array<{ key: string }>).map((blocker) => blocker.key);
+    expect(blockerKeys).toContain("configuration.env.COOLIFY_BASE_URL.missing");
+    expect(blockerKeys).not.toContain("execution.integration.injected_transport_missing");
+    const events = await storage.listMissionEvents("mission-real");
+    const actionResult = events.find((event) => event.type === "mission.action_result");
+    expect(actionResult?.payload).toMatchObject({
+      canQueue: true,
+      canExecute: false,
+      blockers: expect.arrayContaining([expect.objectContaining({ key: "configuration.env.COOLIFY_BASE_URL.missing", blocks: ["execute"] })]),
+    });
+  });
+
+  it("maps unsafe generic integration result without blockers to an unclassified execution blocker", () => {
+    const result = {
+      name: "coolify",
+      externalName: "Coolify",
+      safeToRun: false,
+      message: "Coolify adapter result requires manual inspection before execution is considered safe.",
+      blockers: [],
+    };
+
+    const blockers = integrationResultBlockers(result);
+
+    expect(blockers).toEqual([expect.objectContaining({
+      category: "execution",
+      key: "execution.integration.unclassified_execution_blocker",
+      blocks: ["execute"],
+      source: "integration",
+      details: { provider: "coolify" },
+    })]);
+  });
+
   it("persists codex.real child resources and records wrapper status and reason", async () => {
     const storage = createInMemoryMissionStorage({
       missions: [mission("mission-real", MissionStatus.fixing)],
@@ -1189,7 +1257,26 @@ describe("worker runner", () => {
       status: "manual_action",
       manualActionRequired: true,
     });
+    expect(wrapper.output).toMatchObject({
+      recommendedNextAction: "Inject an approved local Codex runner or handle this action manually.",
+      canQueue: true,
+      canExecute: false,
+      blockers: [expect.objectContaining({
+        category: "execution",
+        key: "execution.codex.injected_runner_missing",
+        severity: "manual_action",
+        blocks: ["execute"],
+        source: "worker_runner",
+      })],
+    });
     expect(String(wrapper.output.reason)).toContain("requires an injected Codex runner");
+    const events = await storage.listMissionEvents("mission-real");
+    const actionResult = events.find((event) => event.type === "mission.action_result");
+    expect(actionResult?.payload).toMatchObject({
+      canQueue: true,
+      canExecute: false,
+      blockers: [expect.objectContaining({ key: "execution.codex.injected_runner_missing", blocks: ["execute"] })],
+    });
     await expect(storage.getMission("mission-real")).resolves.toMatchObject({ status: MissionStatus.fixing });
   });
 
@@ -1258,9 +1345,31 @@ describe("worker runner", () => {
       now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
     });
 
-    expect(wrapper.output).toMatchObject({ status, reason, summary: reason });
+    expect(wrapper.output).toMatchObject({
+      status,
+      reason,
+      summary: reason,
+      recommendedNextAction: "Inspect Codex worker output and Worker Runner logs before retrying.",
+      canQueue: true,
+      canExecute: false,
+      blockers: [expect.objectContaining({
+        key: "execution.codex.unclassified_execution_blocker",
+        blocks: ["execute"],
+        source: "worker_runner",
+      })],
+    });
+    expect(wrapper.output).not.toMatchObject({
+      blockers: expect.arrayContaining([expect.objectContaining({ key: "execution.codex.injected_runner_missing" })]),
+    });
     await expect(storage.getMission("mission-real")).resolves.toMatchObject({ status: MissionStatus.fixing });
-    expect(await storage.listMissionEvents("mission-real")).not.toEqual(expect.arrayContaining([
+    const events = await storage.listMissionEvents("mission-real");
+    const actionResult = events.find((event) => event.type === "mission.action_result");
+    expect(actionResult?.payload).toMatchObject({
+      canQueue: true,
+      canExecute: false,
+      blockers: [expect.objectContaining({ key: "execution.codex.unclassified_execution_blocker", blocks: ["execute"] })],
+    });
+    expect(events).not.toEqual(expect.arrayContaining([
       expect.objectContaining({
         type: "mission.status.auto_transition",
         payload: expect.objectContaining({ to: MissionStatus.ready_for_review }),
@@ -1406,12 +1515,241 @@ describe("worker runner", () => {
       childWorkerRunIds: ["worker-run-mission-real-github-pr"],
       childArtifactIds: ["artifact-mission-real-github-pr-preview"],
     });
+    expect(wrapper.output).toMatchObject({
+      recommendedNextAction: "Configure GITHUB_OWNER for github or keep the adapter in manual-action mode.",
+      canQueue: true,
+      canExecute: false,
+      blockers: expect.arrayContaining([expect.objectContaining({
+        category: "configuration",
+        key: "configuration.env.GITHUB_OWNER.missing",
+        blocks: ["execute"],
+        source: "integration",
+      })]),
+    });
+    const githubBlockerKeys = (wrapper.output.blockers as Array<{ key: string }>).map((blocker) => blocker.key);
+    expect(githubBlockerKeys).toEqual([
+      "configuration.env.GITHUB_OWNER.missing",
+      "configuration.env.GITHUB_REPO.missing",
+      "configuration.env.GITHUB_TOKEN.missing",
+      "execution.integration.manual_action",
+    ]);
+    expect(githubBlockerKeys).not.toContain("configuration.env.github.missing_or_disabled");
     await expect(storage.getArtifact("artifact-mission-real-github-pr-preview")).resolves.toMatchObject({
       type: "technical_notes",
       path: "missions/mission-real/github-pr-preview.md",
       content: expect.stringContaining("Preview only"),
     });
     expect(JSON.stringify(await storage.getArtifact("artifact-mission-real-github-pr-preview"))).not.toContain("secret-value");
+    const events = await storage.listMissionEvents("mission-real");
+    const actionResult = events.find((event) => event.type === "mission.action_result");
+    expect(actionResult?.payload).toMatchObject({
+      canQueue: true,
+      canExecute: false,
+      blockers: expect.arrayContaining([expect.objectContaining({ key: "configuration.env.GITHUB_OWNER.missing", blocks: ["execute"] })]),
+    });
+  });
+
+  it("preserves canonical github.pr network gate blockers from integration result", async () => {
+    const storage = createInMemoryMissionStorage({
+      missions: [mission("mission-real", MissionStatus.ready_for_review)],
+      workerRuns: [wrapperRun("worker-run-wrapper", "mission-real", "github.pr", "job-github-pr")],
+    });
+    const calls: string[] = [];
+    const job = buildWorkerJob({
+      id: "job-github-pr",
+      missionId: "mission-real",
+      projectId: "ai-novelist",
+      workerRunId: "worker-run-wrapper",
+      type: "github.pr",
+      mode: "real",
+      payload: {
+        mission: { missionId: "mission-real", missionTitle: "Review chapter flow", branchName: "agent/mission-real", project: "ai-novelist" },
+        operationGates: { allowNetwork: false, allowPushBranch: false, allowCreatePullRequest: false },
+      },
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const wrapper = await processWorkerJob({
+      job,
+      storage,
+      handler: createDefaultJobHandler(process.cwd(), {
+        githubEnv: {
+          ENABLE_REAL_GITHUB: "1",
+          GITHUB_TOKEN: "ghp_worker_runner_secret",
+          GITHUB_OWNER: "hxfei-git",
+          GITHUB_REPO: "personal-software-factory",
+        },
+        githubTransport: async (request) => {
+          calls.push(request.url);
+          return { status: 500, json: { message: "transport should remain unused" } };
+        },
+      }),
+      now: sequenceNow(["2026-05-31T00:01:00.000Z", "2026-05-31T00:02:00.000Z"]),
+    });
+
+    expect(calls).toEqual([]);
+    expect(wrapper.output).toMatchObject({
+      canQueue: true,
+      canExecute: false,
+      blockers: [expect.objectContaining({
+        category: "policy",
+        key: "policy.integration.network_gate_disabled",
+        blocks: ["execute"],
+        source: "integration",
+        details: { provider: "github" },
+      })],
+    });
+    const blockerKeys = (wrapper.output.blockers as Array<{ key: string }>).map((blocker) => blocker.key);
+    expect(blockerKeys).toEqual(["policy.integration.network_gate_disabled"]);
+    expect(blockerKeys).not.toContain("execution.integration.injected_transport_missing");
+    expect(JSON.stringify(wrapper)).not.toContain("ghp_worker_runner_secret");
+  });
+
+  it("maps unknown github.pr manual-action output to an unclassified execution blocker", () => {
+    const blockers = githubResultBlockers({
+      name: "github",
+      externalName: "GitHub",
+      mode: "real",
+      realEnabled: true,
+      realNetworkCall: false,
+      configured: true,
+      missingEnv: [],
+      safeToRun: false,
+      message: "Manual action required: adapter returned a review-only stop.",
+      decision: "manual_action",
+      status: {
+        name: "github",
+        externalName: "GitHub",
+        mode: "real",
+        enabled: true,
+        configured: true,
+        healthy: false,
+        realEnabled: true,
+        realNetworkCall: false,
+        safeToRun: false,
+        requiredEnv: [],
+        missingEnv: [],
+        lastCheckedAt: "2026-05-31T00:00:00.000Z",
+        message: "Manual action required: adapter returned a review-only stop.",
+      },
+      outputs: {
+        branchName: "agent/mission-real",
+        baseBranch: "main",
+        requests: [],
+        manualActions: ["Review adapter output before retrying."],
+      },
+      logs: [],
+      errors: [],
+      blockers: [],
+      createdAt: "2026-05-31T00:00:00.000Z",
+    } as Parameters<typeof githubResultBlockers>[0]);
+
+    expect(blockers).toEqual([
+      expect.objectContaining({
+        category: "execution",
+        key: "execution.integration.unclassified_execution_blocker",
+        blocks: ["execute"],
+        source: "integration",
+      }),
+    ]);
+    const keys = blockers.map((blocker) => blocker.key);
+    expect(keys).not.toContain("execution.integration.injected_transport_missing");
+    expect(keys).not.toContain("policy.integration.operation_gate_disabled");
+  });
+
+  it("maps legacy unsafe github.pr success without blockers to an unclassified execution blocker", () => {
+    const blockers = githubResultBlockers({
+      name: "github",
+      externalName: "GitHub",
+      mode: "real",
+      realEnabled: true,
+      realNetworkCall: false,
+      configured: true,
+      missingEnv: [],
+      safeToRun: false,
+      message: "GitHub adapter result requires manual inspection before execution is considered safe.",
+      decision: "succeeded",
+      status: {
+        name: "github",
+        externalName: "GitHub",
+        mode: "real",
+        enabled: true,
+        configured: true,
+        healthy: true,
+        realEnabled: true,
+        realNetworkCall: false,
+        safeToRun: false,
+        requiredEnv: [],
+        missingEnv: [],
+        lastCheckedAt: "2026-05-31T00:00:00.000Z",
+        message: "GitHub adapter result requires manual inspection before execution is considered safe.",
+      },
+      outputs: {
+        branchName: "agent/mission-real",
+        baseBranch: "main",
+        requests: [],
+        manualActions: [],
+      },
+      logs: [],
+      errors: [],
+      blockers: [],
+      createdAt: "2026-05-31T00:00:00.000Z",
+    } as Parameters<typeof githubResultBlockers>[0]);
+
+    expect(blockers).toEqual([expect.objectContaining({
+      category: "execution",
+      key: "execution.integration.unclassified_execution_blocker",
+      blocks: ["execute"],
+      source: "integration",
+    })]);
+  });
+
+  it("maps legacy github.pr allowNetwork manual action to a network gate blocker", () => {
+    const blockers = githubResultBlockers({
+      name: "github",
+      externalName: "GitHub",
+      mode: "real",
+      realEnabled: true,
+      realNetworkCall: false,
+      configured: true,
+      missingEnv: [],
+      safeToRun: false,
+      message: "Manual action required: github real mode needs gates.allowNetwork=true; no network call was made.",
+      decision: "manual_action",
+      status: {
+        name: "github",
+        externalName: "GitHub",
+        mode: "real",
+        enabled: true,
+        configured: true,
+        healthy: false,
+        realEnabled: true,
+        realNetworkCall: false,
+        safeToRun: false,
+        requiredEnv: [],
+        missingEnv: [],
+        lastCheckedAt: "2026-05-31T00:00:00.000Z",
+        message: "Manual action required: github real mode needs gates.allowNetwork=true; no network call was made.",
+      },
+      outputs: {
+        branchName: "agent/mission-real",
+        baseBranch: "main",
+        requests: [],
+        manualActions: ["Set gates.allowNetwork=true before any GitHub request."],
+      },
+      logs: [],
+      errors: [],
+      blockers: [],
+      createdAt: "2026-05-31T00:00:00.000Z",
+    } as Parameters<typeof githubResultBlockers>[0]);
+
+    expect(blockers).toEqual([expect.objectContaining({
+      category: "policy",
+      key: "policy.integration.network_gate_disabled",
+      blocks: ["execute"],
+      source: "integration",
+    })]);
+    expect(blockers.map((blocker) => blocker.key)).not.toContain("execution.integration.injected_transport_missing");
   });
 
   it("persists github.pr fake transport success with PR URL without exposing tokens", async () => {

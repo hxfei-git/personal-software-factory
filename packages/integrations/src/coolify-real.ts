@@ -97,7 +97,12 @@ export async function runCoolifyReal(input: CoolifyRealInput = {}): Promise<Cool
   }
 
   if (!input.transport || input.gates?.allowNetwork !== true) {
-    manualActions.push("Inject a transport and set gates.allowNetwork=true before any Coolify request.");
+    if (!input.transport) {
+      manualActions.push("Inject a transport before any Coolify request.");
+    }
+    if (input.gates?.allowNetwork !== true) {
+      manualActions.push("Set gates.allowNetwork=true before any Coolify request.");
+    }
     return missingTransportResult(definition, input, outputs);
   }
 
