@@ -1,6 +1,6 @@
 import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   buildA1ManualActionResult,
@@ -118,6 +118,65 @@ describe("A1 ai-novelist proof contract", () => {
     expect(result.blockers[0]?.key).toBe("mirror.path_unexpected");
     expect(calls.gitSnapshot).toBe(0);
     expect(calls.cloneLocalRepo).toBe(0);
+  });
+
+  test("blocks backslash mirror paths before clone or target observation", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-a1-backslash-mirror-path-"));
+    const calls = proofCalls();
+
+    const result = await runA1AiNovelistProof({
+      cwd,
+      sourcePath: "/home/ubuntu/1.project/ai-novelist",
+      mirrorPath: "workspaces\\mirrors\\ai-novelist",
+      provider: "deepseek",
+      webCommandConfirmed: true,
+      targetUrl: "http://127.0.0.1:8000/api/projects",
+    }, fakeDeps({ deepseekConfigured: true, calls }));
+
+    expect(result.status).toBe("blocked");
+    expect(result.blockers[0]?.key).toBe("mirror.path_unexpected");
+    expect(calls.cloneLocalRepo).toBe(0);
+    expect(calls.startWeb).toBe(0);
+    expect(calls.observeTarget).toBe(0);
+  });
+
+  test("clones missing mirror into the exact resolved A1 mirror path", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-a1-clone-target-"));
+    const calls = proofCalls();
+
+    const result = await runA1AiNovelistProof({
+      cwd,
+      sourcePath: "/home/ubuntu/1.project/ai-novelist",
+      mirrorPath: "workspaces/mirrors/ai-novelist",
+      provider: "deepseek",
+      webCommandConfirmed: true,
+      targetUrl: "http://127.0.0.1:8000/api/projects",
+    }, fakeDeps({ calls, deepseekConfigured: true, mirrorExists: false }));
+
+    expect(result.blockers[0]?.key).toBe("target.web_lifecycle_required");
+    expect(calls.cloneLocalRepo).toBe(1);
+    expect(calls.cloneMirrorPaths).toEqual([resolve(cwd, "workspaces", "mirrors", "ai-novelist")]);
+  });
+
+  test("blocks when cloned mirror is not the expected ai-novelist repo before mirror snapshot", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-a1-cloned-wrong-mirror-"));
+    const calls = proofCalls();
+
+    const result = await runA1AiNovelistProof({
+      cwd,
+      sourcePath: "/home/ubuntu/1.project/ai-novelist",
+      mirrorPath: "workspaces/mirrors/ai-novelist",
+      provider: "deepseek",
+      webCommandConfirmed: true,
+      targetUrl: "http://127.0.0.1:8000/api/projects",
+    }, fakeDeps({ calls, deepseekConfigured: true, mirrorExists: false, mirrorExpected: false }));
+
+    expect(result.status).toBe("blocked");
+    expect(result.blockers[0]?.key).toBe("mirror.existing_path_unexpected");
+    expect(calls.cloneLocalRepo).toBe(1);
+    expect(calls.gitSnapshotPaths.some((snapshotPath) => normalizePath(snapshotPath).includes("/workspaces/mirrors/"))).toBe(false);
+    expect(calls.startWeb).toBe(0);
+    expect(calls.observeTarget).toBe(0);
   });
 
   test("blocks unexpected source path before git snapshot or clone", async () => {
@@ -266,7 +325,10 @@ describe("A1 ai-novelist proof contract", () => {
 
 interface ProofCalls {
   cloneLocalRepo: number;
+  cloneSourcePaths: string[];
+  cloneMirrorPaths: string[];
   gitSnapshot: number;
+  gitSnapshotPaths: string[];
   startWeb: number;
   observeTarget: number;
 }
@@ -274,7 +336,10 @@ interface ProofCalls {
 function proofCalls(): ProofCalls {
   return {
     cloneLocalRepo: 0,
+    cloneSourcePaths: [],
+    cloneMirrorPaths: [],
     gitSnapshot: 0,
+    gitSnapshotPaths: [],
     startWeb: 0,
     observeTarget: 0,
   };
@@ -293,14 +358,17 @@ function fakeDeps(overrides: Partial<{
   mirrorGit: { branch: string; head: string; statusShort: string };
 }> = {}): A1ProofDeps {
   const calls = overrides.calls;
+  let clonedMirrorPath: string | undefined;
   return {
     pathExists: async (path) => {
       const normalized = normalizePath(path);
       if (normalized === "/home/ubuntu/1.project/ai-novelist" || normalized.endsWith("/not-ai-novelist")) {
         return overrides.sourceExists ?? true;
       }
-      if (normalized.endsWith("/workspaces/mirrors/ai-novelist") && overrides.mirrorExists !== undefined) {
-        return overrides.mirrorExists;
+      if (normalized.endsWith("/workspaces/mirrors/ai-novelist")) {
+        if (overrides.mirrorExists !== undefined || clonedMirrorPath !== undefined) {
+          return overrides.mirrorExists ?? true;
+        }
       }
       try {
         await access(path);
@@ -315,7 +383,7 @@ function fakeDeps(overrides: Partial<{
         return overrides.sourceIsGitRepo ?? true;
       }
       if (normalized.endsWith("/workspaces/mirrors/ai-novelist")) {
-        return overrides.mirrorIsGitRepo ?? false;
+        return overrides.mirrorIsGitRepo ?? clonedMirrorPath !== undefined;
       }
       return false;
     },
@@ -329,11 +397,19 @@ function fakeDeps(overrides: Partial<{
       }
       return false;
     },
-    cloneLocalRepo: async () => {
-      if (calls) calls.cloneLocalRepo += 1;
+    cloneLocalRepo: async (sourcePath, mirrorPath) => {
+      clonedMirrorPath = mirrorPath;
+      if (calls) {
+        calls.cloneLocalRepo += 1;
+        calls.cloneSourcePaths.push(sourcePath);
+        calls.cloneMirrorPaths.push(mirrorPath);
+      }
     },
     gitSnapshot: async (path) => {
-      if (calls) calls.gitSnapshot += 1;
+      if (calls) {
+        calls.gitSnapshot += 1;
+        calls.gitSnapshotPaths.push(path);
+      }
       return normalizePath(path).includes("/workspaces/mirrors/")
         ? overrides.mirrorGit ?? { branch: "agent/a1-local-mirror-deepseek-proof", head: "def5678", statusShort: "" }
         : overrides.sourceGit ?? { branch: "main", head: "abc1234", statusShort: "" };

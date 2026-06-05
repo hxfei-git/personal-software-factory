@@ -159,6 +159,7 @@ export function buildA1ManualActionResult(input: { blocker: A1ProofBlocker; evid
 export async function runA1AiNovelistProof(input: A1ProofInput, deps: A1ProofDeps): Promise<A1ProofResult> {
   const cwd = resolve(input.cwd);
   const sourcePath = resolve(cwd, input.sourcePath);
+  const expectedMirrorPath = resolve(cwd, EXPECTED_A1_MIRROR_PATH);
   const mirrorPath = resolve(cwd, input.mirrorPath);
   const evidence: A1ProofEvidence = {
     createdAt: deps.now(),
@@ -170,7 +171,7 @@ export async function runA1AiNovelistProof(input: A1ProofInput, deps: A1ProofDep
     targetAppProviderCall: "not_observed",
   };
 
-  if (!isExpectedA1MirrorPathInput(input.mirrorPath)) {
+  if (!isExpectedA1MirrorPathInput(input.mirrorPath, mirrorPath, expectedMirrorPath)) {
     return withArtifact(cwd, deps, buildA1ProofResult({
       blockers: [blocker({
         category: "mirror",
@@ -241,25 +242,27 @@ export async function runA1AiNovelistProof(input: A1ProofInput, deps: A1ProofDep
   }
 
   const mirrorExists = await deps.pathExists(mirrorPath);
-  if (mirrorExists) {
-    const mirrorIsGitRepo = await deps.isGitRepo(mirrorPath);
-    const mirrorIsExpectedRepo = mirrorIsGitRepo ? await deps.isExpectedAiNovelistRepo(mirrorPath) : false;
-    if (!mirrorIsGitRepo || !mirrorIsExpectedRepo) {
-      return withArtifact(cwd, deps, buildA1ProofResult({
-        blockers: [blocker({
-          category: "mirror",
-          key: "mirror.existing_path_unexpected",
-          message: "Mirror path exists but is not the expected ai-novelist repo.",
-          recommendedNextAction: "Inspect workspaces/mirrors/ai-novelist and either remove it manually or point A1 at a verified mirror.",
-          severity: "blocking",
-          blocks: ["queue", "execute"],
-          details: { mirrorPath, mirrorIsGitRepo, mirrorIsExpectedRepo },
-        })],
-        evidence: sourceEvidence,
-      }));
-    }
-  } else {
+  let mirrorWasCloned = false;
+  if (!mirrorExists) {
     await deps.cloneLocalRepo(sourcePath, mirrorPath);
+    mirrorWasCloned = true;
+  }
+
+  const mirrorIsGitRepo = await deps.isGitRepo(mirrorPath);
+  const mirrorIsExpectedRepo = mirrorIsGitRepo ? await deps.isExpectedAiNovelistRepo(mirrorPath) : false;
+  if (!mirrorIsGitRepo || !mirrorIsExpectedRepo) {
+    return withArtifact(cwd, deps, buildA1ProofResult({
+      blockers: [blocker({
+        category: "mirror",
+        key: "mirror.existing_path_unexpected",
+        message: "Mirror path exists but is not the expected ai-novelist repo.",
+        recommendedNextAction: "Inspect workspaces/mirrors/ai-novelist and either remove it manually or point A1 at a verified mirror.",
+        severity: "blocking",
+        blocks: ["queue", "execute"],
+        details: { mirrorPath, mirrorIsGitRepo, mirrorIsExpectedRepo, mirrorWasCloned },
+      })],
+      evidence: sourceEvidence,
+    }));
   }
 
   const mirrorGit = await deps.gitSnapshot(mirrorPath);
@@ -278,8 +281,8 @@ export async function runA1AiNovelistProof(input: A1ProofInput, deps: A1ProofDep
   });
 }
 
-function isExpectedA1MirrorPathInput(mirrorPath: string): boolean {
-  return mirrorPath.split("\\").join("/") === EXPECTED_A1_MIRROR_PATH;
+function isExpectedA1MirrorPathInput(mirrorPath: string, resolvedMirrorPath: string, expectedMirrorPath: string): boolean {
+  return mirrorPath === EXPECTED_A1_MIRROR_PATH && resolvedMirrorPath === expectedMirrorPath;
 }
 
 function sourcePathUnexpectedResult(
