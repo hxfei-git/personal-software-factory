@@ -20,6 +20,12 @@ import {
   type DemoBoundary,
   type DemoWorkflowResult,
 } from "@psf/demo-workflow";
+import {
+  createDefaultA1ProofDeps,
+  runA1AiNovelistProof,
+  sanitizeA1Metadata,
+  type A1ProofDeps,
+} from "./a1-ai-novelist-proof";
 
 const DEFAULT_DATABASE_URL = "postgresql://psf:psf_dev_password@localhost:5432/psf?schema=public";
 const EXAMPLE_PROJECT_ID = "ai-novelist";
@@ -30,9 +36,13 @@ const EXAMPLE_SLUG = "ai-novelist-chapter-review";
 const EXAMPLE_BRANCH = `psf/${EXAMPLE_MISSION_ID}`;
 const MISSION_ID_PATTERN = /^mission-[a-z0-9][a-z0-9-]*$/;
 const CLI_INTEGRATION_PROVIDERS = ["github", "coolify", "uptime-kuma", "plane"] as const;
+const A1_PROOF_USAGE = "Usage: pnpm psf a1:ai-novelist-proof --confirm-web-command [--source <path>] [--mirror workspaces/mirrors/ai-novelist] [--target-url <url>] [--host <host>] [--port <port>] [--json] [--skip-db]";
+const DEFAULT_A1_SOURCE_PATH = "/home/ubuntu/1.project/ai-novelist";
+const DEFAULT_A1_MIRROR_PATH = "workspaces/mirrors/ai-novelist";
+const DEFAULT_A1_TARGET_URL = "http://127.0.0.1:8000/api/projects";
 type CliIntegrationProvider = (typeof CLI_INTEGRATION_PROVIDERS)[number];
 
-type CliCommand = "artifacts:cleanup" | "projects:sync" | "mission:create" | "mission:plan" | "codex:dry-run" | "qa:dry-run" | "qa:playwright" | "fix:dry-run" | "loop:dry-run" | "integrations:status" | "integrations:dry-run" | "queues:status" | "worker:start" | "worker:once" | "worker-runs:list" | "worker-runs:cancel" | "worker-runs:retry" | "doctor" | "demo:seed" | "demo:reset" | "demo:ai-novelist" | "demo:report";
+type CliCommand = "a1:ai-novelist-proof" | "artifacts:cleanup" | "projects:sync" | "mission:create" | "mission:plan" | "codex:dry-run" | "qa:dry-run" | "qa:playwright" | "fix:dry-run" | "loop:dry-run" | "integrations:status" | "integrations:dry-run" | "queues:status" | "worker:start" | "worker:once" | "worker-runs:list" | "worker-runs:cancel" | "worker-runs:retry" | "doctor" | "demo:seed" | "demo:reset" | "demo:ai-novelist" | "demo:report";
 
 type JsonObject = Record<string, unknown>;
 
@@ -41,6 +51,7 @@ interface PsfCliOptions {
   syncDatabase?: boolean;
   prisma?: PrismaLike;
   env?: NodeJS.ProcessEnv;
+  a1ProofDeps?: A1ProofDeps;
 }
 
 export interface PsfCliResult {
@@ -56,6 +67,7 @@ interface CliContext {
   env: NodeJS.ProcessEnv;
   stdout: string[];
   stderr: string[];
+  a1ProofDeps?: A1ProofDeps;
 }
 
 interface MissionMetadata {
@@ -114,10 +126,16 @@ export async function runPsfCli(argv: string[], options: PsfCliOptions = {}): Pr
   if (options.prisma) {
     context.prisma = options.prisma;
   }
+  if (options.a1ProofDeps) {
+    context.a1ProofDeps = options.a1ProofDeps;
+  }
 
   try {
     const [command, ...args] = argv;
     switch (command as CliCommand | undefined) {
+      case "a1:ai-novelist-proof":
+        await a1AiNovelistProofCommand(context, args);
+        break;
       case "artifacts:cleanup":
         await artifactsCleanupCommand(context, args);
         break;
@@ -194,6 +212,64 @@ export async function runPsfCli(argv: string[], options: PsfCliOptions = {}): Pr
     context.stderr.push(formatError(error));
     return formatResult(exitCode, context);
   }
+}
+
+async function a1AiNovelistProofCommand(context: CliContext, args: string[]): Promise<void> {
+  const parsed = parseValueFlags(
+    args,
+    new Set(["--confirm-web-command", "--json", "--skip-db"]),
+    new Set(["--source", "--mirror", "--target-url", "--host", "--port"]),
+    A1_PROOF_USAGE,
+  );
+
+  if (!parsed.flags.has("--confirm-web-command")) {
+    throw new PsfCliError("USAGE", A1_PROOF_USAGE);
+  }
+
+  const sourcePath = parsed.values.get("--source") ?? DEFAULT_A1_SOURCE_PATH;
+  const mirrorPath = parsed.values.get("--mirror") ?? DEFAULT_A1_MIRROR_PATH;
+  const targetUrl = parsed.values.get("--target-url") ?? DEFAULT_A1_TARGET_URL;
+  const host = parsed.values.get("--host") ?? "127.0.0.1";
+  const port = parseA1Port(parsed.values.get("--port") ?? "8000");
+  const deps = context.a1ProofDeps ?? createDefaultA1ProofDeps(context.env);
+
+  const result = await runA1AiNovelistProof({
+    cwd: context.cwd,
+    sourcePath,
+    mirrorPath,
+    provider: "deepseek",
+    webCommandConfirmed: true,
+    targetUrl,
+    host,
+    port,
+  }, deps);
+  const sanitized = sanitizeA1Metadata(result);
+
+  if (parsed.flags.has("--json")) {
+    context.stdout.push(JSON.stringify(sanitized, null, 2));
+    return;
+  }
+
+  context.stdout.push(...formatA1ProofLines(sanitized));
+}
+
+function parseA1Port(value: string): number {
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new PsfCliError("USAGE", A1_PROOF_USAGE);
+  }
+  return port;
+}
+
+function formatA1ProofLines(result: Awaited<ReturnType<typeof runA1AiNovelistProof>>): string[] {
+  return [
+    "A1 ai-novelist proof status: " + result.status,
+    "canQueue=" + result.canQueue + " canExecute=" + result.canExecute,
+    "realNetworkCall=" + result.realNetworkCall + " realExternalCall=" + result.realExternalCall + " realPush=" + result.realPush + " realDeploy=" + result.realDeploy,
+    "targetProvider=" + (result.evidence.targetProvider ?? "unknown") + " targetAppProviderCall=" + (result.evidence.targetAppProviderCall ?? "unknown"),
+    "artifact=" + (result.evidence.artifactPath ?? "not_written"),
+    "nextAction=" + result.recommendedNextAction,
+  ];
 }
 
 function integrationsStatusCommand(context: CliContext, args: string[]): void {
@@ -1153,6 +1229,39 @@ function renderCodexCommandReviewArtifact(command: string): string {
   ].join("\n");
 }
 
+interface ParsedValueFlags {
+  flags: Set<string>;
+  values: Map<string, string>;
+}
+
+function parseValueFlags(
+  args: string[],
+  allowedBooleans: ReadonlySet<string>,
+  allowedValues: ReadonlySet<string>,
+  usageText: string,
+): ParsedValueFlags {
+  const flags = new Set<string>();
+  const values = new Map<string, string>();
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] ?? "";
+    if (allowedBooleans.has(arg)) {
+      flags.add(arg);
+      continue;
+    }
+    if (allowedValues.has(arg)) {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) {
+        throw new PsfCliError("USAGE", usageText);
+      }
+      values.set(arg, value);
+      index += 1;
+      continue;
+    }
+    throw new PsfCliError("USAGE", usageText);
+  }
+  return { flags, values };
+}
+
 function parseFlags(args: string[], allowed: ReadonlySet<string>, usageText: string): Set<string> {
   const flags = new Set<string>();
   for (const arg of args) {
@@ -1268,6 +1377,7 @@ function usage(): string {
     `  pnpm psf qa:dry-run ${EXAMPLE_MISSION_ID} --with-sample-bug`,
     `  pnpm psf fix:dry-run ${EXAMPLE_MISSION_ID}`,
     `  pnpm psf loop:dry-run ${EXAMPLE_MISSION_ID} --with-sample-bug`,
+    "  pnpm psf a1:ai-novelist-proof --confirm-web-command [--source <path>] [--target-url <url>] [--json] [--skip-db]",
     "  pnpm psf artifacts:cleanup --dry-run",
     "  pnpm psf integrations:status",
     "  pnpm psf integrations:dry-run github|coolify|uptime-kuma|plane",

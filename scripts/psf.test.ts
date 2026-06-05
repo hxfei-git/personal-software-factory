@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, test } from "vitest";
+import type { A1ProofDeps } from "./a1-ai-novelist-proof";
 import { runPsfCli } from "./psf";
 
 const execFileAsync = promisify(execFile);
@@ -386,6 +387,58 @@ describe("psf CLI", () => {
     expect(await readFile(join(cwd, "docs", "reports", "demo-ai-novelist-report.md"), "utf8")).toContain("AI Novelist Demo Acceptance Report");
   });
 
+  test("a1 proof command requires explicit operator confirmation", async () => {
+    const cwd = await createExampleWorkspace("psf-cli-a1-usage-");
+    const result = await runPsfCli(["a1:ai-novelist-proof", "--skip-db"], { cwd, syncDatabase: false });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Usage: pnpm psf a1:ai-novelist-proof");
+    expect(result.stderr).toContain("--confirm-web-command");
+  });
+
+  test("a1 proof command redacts DeepSeek key and keeps PSF safety flags false", async () => {
+    const cwd = await createExampleWorkspace("psf-cli-a1-redaction-");
+    const secret = "sk-deepseek-cli-secret";
+    const a1ProofDeps = createFakeA1ProofDepsForCli();
+
+    const result = await runPsfCli([
+      "a1:ai-novelist-proof",
+      "--confirm-web-command",
+      "--source", "/home/ubuntu/1.project/ai-novelist",
+      "--target-url", "http://127.0.0.1:8000/api/projects",
+      "--json",
+      "--skip-db",
+    ], {
+      cwd,
+      syncDatabase: false,
+      env: { ...process.env, DEEPSEEK_API_KEY: secret },
+      a1ProofDeps,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain(secret);
+    expect(result.stderr).not.toContain(secret);
+    expect(result.stdout).toContain('"realNetworkCall": false');
+    expect(result.stdout).toContain('"realExternalCall": false');
+    expect(result.stdout).toContain('"realPush": false');
+    expect(result.stdout).toContain('"realDeploy": false');
+    expect(result.stdout).toContain('"targetProvider": "deepseek"');
+  });
+
+  test("a1 proof command does not construct default deps without operator confirmation", async () => {
+    const cwd = await createExampleWorkspace("psf-cli-a1-no-confirm-");
+    const a1ProofDeps = createThrowingA1ProofDeps();
+
+    const result = await runPsfCli(["a1:ai-novelist-proof", "--source", "/home/ubuntu/1.project/ai-novelist", "--target-url", "http://127.0.0.1:8000/api/projects", "--skip-db"], {
+      cwd,
+      syncDatabase: false,
+      a1ProofDeps,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("--confirm-web-command");
+  });
+
   test("mission commands reject unsafe mission ids", async () => {
     const cwd = await createExampleWorkspace("psf-cli-path-");
 
@@ -485,5 +538,47 @@ function createPrismaStub(missionUpdates: Array<Record<string, unknown>>) {
     missionEvent: { upsert },
     qARun: { upsert },
     bug: { upsert },
+  };
+}
+
+function createFakeA1ProofDepsForCli(): A1ProofDeps {
+  return {
+    pathExists: async () => true,
+    isGitRepo: async () => true,
+    isExpectedAiNovelistRepo: async () => true,
+    cloneLocalRepo: async () => {
+      throw new Error("Fake A1 CLI deps must not clone a mirror.");
+    },
+    gitSnapshot: async (path) => ({
+      branch: path.includes("mirrors/ai-novelist") ? "agent/a1-local-mirror-deepseek-proof" : "feature/a1-source",
+      head: "abc1234",
+      statusShort: "",
+    }),
+    deepseekConfigured: () => true,
+    startWeb: async () => ({ pid: 4242 }),
+    observeTarget: async () => ({ httpStatus: 200, responseType: "application/json" }),
+    stopWeb: async () => true,
+    writeArtifact: async () => "artifacts/a1/ai-novelist-local-mirror-deepseek-proof.json",
+    now: () => "2026-06-05T00:00:00.000Z",
+  };
+}
+
+function createThrowingA1ProofDeps(): A1ProofDeps {
+  const fail = (): never => {
+    throw new Error("A1 proof deps should not be used without confirmation.");
+  };
+
+  return {
+    pathExists: async () => fail(),
+    isGitRepo: async () => fail(),
+    isExpectedAiNovelistRepo: async () => fail(),
+    cloneLocalRepo: async () => fail(),
+    gitSnapshot: async () => fail(),
+    deepseekConfigured: () => fail(),
+    startWeb: async () => fail(),
+    observeTarget: async () => fail(),
+    stopWeb: async () => fail(),
+    writeArtifact: async () => fail(),
+    now: () => fail(),
   };
 }
