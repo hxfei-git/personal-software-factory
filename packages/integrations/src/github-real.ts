@@ -251,15 +251,43 @@ function sanitizeIntegrationBlockers(blockers: IntegrationReadinessBlocker[], en
   });
 }
 
+const SAFE_BLOCKER_DETAIL_KEYS = new Set([
+  "provider",
+  "envName",
+  "gate",
+  "operation",
+  "evidence",
+  "action",
+  "resourceId",
+  "jobType",
+  "realPush",
+  "status",
+  "statusCode",
+  "resourceType",
+]);
+
+const JWT_LIKE_DETAIL_PATTERN = /^[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$/;
+const BARE_BEARER_DETAIL_PATTERN = /^Bearer\s+\S+/i;
+
 function sanitizeBlockerDetails(details: Record<string, unknown> | undefined, env: IntegrationEnv): Record<string, unknown> | undefined {
   if (!details) return undefined;
-  const sanitized = sanitizeBlockerDetailValue(details, env);
-  if (!sanitized || typeof sanitized !== "object" || Array.isArray(sanitized)) return undefined;
-  return sanitized as Record<string, unknown>;
+  const sanitized = Object.fromEntries(
+    Object.entries(details)
+      .filter(([, entry]) => entry !== undefined)
+      .map(([key, entry]) => [
+        key,
+        isSafeBlockerDetailName(key) ? sanitizeBlockerDetailValue(entry, env) : REDACTED,
+      ]),
+  );
+  return Object.keys(sanitized).length > 0 ? sanitized : undefined;
 }
 
 function sanitizeBlockerDetailValue(value: unknown, env: IntegrationEnv): unknown {
   const redacted = redactValue(value, env);
+
+  if (typeof redacted === "string") {
+    return isUnsafeBlockerDetailText(redacted) ? REDACTED : redacted;
+  }
 
   if (Array.isArray(redacted)) {
     return redacted.map((entry) => sanitizeBlockerDetailValue(entry, env));
@@ -279,9 +307,28 @@ function sanitizeBlockerDetailValue(value: unknown, env: IntegrationEnv): unknow
   return redacted;
 }
 
+function isSafeBlockerDetailName(name: string): boolean {
+  return SAFE_BLOCKER_DETAIL_KEYS.has(name);
+}
+
 function isUnsafeBlockerDetailName(name: string): boolean {
   const normalized = name.replace(/[\s_.-]/g, "").toLowerCase();
-  return isSecretLikeName(name) || ["jwt", "bearer", "session", "payload", "headers"].some((secretName) => normalized.includes(secretName));
+  return isSecretLikeName(name) || [
+    "jwt",
+    "bearer",
+    "session",
+    "payload",
+    "headers",
+    "body",
+    "providerresponse",
+    "requestbody",
+    "responsebody",
+    "data",
+  ].some((secretName) => normalized.includes(secretName));
+}
+
+function isUnsafeBlockerDetailText(value: string): boolean {
+  return JWT_LIKE_DETAIL_PATTERN.test(value.trim()) || BARE_BEARER_DETAIL_PATTERN.test(value.trim());
 }
 
 function sortIntegrationBlockers(blockers: IntegrationReadinessBlocker[]): IntegrationReadinessBlocker[] {

@@ -580,16 +580,40 @@ describe("gated real integration adapters", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("returns a network gate blocker when transport is present but allowNetwork is disabled", async () => {
-    const { calls, transport } = createTransport([{ status: 201, json: { number: 42 } }]);
-
-    const result = await runGitHubReal({
+  it.each([
+    ["GitHub", (transport: IntegrationTransport) => runGitHubReal({
       env: configuredEnv,
       now: fixedNow,
       mission: missionInput,
       transport,
       gates: { allowNetwork: false },
-    });
+    })],
+    ["Coolify", (transport: IntegrationTransport) => runCoolifyReal({
+      env: configuredEnv,
+      now: fixedNow,
+      deployment: { project: "psf", environment: "staging", stagingUrl: "https://staging.example.test" },
+      transport,
+      gates: { allowNetwork: false },
+    })],
+    ["Uptime Kuma", (transport: IntegrationTransport) => runUptimeKumaReal({
+      env: configuredEnv,
+      now: fixedNow,
+      monitor: { project: "psf", stagingUrl: "https://staging.example.test" },
+      transport,
+      gates: { allowNetwork: false },
+    })],
+    ["Plane", (transport: IntegrationTransport) => runPlaneReal({
+      env: configuredEnv,
+      now: fixedNow,
+      mission: missionInput,
+      bugs: [],
+      transport,
+      gates: { allowNetwork: false },
+    })],
+  ])("returns only a network gate blocker for %s when transport is present but allowNetwork is disabled", async (_name, run) => {
+    const { calls, transport } = createTransport([{ status: 201, json: { number: 42 } }]);
+
+    const result = await run(transport);
 
     expect(result.decision).toBe("manual_action");
     expect(result.realNetworkCall).toBe(false);
@@ -661,7 +685,9 @@ describe("gated real integration adapters", () => {
     ]));
   });
 
-  it("redacts unsafe caller-provided blocker details", () => {
+  it("redacts unsafe caller-provided blocker details while preserving allowlisted metadata", () => {
+    const jwtLikeValue = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature";
+
     const result = buildRealResult(
       {
         name: "github",
@@ -685,10 +711,31 @@ describe("gated real integration adapters", () => {
           source: "integration",
           details: {
             provider: "github",
+            envName: "GITHUB_TOKEN",
+            gate: "allowNetwork",
+            operation: "createPullRequest",
+            evidence: {
+              summary: "provider returned a validation error",
+              headers: { authorization: "Bearer nested-header-secret" },
+              payload: { body: "nested-payload-secret" },
+              links: ["https://evidence.example.test/log?safe=visible"],
+            },
+            action: "manual-review",
+            resourceId: "mission-001",
+            jobType: "github-pr-preview",
+            realPush: false,
+            body: "raw-body-secret",
+            responseBody: "raw-response-secret",
+            providerResponse: { message: "provider-response-secret" },
+            requestBody: { token: "request-body-secret" },
+            data: { secret: "data-secret" },
             jwt: "jwt-real-secret",
+            jwtLikeValue,
             bearer: "bearer-real-secret",
+            bearerValue: "Bearer raw-bearer-secret",
             sessionId: "session-real-secret",
             apiToken: "api-token-real-secret",
+            envSecretValue: "ghp_real_secret",
           },
         }],
       },
@@ -696,7 +743,37 @@ describe("gated real integration adapters", () => {
 
     const text = textOf(result);
 
-    expect(result.blockers[0]?.details).toMatchObject({ provider: "github" });
+    expect(result.blockers[0]?.details).toMatchObject({
+      provider: "github",
+      envName: "GITHUB_TOKEN",
+      gate: "allowNetwork",
+      operation: "createPullRequest",
+      evidence: {
+        summary: "provider returned a validation error",
+        headers: "[REDACTED]",
+        payload: "[REDACTED]",
+        links: ["https://evidence.example.test/log?safe=visible"],
+      },
+      action: "manual-review",
+      resourceId: "mission-001",
+      jobType: "github-pr-preview",
+      realPush: false,
+      body: "[REDACTED]",
+      responseBody: "[REDACTED]",
+      providerResponse: "[REDACTED]",
+      requestBody: "[REDACTED]",
+      data: "[REDACTED]",
+    });
+    expect(text).not.toContain("raw-body-secret");
+    expect(text).not.toContain("raw-response-secret");
+    expect(text).not.toContain("provider-response-secret");
+    expect(text).not.toContain("request-body-secret");
+    expect(text).not.toContain("data-secret");
+    expect(text).not.toContain("nested-header-secret");
+    expect(text).not.toContain("nested-payload-secret");
+    expect(text).not.toContain(jwtLikeValue);
+    expect(text).not.toContain("raw-bearer-secret");
+    expect(text).not.toContain("ghp_real_secret");
     expect(text).not.toContain("jwt-real-secret");
     expect(text).not.toContain("bearer-real-secret");
     expect(text).not.toContain("session-real-secret");

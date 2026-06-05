@@ -85,7 +85,12 @@ export async function runUptimeKumaReal(input: UptimeKumaRealInput = {}): Promis
   }
 
   if (!input.transport || input.gates?.allowNetwork !== true) {
-    manualActions.push("Inject a transport and set gates.allowNetwork=true before any Uptime Kuma request.");
+    if (!input.transport) {
+      manualActions.push("Inject a transport before any Uptime Kuma request.");
+    }
+    if (input.gates?.allowNetwork !== true) {
+      manualActions.push("Set gates.allowNetwork=true before any Uptime Kuma request.");
+    }
     return missingTransportResult(definition, input, outputs);
   }
 
