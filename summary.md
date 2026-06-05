@@ -179,6 +179,7 @@
 - `docs/superpowers/plans/2026-06-04-b1-documentation-drift-audit-and-minimal-cleanup.md`: B1 文档差异审计与最小必要清理实施计划。
 - `docs/superpowers/plans/2026-06-04-b2-control-plane-readiness-convergence.md`: B2 控制面 readiness/blocker 合同收敛实施计划。
 - `docs/superpowers/plans/2026-06-05-b3-contract-safety-test-reinforcement.md`: B3 合同与安全测试缺口精补实施计划。
+- `docs/superpowers/plans/2026-06-05-ai-novelist-local-mirror-deepseek-proof.md`: A1 ai-novelist 隔离本地 mirror 与目标 Web 内部 DeepSeek proof 实施计划。
 - `docs/superpowers/plans/2026-06-04-aggressive-documentation-cleanup.md`: 上一轮激进文档清理实施记录，作为历史计划保留。
 - `docs/superpowers/plans/2026-06-04-documentation-map-and-structure.md`: 当前文档地图和目录重整实施计划。
 - `docs/superpowers/specs/2026-06-03-aggressive-documentation-cleanup-design.md`: 上一轮激进文档清理设计记录。
