@@ -29,7 +29,7 @@
 ## 当前问题
 
 1. 文档仍有漂移风险：新增活跃文档如果复用旧阶段语言，必须明确标为历史语境，不能当作当前事实。
-2. B2 已将真实模式 readiness/blocker 合同收敛到 `canQueue`、`canExecute`、`blockers[]` 和 `recommendedNextAction`，但 route gate、worker gate、provider gate、approval、injected runner/transport、本地 workspace 检查仍需要 B3 focused contract tests 持续锁定。
+2. B3 已用 focused contract tests 锁定 API、Hub、Worker Runner 的 readiness/blocker 高风险边界；后续新增或修改 route gate、worker gate、provider gate、approval、injected runner/transport、本地 workspace 检查时，必须同步补充同级别 contract tests。
 3. `ai-novelist` 执行仍未验证：passport commands、selectors、本地 URL 行为和 E2E 入口需要在真实 checkout 中人工验证。
 4. Hub API types、Mission schemas、Orchestrator service schemas、worker job schemas、integration types 之间仍有合同重复。
 5. Hub Mission Detail 已能展示 API 返回的 queue/execute readiness、blockers 和 recommended next action；后续仍可继续打磨不同 gated action 的按钮文案和 operator flow。
@@ -43,7 +43,7 @@
 - Contract-only 或 manual-action：`codex.real`、`qa.playwright`、`qa.ai_exploratory`、`fix.real`、`github.pr`、`deploy.coolify`、`monitor.uptime_kuma` 和 `plane.sync`。这些路径需要 gate、approval、queue/runtime wiring、injected runner 或 injected transport 才能继续推进；默认仍保持 `realNetworkCall: false`、`realExternalCall: false`、`realPush: false` 和 `realDeploy: false`。
 - 未验证：`ai-novelist` 的 operator-prepared local mirror、passport commands、local URL、E2E command、deterministic selectors 和目标项目本地运行行为。Passport 中的 `manual-verification-required` 不得当作已验证事实。
 - 暂缓：GitHub/Coolify/Uptime Kuma/Plane provider network calls、push、真实 PR 创建、部署、monitor 创建、Plane sync、Temporal 和 LangGraph。Temporal/LangGraph 继续遵守 ADR 0005 的证据门槛。
-- 后续顺序：B1 文档差异审计与最小必要清理已完成，B2 readiness/blocker 合同收敛已完成；下一步执行 B3 合同回归测试和必要最小调整，最后执行 A1 `ai-novelist` local mirror gated-runner proof。
+- 后续顺序：B1 文档差异审计与最小必要清理、B2 readiness/blocker 合同收敛、B3 合同回归测试和必要最小调整均已完成；下一步执行 A1 `ai-novelist` local mirror gated-runner proof。
 
 ## 改进待办
 
@@ -56,7 +56,7 @@
 ### P1
 
 - 在启用真实 worker 执行前，在真实 checkout 中验证 `ai-novelist` 的 install、dev、build、test、lint 和 E2E 命令。
-- 用 B3 focused contract tests 锁定每一种 gated real action 的 readiness/blocker 输出边界。
+- 在新增或修改 gated real action 时，沿用 B3 focused contract tests 方式锁定 readiness/blocker 输出边界。
 - 减少重复类型合同；若重复有价值，则补充聚焦的 contract tests。
 - 继续让 Hub 真实模式 blocker 精确指向缺失的 approval、gate、env var、本地 mirror、target URL、runner 或 transport，并避免按钮文案暗示立即真实执行。
 
@@ -96,6 +96,7 @@
 - `docs/debug/debug.md` 是调试、验证和排障记录源。
 - 活跃 docs 和索引已更新为当前实现指导。
 - B2 readiness/blocker 合同已实施：`safeToRun` 保留为 legacy route-level queue readiness；Orchestrator、Hub、Worker Runner 和 integrations 使用 `canQueue`、`canExecute`、排序后的 `blockers[]` 和 `recommendedNextAction` 表达 blocked/manual-action 状态。
+- B3 合同安全测试精补已完成：API 400 preflight、Hub `canQueue` 优先和 blocker 顺序、Worker Runner execute-only blockers、GitHub PR preview/manual-action no-network 边界，以及 repo URL trim 分类和 unsafe branch redaction 均已由 focused tests 锁定。
 - 活跃参考文档中的 stale current-phase wording 已修正，同时保留必要历史含义。
 - runtime、local development、safety、operations 文档已使用 default-safe 加 gated real contract wording。
 - API、provider、Codex、queue、approval、progress 引用已描述 dry-run/status 行为和 gated real adapter 或 runner contract，保持 default-disabled/default-safe execution。
