@@ -52,6 +52,16 @@ pnpm psf queues:status
 
 ## 当前条目
 
+### 2026-06-05 - B2 控制面 readiness/blocker 合同收敛
+
+- 背景: 用户确认进入 B2 实施阶段，目标是让 blocked/manual-action 状态在 API、Hub、Worker Runner 和 integrations 中可操作、可测试、可展示，同时保持默认安全边界。
+- 现象: 旧 `safeToRun` 容易被误读成真实执行已经可发生；Worker Runner 和 integrations 的 manual-action output 也缺少统一 blocker shape。
+- 范围: `apps/orchestrator-api`、`apps/hub`、`apps/worker-runner`、`packages/integrations`、`docs/api/orchestrator-api.md`、`docs/apps/hub-web.md`、`docs/architecture/structure.md`、`docs/runtime/queue-runtime.md`、`docs/integrations/overview.md`、`packages/integrations/README.md`、`docs/status/progress.md` 和 `summary.md`。
+- 调查: 先按设计确认 `safeToRun` 只能保留 legacy route-level queue readiness；新的判断必须来自 `canQueue`、`canExecute`、排序后的 `blockers[]` 和 `recommendedNextAction`。执行期间发现受限 sandbox 的 `bwrap` loopback 设置失败，命令通过审批后的 escalated path 运行；没有绕过 provider/network/push/deploy 安全边界。
+- 修复: 新增 Orchestrator readiness helper 和合同测试；route preflight、blocked real-action response、Mission summary readiness、Hub Mission Detail、Worker Runner wrapper/action_result、GitHub PR preview/manual-action output 和 integration real results 统一输出 sanitized blockers。Integration mapper 不把 `safeToRun:false` 当作具体 blocker 原因，缺少具体原因时使用 unclassified manual-action fallback。
+- 验证: Focused checks 通过：`pnpm --filter @psf/orchestrator-api test`、`pnpm --filter @psf/orchestrator-api typecheck`、`pnpm --filter @psf/hub test`、`pnpm --filter @psf/hub typecheck`、`pnpm --filter @psf/worker-runner test`、`pnpm --filter @psf/worker-runner typecheck`、`pnpm --filter @psf/integrations test`、`pnpm --filter @psf/integrations typecheck`。Workspace checks 通过：`pnpm typecheck`、`pnpm test`、`pnpm check`。
+- 后续: B3 只补 focused contract tests 和必要最小 production-code 调整；可考虑把 shared real-result helper 从 provider 文件抽到更中性的 internal module，并细化 disabled real-mode env blocker 文案。
+
 ### 2026-06-04 - B1 文档差异审计与最小清理
 
 - 背景: 已批准控制面文档差异收敛设计，当前批次只执行 B1 文档审计和最小必要清理。

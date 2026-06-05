@@ -8,11 +8,15 @@
 
 ## 当前执行路线
 
-下一批工作按 B1 -> B2 -> B3 -> A1 执行。B1 先做文档差异审计与最小必要清理，避免 `docs/vision/plan.md` 的长期愿景、旧 phase、旧路径或旧进度污染当前事实源。B2 再定义 readiness/blocker 合同，避免 `safeToRun=true` 被误读成真实执行已可发生。B3 只补合同回归测试和必要的最小生产代码调整。A1 最后在 operator-prepared `ai-novelist` local mirror 上证明 gated-runner path。
+B1 文档差异审计与最小必要清理已完成。B2 控制面 readiness/blocker 合同收敛已完成并进入当前实现事实：`safeToRun` 只作为 legacy route-level queue readiness 字段保留，新的判断优先使用 `canQueue`、`canExecute`、`blockers[]` 和 `recommendedNextAction`。下一批工作按 B3 -> A1 执行；B3 只补合同回归测试和必要的最小 production-code 调整，A1 最后在 operator-prepared `ai-novelist` local mirror 上证明 gated-runner path。
 
 GitHub、Coolify、Uptime Kuma、Plane、push、真实 PR 创建、部署、monitor 创建、Plane sync、Temporal 和 LangGraph 继续暂缓，直到本地 mirror gated-runner path 被证明且后续任务获得明确批准。
 
 ## 最新更新
+
+B2 控制面 readiness/blocker 合同收敛已完成。Orchestrator API 现在作为 canonical response outlet，在 Mission summary、gated real action blocked/manual-action response 和 route preflight error body 中输出 `canQueue`、`canExecute`、排序后的 `blockers[]` 和 `recommendedNextAction`；`safeToRun` 保留为 legacy route-level queue readiness。Hub Mission Detail 改为消费 API readiness 展示 queue/execute 状态和 blocker，不再自行推断 env、approval、transport 或 runner。Worker Runner wrapper output、`mission.action_result` 和 integration real results 统一保留 execute blockers；已入队结果不回写 queue 语义。默认仍不启用真实 Codex、Playwright/browser、provider network、push、PR creation、deploy、monitor creation 或 Plane sync，`realNetworkCall`、`realExternalCall`、`realPush` 和 `realDeploy` 在默认 gated real outputs 中继续为 `false`。
+
+B2 focused verification 通过：`pnpm --filter @psf/orchestrator-api test`、`pnpm --filter @psf/orchestrator-api typecheck`、`pnpm --filter @psf/hub test`、`pnpm --filter @psf/hub typecheck`、`pnpm --filter @psf/worker-runner test`、`pnpm --filter @psf/worker-runner typecheck`、`pnpm --filter @psf/integrations test` 和 `pnpm --filter @psf/integrations typecheck`。Workspace verification 也通过：`pnpm typecheck`、`pnpm test` 和 `pnpm check`。
 
 Batch 05/06 已完成，覆盖 gated fix/regression enforcement 和 GitHub PR gate preview。`fix-real` queued payloads 现在携带 open bugs、attempts、Project Passport、Mission files、verification commands、regression evidence、branch/workspace context 和 approvals。Worker Runner 只有在 regression evidence 与 injected verification 成功后，才持久化 accepted BugReport updates，并通过合法 Mission states 保守 transition 到 `ready_for_review`。`github-pr` 现在要求已批准的 `EXTERNAL_COST_RISK`，会 queue 安全的 PR preview context，并持久化 child integration WorkerRun 和 PR preview Artifact；默认仍是 manual-action/no-network。该 batch 的 focused package tests、`pnpm typecheck`、`pnpm test`、`pnpm build` 和 `git diff --check` 已通过。
 

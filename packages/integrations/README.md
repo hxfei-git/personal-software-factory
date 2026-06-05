@@ -8,6 +8,8 @@ Dry-run adapters and gated real adapter implementations for external services us
 - Real adapters exist for approved execution paths, but they require `ENABLE_REAL_*=1`, complete credentials/configuration, explicit runtime policy gates, and an injected transport.
 - Normal package tests use dry-runs or fake injected transports; they do not call real networks.
 - `realNetworkCall` stays `false` until a gated real adapter actually invokes its injected transport.
+- Gated real results expose `canQueue`, `canExecute`, sorted execute-only `blockers[]`, and `recommendedNextAction` so callers can display manual-action state without inferring from `safeToRun`.
+- Blocker details are allowlisted sanitized metadata only; raw provider payloads, token-like values, long raw errors, and secret-like values must not be emitted.
 - Tokens, passwords, secrets, keys, and credentials are only used to determine configuration or to build redacted transport requests.
 - Secret values must not appear in statuses, outputs, logs, PR bodies, Issue bodies, or snapshots.
 
