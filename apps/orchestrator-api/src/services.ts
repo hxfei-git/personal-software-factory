@@ -683,14 +683,30 @@ Risk level: ${mission.risk_level}.
     if (repoUrl && isLocalRepoUrl(repoUrl)) {
       return;
     }
-    throw badRequest("MISSION_ACTION_PREFLIGHT_BLOCKED", "codex-real requires an explicitly provided local repository mirror; GitHub HTTPS/SSH remotes are not accepted as real Codex repoUrl values.", {
+    const envName = localRepoEnvName(registryProject.project.id);
+    const message = "codex-real requires an explicitly provided local repository mirror; GitHub HTTPS/SSH remotes are not accepted as real Codex repoUrl values.";
+    const recommendedNextAction = `Provide repoUrl in the request body, or set ${envName} to a local mirror path under operator control.`;
+    throw badRequest("MISSION_ACTION_PREFLIGHT_BLOCKED", message, blockedPreflightDetails(buildReadinessBlocker({
+      category: "policy",
+      key: "policy.codex.local_mirror_required",
+      message,
+      recommendedNextAction,
+      severity: "blocking",
+      blocks: ["queue", "execute"],
+      source: "orchestrator",
+      details: {
+        action: "codex-real",
+        missingLocalMirror: true,
+        localRepoEnvName: envName,
+        repoUrlKind: repoUrl ? "remote" : "missing",
+      },
+    }), {
       missionId: mission.id,
       projectId: mission.project_id,
       passportPath: registryProject.passportPath,
       action: "codex-real",
       missingLocalMirror: true,
-      recommendedNextAction: `Provide repoUrl in the request body, or set ${localRepoEnvName(registryProject.project.id)} to a local mirror path under operator control.`,
-    });
+    }));
   }
 
   function isLocalRepoUrl(repoUrl: string): boolean {
@@ -705,13 +721,26 @@ Risk level: ${mission.risk_level}.
 
   function assertCodexBranchNameAllowed(mission: Mission, branchName: string) {
     if (branchName === "main" || branchName === "master" || !branchName.startsWith("agent/")) {
-      throw badRequest("MISSION_ACTION_PREFLIGHT_BLOCKED", "codex-real branchName must be under agent/ and cannot be main or master.", {
+      const message = "codex-real branchName must be under agent/ and cannot be main or master.";
+      const recommendedNextAction = "Use a branch name such as agent/<project>-<mission> for real Codex work.";
+      throw badRequest("MISSION_ACTION_PREFLIGHT_BLOCKED", message, blockedPreflightDetails(buildReadinessBlocker({
+        category: "policy",
+        key: "policy.codex.branch_policy",
+        message,
+        recommendedNextAction,
+        severity: "blocking",
+        blocks: ["queue", "execute"],
+        source: "orchestrator",
+        details: {
+          action: "codex-real",
+          invalidBranchName: branchName,
+        },
+      }), {
         missionId: mission.id,
         projectId: mission.project_id,
         action: "codex-real",
         invalidBranchName: branchName,
-        recommendedNextAction: "Use a branch name such as agent/<project>-<mission> for real Codex work.",
-      });
+      }));
     }
   }
 
