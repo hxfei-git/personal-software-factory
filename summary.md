@@ -183,6 +183,7 @@
 - `docs/superpowers/specs/2026-06-04-documentation-map-and-structure-design.md`: 当前文档地图和目录重整设计记录。
 - `docs/superpowers/specs/2026-06-04-control-plane-doc-drift-and-readiness-design.md`: 控制面 readiness、文档差异清理和后续 B→A 路线设计记录。
 - `docs/superpowers/specs/2026-06-04-control-plane-readiness-convergence-design.md`: B2 控制面 readiness/blocker 合同收敛设计记录。
+- `docs/superpowers/specs/2026-06-05-b3-contract-safety-test-reinforcement-design.md`: B3 合同与安全测试缺口精补设计记录。
 
 ### 归档
 
