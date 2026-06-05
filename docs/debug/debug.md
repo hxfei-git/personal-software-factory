@@ -52,6 +52,16 @@ pnpm psf queues:status
 
 ## 当前条目
 
+### 2026-06-05 - A1 合并后主工作树依赖同步
+
+- 背景: 用户选择将 `a1-local-mirror-deepseek-proof` 本地合并回 `main`，合并采用 fast-forward，未 push、未创建 PR、未触发任何 provider/network/deploy 行为。
+- 现象: 合并后首次在主工作树运行 `pnpm test:scripts` 和 `pnpm typecheck:scripts` 失败，错误为脚本无法解析 `@psf/security`。同一提交在 A1 implementation worktree 已验证通过，说明代码本身不是新失败点。
+- 范围: 主工作树 `node_modules` install state、root `package.json` 中新增的 `@psf/security: workspace:*` devDependency、A1 scripts tests/typecheck。
+- 调查: `package.json` 已声明 `@psf/security`，但主工作树 `node_modules/@psf/security` 链接不存在；`node_modules/@psf` 中也缺少 `security` symlink。根因是主工作树在 fast-forward 合并后没有同步 workspace install state。
+- 修复: 运行 `pnpm install --offline --frozen-lockfile`，lockfile 已是最新，只补齐 root `@psf/security` workspace link；随后移除已合并的 `.worktrees/a1-local-mirror-deepseek-proof` worktree，并删除已合并分支。
+- 验证: 失败复现：`pnpm test:scripts` 先失败，2 failed suites，错误为 `Cannot find package '@psf/security'`；`pnpm typecheck:scripts` 先失败，TS2307 cannot find module `@psf/security`。修复后 rerun 通过：`pnpm test:scripts` 94 passed（包含尚未清理 worktree 的重复脚本测试）；`pnpm typecheck:scripts` 通过；`git diff --check` 通过；`node scripts/check-phase1-structure.mjs` 通过。清理 worktree 和已合并分支后最终验证通过：`pnpm test:scripts` 47 passed；`pnpm typecheck:scripts` 通过；`git diff --check` 通过；`node scripts/check-phase1-structure.mjs` 通过；`pnpm check` 通过，typecheck 17/17 packages、workspace tests 17/17 packages、script tests 47/47。
+- 后续: none。
+
 ### 2026-06-05 - A1 ai-novelist 本地镜像证明阻断
 
 - 背景: 执行 A1 `ai-novelist` local mirror gated-runner proof，目标是在隔离 mirror 上证明至少一个本地目标 Web 可观测事件，同时允许目标 app 内部使用 DeepSeek provider 配置；PSF 自身不得启用真实 provider transport、push、PR、deploy 或 browser automation。
