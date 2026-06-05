@@ -72,7 +72,7 @@ Dry-run jobs 包括 `mission.plan`, `codex.dry_run`, `qa.dry_run`, `qa.dry_run_w
 
 Gated real-mode contract jobs 包括 `codex.real`, `qa.playwright`, `qa.ai_exploratory`, `fix.real`, `github.pr`, `deploy.coolify`, `monitor.uptime_kuma`, 和 `plane.sync`。
 
-默认 Worker Runner path 仍保持安全。Real handlers 会返回 blocked 或 manual-action output，除非完整 gate chain 被有意满足。Worker Runner 会在 wrapper output 和 `mission.action_result` 中保留 `canQueue`、`canExecute`、`blockers[]` 和 `recommendedNextAction`；已入队 job 不会被结果 mapper 回写成 queue 不可接受，worker defense-in-depth blocker 通常只 `blocks: ["execute"]`。
+默认 Worker Runner path 仍保持安全。Real handlers 会返回 blocked 或 manual-action output，除非完整 gate chain 被有意满足。`codex.real` local mirror preflight 会先 trim `repoUrl` 再分类 local/remote，HTTP/SSH/SCP remote URLs 继续被 route preflight 阻塞为 queue+execute blockers；unsafe branch preflight details 会先 redacted 再进入 API error body。Worker Runner 会在 wrapper output 和 `mission.action_result` 中保留 `canQueue`、`canExecute`、`blockers[]` 和 `recommendedNextAction`；已入队 job 不会被结果 mapper 回写成 queue 不可接受，worker defense-in-depth blocker 通常只 `blocks: ["execute"]`，并同样在 repo URL 分类前 trim 输入。
 
 ## Integration 边界
 

@@ -1153,7 +1153,9 @@ describe("worker runner", () => {
   it.each([
     [{ passport: projectPassport() }, "missing local repoUrl"],
     [{ repoUrl: "https://github.com/example/ai-novelist.git", branchName: "agent/mission-real" }, "remote repoUrl"],
+    [{ repoUrl: " https://github.com/example/ai-novelist.git ", branchName: "agent/mission-real" }, "whitespace-wrapped remote repoUrl"],
     [{ repoUrl: "git@github.com:example/ai-novelist.git" }, "scp-style remote repoUrl"],
+    [{ repoUrl: " git@github.com:example/ai-novelist.git " }, "whitespace-wrapped scp-style remote repoUrl"],
   ])("blocks codex.real %s before calling injected runner", async (payload, _label) => {
     let runnerCalls = 0;
     const storage = createInMemoryMissionStorage({

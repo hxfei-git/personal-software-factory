@@ -1312,6 +1312,57 @@ describe("orchestrator api", () => {
     }
   });
 
+  it("blocks whitespace-wrapped remote codex-real repoUrl before enqueueing", async () => {
+    const registryRoot = await createAiNovelistRegistryRoot();
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "psf-codex-workspaces-"));
+    try {
+      await withEnv({
+        PSF_ACTION_EXECUTION_MODE: "queued",
+        PSF_ENABLE_REAL_CODEX: "true",
+      }, async () => {
+        const workerRuntime = new InProcessWorkerRuntime();
+        const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime, registryRoot });
+        await seedDemoMission(storage);
+        const approval = await createApprovedApproval(server, EXAMPLE_MISSION_ID, "SECURITY_RISK");
+
+        const response = await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/actions/codex-real`,
+          payload: {
+            approvalId: approval.id,
+            repoUrl: " https://github.com/example/ai-novelist.git ",
+            branchName: "agent/ai-novelist-task-7",
+            workspaceRoot,
+          },
+        });
+
+        expect(response.statusCode).toBe(400);
+        const body = response.json();
+        expect(body).toMatchObject({
+          code: "MISSION_ACTION_PREFLIGHT_BLOCKED",
+          details: expect.objectContaining({
+            action: "codex-real",
+            missingLocalMirror: true,
+            canQueue: false,
+            canExecute: false,
+          }),
+        });
+        expect(body.details.blockers).toEqual([
+          expect.objectContaining({
+            key: "policy.codex.local_mirror_required",
+            blocks: ["queue", "execute"],
+            source: "orchestrator",
+          }),
+        ]);
+        expect(await workerRuntime.listJobs()).toHaveLength(0);
+        expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(0);
+      });
+    } finally {
+      await rm(registryRoot, { recursive: true, force: true });
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("blocks codex-real unsafe branch preflight with canonical branch policy blocker", async () => {
     const registryRoot = await createAiNovelistRegistryRoot();
     const workspaceRoot = await mkdtemp(join(tmpdir(), "psf-codex-workspaces-"));
@@ -1365,6 +1416,60 @@ describe("orchestrator api", () => {
               action: "codex-real",
               invalidBranchName: "main",
             },
+          }),
+        ]);
+        expect(await workerRuntime.listJobs()).toHaveLength(0);
+        expect(await storage.listMissionWorkerRuns(EXAMPLE_MISSION_ID)).toHaveLength(0);
+      });
+    } finally {
+      await rm(registryRoot, { recursive: true, force: true });
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("redacts secret-like unsafe branch preflight details", async () => {
+    const registryRoot = await createAiNovelistRegistryRoot();
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "psf-codex-workspaces-"));
+    const localMirror = join(workspaceRoot, "mirrors", "ai-novelist.git");
+    const branchSecret = "branch-secret-value";
+    await mkdir(localMirror, { recursive: true });
+    try {
+      await withEnv({
+        PSF_ACTION_EXECUTION_MODE: "queued",
+        PSF_ENABLE_REAL_CODEX: "true",
+      }, async () => {
+        const workerRuntime = new InProcessWorkerRuntime();
+        const { server, storage } = await createTestServer({ auth: { disabled: true }, workerRuntime, registryRoot });
+        await seedDemoMission(storage);
+        const approval = await createApprovedApproval(server, EXAMPLE_MISSION_ID, "SECURITY_RISK");
+
+        const response = await server.inject({
+          method: "POST",
+          url: `/missions/${EXAMPLE_MISSION_ID}/actions/codex-real`,
+          payload: {
+            approvalId: approval.id,
+            repoUrl: localMirror,
+            branchName: `feature/token=${branchSecret}`,
+            workspaceRoot,
+          },
+        });
+
+        expect(response.statusCode).toBe(400);
+        const body = response.json();
+        expect(JSON.stringify(body)).not.toContain(branchSecret);
+        expect(body).toMatchObject({
+          code: "MISSION_ACTION_PREFLIGHT_BLOCKED",
+          details: expect.objectContaining({
+            action: "codex-real",
+            invalidBranchName: "feature/token=[REDACTED]",
+            canQueue: false,
+            canExecute: false,
+          }),
+        });
+        expect(body.details.blockers).toEqual([
+          expect.objectContaining({
+            key: "policy.codex.branch_policy",
+            details: expect.objectContaining({ invalidBranchName: "feature/token=[REDACTED]" }),
           }),
         ]);
         expect(await workerRuntime.listJobs()).toHaveLength(0);

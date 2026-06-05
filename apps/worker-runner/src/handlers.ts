@@ -153,7 +153,7 @@ async function runCodexRealJob(cwd: string, job: QueueWorkerJob, deps: WorkerJob
 }
 
 function validateCodexRealQueuedJob(job: QueueWorkerJob): { reason: string } | undefined {
-  const repoUrl = stringValue(job.payload.repoUrl);
+  const repoUrl = stringValue(job.payload.repoUrl)?.trim();
   if (!repoUrl || !isLocalRepoUrl(repoUrl)) {
     return { reason: "codex.real queued job requires local repoUrl as a local path or file:// URL; remote repository URLs are blocked at Worker Runner." };
   }
@@ -560,7 +560,7 @@ function buildCodexRealInput(cwd: string, job: QueueWorkerJob) {
   return {
     missionId: job.missionId,
     projectId: job.projectId,
-    repoUrl: stringValue(payload.repoUrl) as string,
+    repoUrl: (stringValue(payload.repoUrl) as string).trim(),
     defaultBranch: stringValue(payload.defaultBranch) ?? passport.repo.default_branch,
     missionFiles: buildMissionFiles(job),
     ...(safeRecord(payload.passport) ? { passport: safeRecord(payload.passport) as ProjectPassport } : {}),
@@ -795,7 +795,8 @@ function buildVerificationCommands(payload: Record<string, unknown>) {
 }
 
 function isLocalRepoUrl(repoUrl: string): boolean {
-  return repoUrl.startsWith("file://") || !/^(?:[a-z][a-z0-9+.-]*:|[^@\s]+@[^:]+:)/i.test(repoUrl);
+  const normalizedRepoUrl = repoUrl.trim();
+  return normalizedRepoUrl.length > 0 && (normalizedRepoUrl.startsWith("file://") || !/^(?:[a-z][a-z0-9+.-]*:|[^@\s]+@[^:]+:)/i.test(normalizedRepoUrl));
 }
 
 function isSafeCodexBranchName(branchName: string): boolean {

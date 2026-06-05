@@ -672,7 +672,7 @@ Risk level: ${mission.risk_level}.
       input.repoUrl,
       process.env[localRepoEnvName(registryProject.project.id)],
       process.env[localRepoEnvName(registryProject.project.id).toUpperCase()],
-    ].find(isNonEmptyString);
+    ].find(isNonEmptyString)?.trim();
   }
 
   function localRepoEnvName(projectId: string): string {
@@ -710,7 +710,8 @@ Risk level: ${mission.risk_level}.
   }
 
   function isLocalRepoUrl(repoUrl: string): boolean {
-    return repoUrl.startsWith("file://") || !/^(?:[a-z][a-z0-9+.-]*:|[^@\s]+@[^:]+:)/i.test(repoUrl);
+    const normalizedRepoUrl = repoUrl.trim();
+    return normalizedRepoUrl.length > 0 && (normalizedRepoUrl.startsWith("file://") || !/^(?:[a-z][a-z0-9+.-]*:|[^@\s]+@[^:]+:)/i.test(normalizedRepoUrl));
   }
 
   function resolveCodexBranchName(input: z.infer<typeof RealActionRequestSchema>, mission: Mission, registryProject: RegistryProject): string {
@@ -723,6 +724,7 @@ Risk level: ${mission.risk_level}.
     if (branchName === "main" || branchName === "master" || !branchName.startsWith("agent/")) {
       const message = "codex-real branchName must be under agent/ and cannot be main or master.";
       const recommendedNextAction = "Use a branch name such as agent/<project>-<mission> for real Codex work.";
+      const invalidBranchName = redactValue(branchName, process.env);
       throw badRequest("MISSION_ACTION_PREFLIGHT_BLOCKED", message, blockedPreflightDetails(buildReadinessBlocker({
         category: "policy",
         key: "policy.codex.branch_policy",
@@ -733,13 +735,13 @@ Risk level: ${mission.risk_level}.
         source: "orchestrator",
         details: {
           action: "codex-real",
-          invalidBranchName: branchName,
+          invalidBranchName,
         },
       }), {
         missionId: mission.id,
         projectId: mission.project_id,
         action: "codex-real",
-        invalidBranchName: branchName,
+        invalidBranchName,
       }));
     }
   }
