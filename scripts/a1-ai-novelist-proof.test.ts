@@ -67,6 +67,68 @@ describe("A1 ai-novelist proof contract", () => {
     });
   });
 
+  test("requires DeepSeek env when provider mode is deepseek", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-a1-missing-deepseek-"));
+    const result = await runA1AiNovelistProof({
+      cwd,
+      sourcePath: "/home/ubuntu/1.project/ai-novelist",
+      mirrorPath: "workspaces/mirrors/ai-novelist",
+      provider: "deepseek",
+      webCommandConfirmed: true,
+      targetUrl: "http://127.0.0.1:8000/api/projects",
+    }, fakeDeps({ deepseekConfigured: false }));
+
+    expect(result.status).toBe("manual_action");
+    expect(result.blockers[0]?.key).toBe("target.deepseek_env_missing");
+    expect(result.realNetworkCall).toBe(false);
+    expect(result.evidence.targetAppProviderCall).toBe("not_observed");
+  });
+
+  test("records successful page observation with target provider metadata separate from PSF safety flags", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-a1-success-"));
+    const result = await runA1AiNovelistProof({
+      cwd,
+      sourcePath: "/home/ubuntu/1.project/ai-novelist",
+      mirrorPath: "workspaces/mirrors/ai-novelist",
+      provider: "deepseek",
+      webCommandConfirmed: true,
+      targetUrl: "http://127.0.0.1:8000/api/projects",
+    }, fakeDeps({ deepseekConfigured: true }));
+
+    expect(result.status).toBe("succeeded");
+    expect(result.canQueue).toBe(true);
+    expect(result.canExecute).toBe(true);
+    expect(result.realNetworkCall).toBe(false);
+    expect(result.realExternalCall).toBe(false);
+    expect(result.evidence).toMatchObject({
+      targetProvider: "deepseek",
+      targetProviderBoundary: "ai-novelist-web",
+      targetAppProviderCall: false,
+      targetHttpStatus: 200,
+      webProcessStarted: true,
+      webProcessStopped: true,
+    });
+  });
+
+  test("cleanup failure turns the whole proof into manual_action", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "psf-a1-cleanup-fail-"));
+    const deps = fakeDeps({ deepseekConfigured: true });
+    deps.stopWeb = async () => false;
+
+    const result = await runA1AiNovelistProof({
+      cwd,
+      sourcePath: "/home/ubuntu/1.project/ai-novelist",
+      mirrorPath: "workspaces/mirrors/ai-novelist",
+      provider: "deepseek",
+      webCommandConfirmed: true,
+      targetUrl: "http://127.0.0.1:8000/api/projects",
+    }, deps);
+
+    expect(result.status).toBe("manual_action");
+    expect(result.blockers[0]?.key).toBe("cleanup.web_process_stop_unconfirmed");
+    expect(result.evidence.webProcessStopped).toBe(false);
+  });
+
   test("sanitizes secret-like metadata before returning proof output", () => {
     const secret = "sk-deepseek-test-secret";
     const sanitized = sanitizeA1Metadata({
@@ -153,9 +215,12 @@ describe("A1 ai-novelist proof contract", () => {
       targetUrl: "http://127.0.0.1:8000/api/projects",
     }, fakeDeps({ calls, deepseekConfigured: true, mirrorExists: false }));
 
-    expect(result.blockers[0]?.key).toBe("target.web_lifecycle_required");
+    expect(result.status).toBe("succeeded");
+    expect(result.blockers).toEqual([]);
     expect(calls.cloneLocalRepo).toBe(1);
     expect(calls.cloneMirrorPaths).toEqual([resolve(cwd, "workspaces", "mirrors", "ai-novelist")]);
+    expect(calls.startWeb).toBe(1);
+    expect(calls.observeTarget).toBe(1);
   });
 
   test("blocks when cloned mirror is not the expected ai-novelist repo before mirror snapshot", async () => {
@@ -301,7 +366,7 @@ describe("A1 ai-novelist proof contract", () => {
     expect(json).toContain("[REDACTED]");
   });
 
-  test("does not start or observe ai-novelist Web during Task 2", async () => {
+  test("does not start or observe ai-novelist Web when command is unconfirmed", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "psf-a1-no-web-lifecycle-"));
     const calls = proofCalls();
 
@@ -310,12 +375,12 @@ describe("A1 ai-novelist proof contract", () => {
       sourcePath: "/home/ubuntu/1.project/ai-novelist",
       mirrorPath: "workspaces/mirrors/ai-novelist",
       provider: "deepseek",
-      webCommandConfirmed: true,
+      webCommandConfirmed: false,
       targetUrl: "http://127.0.0.1:8000/api/projects",
     }, fakeDeps({ calls, deepseekConfigured: true }));
 
     expect(result.status).toBe("manual_action");
-    expect(result.blockers[0]?.key).toBe("target.web_lifecycle_required");
+    expect(result.blockers[0]?.key).toBe("target.web_command_unconfirmed");
     expect(calls.startWeb).toBe(0);
     expect(calls.observeTarget).toBe(0);
   });
@@ -417,11 +482,11 @@ function fakeDeps(overrides: Partial<{
     deepseekConfigured: () => overrides.deepseekConfigured ?? false,
     startWeb: async () => {
       if (calls) calls.startWeb += 1;
-      throw new Error("startWeb must not be called by Task 2 proof");
+      return { pid: 4242 };
     },
     observeTarget: async () => {
       if (calls) calls.observeTarget += 1;
-      throw new Error("observeTarget must not be called by Task 2 proof");
+      return { httpStatus: 200, responseType: "application/json" };
     },
     stopWeb: async () => true,
     writeArtifact: async () => "artifacts/a1/ai-novelist-local-mirror-deepseek-proof.json",

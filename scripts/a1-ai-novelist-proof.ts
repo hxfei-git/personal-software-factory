@@ -1,5 +1,10 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { dirname, join, relative, resolve } from "node:path";
+import { URL } from "node:url";
+import { promisify } from "node:util";
 import { redactJson, redactText, assertInsideWorkspace, assertNotForbiddenPath } from "@psf/security";
 
 export type A1BlockTarget = "queue" | "execute";
@@ -86,6 +91,279 @@ export interface A1ProofDeps {
   stopWeb(process: { pid: number }): Promise<boolean>;
   writeArtifact(cwd: string, result: A1ProofResult): Promise<string>;
   now(): string;
+}
+
+type ExecFileTextOptions = {
+  cwd?: string;
+  encoding: "utf8";
+  maxBuffer?: number;
+};
+
+type ExecFileTextResult = {
+  stdout: string;
+  stderr: string;
+};
+
+const execFileAsync = promisify(execFile) as (
+  file: string,
+  args: readonly string[],
+  options: ExecFileTextOptions,
+) => Promise<ExecFileTextResult>;
+
+const A1_PROOF_MIRROR_BRANCH = "agent/a1-local-mirror-deepseek-proof";
+const DEFAULT_PROCESS_START_GRACE_MS = 750;
+const DEFAULT_PROCESS_STOP_GRACE_MS = 2500;
+const DEFAULT_TARGET_OBSERVATION_TIMEOUT_MS = 3000;
+
+export function createDefaultA1ProofDeps(env: NodeJS.ProcessEnv = process.env): A1ProofDeps {
+  const webProcesses = new Map<number, ChildProcess>();
+
+  return {
+    pathExists: pathExistsDefault,
+    isGitRepo: async (path) => {
+      try {
+        const output = await runTextCommand("git", ["-C", path, "rev-parse", "--is-inside-work-tree"]);
+        return output.trim() === "true";
+      } catch {
+        return false;
+      }
+    },
+    isExpectedAiNovelistRepo: isExpectedAiNovelistDefaultRepo,
+    cloneLocalRepo: async (sourcePath, mirrorPath) => {
+      await mkdir(dirname(mirrorPath), { recursive: true });
+      await runTextCommand("git", ["clone", "--no-hardlinks", sourcePath, mirrorPath], dirname(mirrorPath));
+      await runTextCommand("git", ["-C", mirrorPath, "switch", "-c", A1_PROOF_MIRROR_BRANCH]);
+    },
+    gitSnapshot: async (path) => {
+      const [branch, head, statusShort] = await Promise.all([
+        runTextCommand("git", ["-C", path, "branch", "--show-current"]),
+        runTextCommand("git", ["-C", path, "rev-parse", "--short", "HEAD"]),
+        runTextCommand("git", ["-C", path, "status", "--short"]),
+      ]);
+      return {
+        branch: sanitizeA1Text(branch.trim()),
+        head: sanitizeA1Text(head.trim()),
+        statusShort: sanitizeA1Text(statusShort.trim()),
+      };
+    },
+    deepseekConfigured: () => Boolean(env.DEEPSEEK_API_KEY?.trim()),
+    startWeb: async (input) => {
+      const secretValues = deepseekSecretValues(env);
+      const child = spawn(".venv/bin/ai-novelist", [
+        "web",
+        "--host",
+        input.host,
+        "--port",
+        String(input.port),
+        "--provider",
+        input.provider,
+      ], {
+        cwd: input.cwd,
+        env,
+        shell: false,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let output = "";
+      child.stdout?.on("data", (chunk: unknown) => {
+        output = appendLimitedText(output, String(chunk));
+      });
+      child.stderr?.on("data", (chunk: unknown) => {
+        output = appendLimitedText(output, String(chunk));
+      });
+
+      const earlyExit = await waitForEarlyExit(child, DEFAULT_PROCESS_START_GRACE_MS);
+      if (earlyExit.exited) {
+        throw new Error(sanitizeA1Text(
+          "ai-novelist web exited before observation, code=" + String(earlyExit.code) + ", signal=" + String(earlyExit.signal) + ": " + output,
+          secretValues,
+        ));
+      }
+      if (!child.pid) {
+        throw new Error("ai-novelist web process did not expose a pid.");
+      }
+      webProcesses.set(child.pid, child);
+      return { pid: child.pid };
+    },
+    observeTarget: observeTargetDefault,
+    stopWeb: async (process) => {
+      const child = webProcesses.get(process.pid);
+      if (!child) {
+        return false;
+      }
+      if (child.exitCode !== null || child.signalCode !== null) {
+        webProcesses.delete(process.pid);
+        return true;
+      }
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        return false;
+      }
+      if (await waitForConfirmedExit(child, DEFAULT_PROCESS_STOP_GRACE_MS)) {
+        webProcesses.delete(process.pid);
+        return true;
+      }
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        return false;
+      }
+      const stopped = await waitForConfirmedExit(child, DEFAULT_PROCESS_STOP_GRACE_MS);
+      if (stopped) {
+        webProcesses.delete(process.pid);
+      }
+      return stopped;
+    },
+    writeArtifact: writeA1ProofArtifact,
+    now: () => new Date().toISOString(),
+  };
+}
+
+async function pathExistsDefault(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function runTextCommand(file: string, args: readonly string[], cwd?: string): Promise<string> {
+  const options: ExecFileTextOptions = { encoding: "utf8", maxBuffer: 1024 * 1024 };
+  if (cwd) {
+    options.cwd = cwd;
+  }
+  const { stdout } = await execFileAsync(file, args, options);
+  return stdout;
+}
+
+async function isExpectedAiNovelistDefaultRepo(path: string): Promise<boolean> {
+  const packageJson = await readLocalIdentityFile(join(path, "package.json"));
+  if (packageJson) {
+    try {
+      const metadata = JSON.parse(packageJson) as { name?: unknown };
+      if (typeof metadata.name === "string" && metadata.name.includes("ai-novelist")) {
+        return true;
+      }
+    } catch {
+      // Ignore malformed package metadata; other local identity hints may still match.
+    }
+  }
+
+  const pyproject = await readLocalIdentityFile(join(path, "pyproject.toml"));
+  if (pyproject && /\bname\s*=\s*["']ai-novelist["']/.test(pyproject)) {
+    return true;
+  }
+
+  return (await pathExistsDefault(join(path, "ai_novelist"))) || (await pathExistsDefault(join(path, "src", "ai_novelist")));
+}
+
+async function readLocalIdentityFile(path: string): Promise<string | undefined> {
+  try {
+    const text = await readFile(path, "utf8");
+    return text.slice(0, 16 * 1024);
+  } catch {
+    return undefined;
+  }
+}
+
+function deepseekSecretValues(env: NodeJS.ProcessEnv): string[] {
+  const secret = env.DEEPSEEK_API_KEY?.trim();
+  return secret ? [secret] : [];
+}
+
+function appendLimitedText(current: string, chunk: string): string {
+  const next = current + chunk;
+  return next.length > 4000 ? next.slice(next.length - 4000) : next;
+}
+
+function waitForEarlyExit(child: ChildProcess, timeoutMs: number): Promise<
+  | { exited: false }
+  | { exited: true; code: number | null; signal: NodeJS.Signals | null }
+> {
+  return new Promise((resolve, reject) => {
+    let timer: NodeJS.Timeout;
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.off("error", onError);
+      child.off("exit", onExit);
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      cleanup();
+      resolve({ exited: true, code, signal });
+    };
+    timer = setTimeout(() => {
+      cleanup();
+      resolve({ exited: false });
+    }, timeoutMs);
+    child.once("error", onError);
+    child.once("exit", onExit);
+  });
+}
+
+function waitForConfirmedExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve(true);
+  }
+  return new Promise((resolve) => {
+    let timer: NodeJS.Timeout;
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.off("exit", onExit);
+      child.off("error", onError);
+    };
+    const onExit = () => {
+      cleanup();
+      resolve(true);
+    };
+    const onError = () => {
+      cleanup();
+      resolve(false);
+    };
+    timer = setTimeout(() => {
+      cleanup();
+      resolve(false);
+    }, timeoutMs);
+    child.once("exit", onExit);
+    child.once("error", onError);
+  });
+}
+
+async function observeTargetDefault(input: { targetUrl: string }): Promise<{ httpStatus: number; responseType: string }> {
+  const target = new URL(input.targetUrl);
+  if (target.protocol !== "http:" && target.protocol !== "https:") {
+    throw new Error("A1 target observation only supports HTTP(S) URLs.");
+  }
+  if (!isLoopbackHost(target.hostname)) {
+    throw new Error("A1 target observation is limited to loopback URLs.");
+  }
+
+  const transport = target.protocol === "https:" ? httpsRequest : httpRequest;
+  return new Promise((resolve, reject) => {
+    const request = transport(target, { method: "GET", timeout: DEFAULT_TARGET_OBSERVATION_TIMEOUT_MS }, (response) => {
+      const contentType = response.headers["content-type"];
+      const responseType = Array.isArray(contentType) ? contentType.join(", ") : contentType ?? "";
+      response.resume();
+      response.on("end", () => {
+        resolve({ httpStatus: response.statusCode ?? 0, responseType });
+      });
+      response.on("error", reject);
+    });
+    request.on("timeout", () => {
+      request.destroy(new Error("A1 target observation timed out."));
+    });
+    request.on("error", reject);
+    request.end();
+  });
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  const normalized = hostname.replace(/^\[/, "").replace(/\]$/, "").toLowerCase();
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
 }
 
 const EXPECTED_A1_MIRROR_PATH = "workspaces/mirrors/ai-novelist";
@@ -268,6 +546,7 @@ export async function runA1AiNovelistProof(input: A1ProofInput, deps: A1ProofDep
   const mirrorGit = await deps.gitSnapshot(mirrorPath);
   return continueTargetProof({
     cwd,
+    mirrorPath,
     provider: input.provider,
     webCommandConfirmed: input.webCommandConfirmed,
     targetUrl: input.targetUrl,
@@ -344,6 +623,7 @@ async function withArtifact(cwd: string, deps: A1ProofDeps, result: A1ProofResul
 
 async function continueTargetProof(input: {
   cwd: string;
+  mirrorPath: string;
   provider: "deepseek";
   webCommandConfirmed: boolean;
   targetUrl: string;
@@ -354,7 +634,7 @@ async function continueTargetProof(input: {
   const port = input.port ?? 8000;
   const targetEvidence: A1ProofEvidence = {
     ...evidence,
-    commandTemplate: `.venv/bin/ai-novelist web --host ${host} --port ${port} --provider ${input.provider}`,
+    commandTemplate: ".venv/bin/ai-novelist web --host " + host + " --port " + port + " --provider " + input.provider,
     targetUrl: input.targetUrl,
     targetProvider: input.provider,
     targetProviderBoundary: "ai-novelist-web",
@@ -391,15 +671,78 @@ async function continueTargetProof(input: {
     }));
   }
 
-  return withArtifact(input.cwd, deps, buildA1ProofResult({
-    blockers: [blocker({
+  let webProcess: { pid: number } | undefined;
+  let outcomeBlockers: A1ProofBlocker[] = [];
+  let cleanupStopFailed = false;
+
+  try {
+    webProcess = await deps.startWeb({ cwd: input.mirrorPath, host, port, provider: "deepseek" });
+    targetEvidence.webProcessStarted = true;
+
+    const observation = await deps.observeTarget({ targetUrl: input.targetUrl });
+    targetEvidence.targetHttpStatus = observation.httpStatus;
+    targetEvidence.targetResponseType = observation.responseType;
+    targetEvidence.targetAppProviderCall = false;
+
+    if (observation.httpStatus < 200 || observation.httpStatus >= 400) {
+      outcomeBlockers = [blocker({
+        category: "observation",
+        key: "observation.target_unreachable",
+        message: "A1 could not observe a successful ai-novelist target response.",
+        recommendedNextAction: "Inspect the local ai-novelist Web process and retry after the target URL returns 2xx or 3xx.",
+        severity: "manual_action",
+        blocks: ["execute"],
+        details: {
+          targetUrl: input.targetUrl,
+          httpStatus: observation.httpStatus,
+          responseType: observation.responseType,
+        },
+      })];
+    }
+  } catch (error) {
+    const logSummary = sanitizeA1Text(error instanceof Error ? error.message : String(error));
+    targetEvidence.logSummary = logSummary;
+    outcomeBlockers = [blocker({
       category: "target",
-      key: "target.web_lifecycle_required",
-      message: "A1 Task 2 stops before starting or observing the ai-novelist Web process.",
-      recommendedNextAction: "Run the Task 3 lifecycle proof before treating the DeepSeek target path as observed.",
+      key: "target.web_start_failed",
+      message: "A1 could not start or observe the ai-novelist Web process.",
+      recommendedNextAction: "Inspect the local ai-novelist Web startup output and retry after the target app can start locally.",
       severity: "manual_action",
       blocks: ["execute"],
-    })],
+      details: { targetUrl: input.targetUrl, logSummary },
+    })];
+  } finally {
+    if (webProcess && targetEvidence.webProcessStopped !== true) {
+      try {
+        const stopped = await deps.stopWeb(webProcess);
+        targetEvidence.webProcessStopped = stopped;
+        cleanupStopFailed = !stopped;
+      } catch (error) {
+        const cleanupSummary = sanitizeA1Text(error instanceof Error ? error.message : String(error));
+        targetEvidence.logSummary = [targetEvidence.logSummary, cleanupSummary].filter(Boolean).join("\n");
+        targetEvidence.webProcessStopped = false;
+        cleanupStopFailed = true;
+      }
+    }
+  }
+
+  if (cleanupStopFailed) {
+    return withArtifact(input.cwd, deps, buildA1ProofResult({
+      blockers: [blocker({
+        category: "cleanup",
+        key: "cleanup.web_process_stop_unconfirmed",
+        message: "A1 could not confirm the ai-novelist Web process stopped after observation.",
+        recommendedNextAction: "Stop any lingering ai-novelist Web process manually before retrying A1.",
+        severity: "manual_action",
+        blocks: ["execute"],
+        details: { targetUrl: input.targetUrl, pid: webProcess?.pid },
+      })],
+      evidence: targetEvidence,
+    }));
+  }
+
+  return withArtifact(input.cwd, deps, buildA1ProofResult({
+    blockers: outcomeBlockers,
     evidence: targetEvidence,
   }));
 }
