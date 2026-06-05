@@ -3,8 +3,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
+  buildA1AiNovelistWebStartSpec,
   buildA1ManualActionResult,
+  buildA1TargetObservationRequestSpec,
   deriveA1Readiness,
+  isExpectedAiNovelistRepoPath,
   runA1AiNovelistProof,
   sanitizeA1Metadata,
   type A1ProofDeps,
@@ -65,6 +68,56 @@ describe("A1 ai-novelist proof contract", () => {
       targetProviderBoundary: "ai-novelist-web",
       targetAppProviderCall: "not_observed",
     });
+  });
+
+  test("default repo identity requires exact ai-novelist markers", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "psf-a1-identity-ok-"));
+    await writeAiNovelistIdentity(repo, "ai-novelist");
+
+    await expect(isExpectedAiNovelistRepoPath(repo)).resolves.toBe(true);
+  });
+
+  test("default repo identity rejects similarly named and partial repos", async () => {
+    const similarlyNamed = await mkdtemp(join(tmpdir(), "psf-a1-identity-similar-"));
+    await writeAiNovelistIdentity(similarlyNamed, "not-ai-novelist");
+
+    const partial = await mkdtemp(join(tmpdir(), "psf-a1-identity-partial-"));
+    await mkdir(join(partial, "src", "ai_novelist"), { recursive: true });
+
+    await expect(isExpectedAiNovelistRepoPath(similarlyNamed)).resolves.toBe(false);
+    await expect(isExpectedAiNovelistRepoPath(partial)).resolves.toBe(false);
+  });
+
+  test("builds ai-novelist Web start command without shell or inherited stdio", () => {
+    const spec = buildA1AiNovelistWebStartSpec({
+      cwd: "/tmp/ai-novelist",
+      host: "127.0.0.1",
+      port: 8000,
+      provider: "deepseek",
+    });
+
+    expect(spec).toEqual({
+      command: ".venv/bin/ai-novelist",
+      args: ["web", "--host", "127.0.0.1", "--port", "8000", "--provider", "deepseek"],
+      options: {
+        cwd: "/tmp/ai-novelist",
+        shell: false,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    });
+    expect("env" in spec.options).toBe(false);
+  });
+
+  test("builds loopback target observation request contract without body capture", () => {
+    expect(buildA1TargetObservationRequestSpec("http://127.0.0.1:8000/api/projects")).toEqual({
+      targetUrl: "http://127.0.0.1:8000/api/projects",
+      method: "GET",
+      protocol: "http:",
+      timeoutMs: 3000,
+      discardBody: true,
+      loopbackOnly: true,
+    });
+    expect(() => buildA1TargetObservationRequestSpec("https://example.com/api/projects")).toThrow(/loopback/);
   });
 
   test("requires DeepSeek env when provider mode is deepseek", async () => {
@@ -529,6 +582,15 @@ function fakeDeps(overrides: Partial<{
     writeArtifact: async () => "artifacts/a1/ai-novelist-local-mirror-deepseek-proof.json",
     now: () => "2026-06-05T00:00:00.000Z",
   };
+}
+
+async function writeAiNovelistIdentity(repo: string, projectName: string): Promise<void> {
+  await mkdir(join(repo, "src", "ai_novelist", "web"), { recursive: true });
+  await mkdir(join(repo, "web", "frontend"), { recursive: true });
+  await writeFile(join(repo, "pyproject.toml"), '[project]\nname = "' + projectName + '"\n', "utf8");
+  await writeFile(join(repo, "src", "ai_novelist", "cli.py"), "# cli marker\n", "utf8");
+  await writeFile(join(repo, "src", "ai_novelist", "web", "app.py"), "# web marker\n", "utf8");
+  await writeFile(join(repo, "web", "frontend", "package.json"), "{}\n", "utf8");
 }
 
 function normalizePath(path: string): string {

@@ -115,6 +115,114 @@ const DEFAULT_PROCESS_START_GRACE_MS = 750;
 const DEFAULT_PROCESS_STOP_GRACE_MS = 2500;
 const DEFAULT_TARGET_OBSERVATION_TIMEOUT_MS = 3000;
 
+export interface A1AiNovelistWebStartSpec {
+  command: string;
+  args: string[];
+  options: {
+    cwd: string;
+    shell: false;
+    stdio: ["ignore", "pipe", "pipe"];
+  };
+}
+
+export interface A1TargetObservationRequestSpec {
+  targetUrl: string;
+  method: "GET";
+  protocol: "http:" | "https:";
+  timeoutMs: number;
+  discardBody: true;
+  loopbackOnly: true;
+}
+
+interface A1AiNovelistRepoIdentityMarkers {
+  pyprojectToml?: string | undefined;
+  cliPyExists: boolean;
+  webAppPyExists: boolean;
+  frontendPackageJsonExists: boolean;
+}
+
+export function buildA1AiNovelistWebStartSpec(input: {
+  cwd: string;
+  host: string;
+  port: number;
+  provider: "deepseek";
+}): A1AiNovelistWebStartSpec {
+  return {
+    command: ".venv/bin/ai-novelist",
+    args: ["web", "--host", input.host, "--port", String(input.port), "--provider", input.provider],
+    options: {
+      cwd: input.cwd,
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  };
+}
+
+export function buildA1TargetObservationRequestSpec(targetUrl: string): A1TargetObservationRequestSpec {
+  const target = new URL(targetUrl);
+  if (target.protocol !== "http:" && target.protocol !== "https:") {
+    throw new Error("A1 target observation only supports HTTP(S) URLs.");
+  }
+  if (!isLoopbackHost(target.hostname)) {
+    throw new Error("A1 target observation is limited to loopback URLs.");
+  }
+  return {
+    targetUrl: target.toString(),
+    method: "GET",
+    protocol: target.protocol,
+    timeoutMs: DEFAULT_TARGET_OBSERVATION_TIMEOUT_MS,
+    discardBody: true,
+    loopbackOnly: true,
+  };
+}
+
+export async function isExpectedAiNovelistRepoPath(path: string): Promise<boolean> {
+  const [pyprojectToml, cliPyExists, webAppPyExists, frontendPackageJsonExists] = await Promise.all([
+    readLocalIdentityFile(join(path, "pyproject.toml")),
+    pathExistsDefault(join(path, "src", "ai_novelist", "cli.py")),
+    pathExistsDefault(join(path, "src", "ai_novelist", "web", "app.py")),
+    pathExistsDefault(join(path, "web", "frontend", "package.json")),
+  ]);
+  return hasExpectedAiNovelistRepoIdentity({ pyprojectToml, cliPyExists, webAppPyExists, frontendPackageJsonExists });
+}
+
+function hasExpectedAiNovelistRepoIdentity(markers: A1AiNovelistRepoIdentityMarkers): boolean {
+  return Boolean(
+    markers.cliPyExists
+      && markers.webAppPyExists
+      && markers.frontendPackageJsonExists
+      && hasExactAiNovelistProjectName(markers.pyprojectToml),
+  );
+}
+
+function hasExactAiNovelistProjectName(pyprojectToml: string | undefined): boolean {
+  if (!pyprojectToml) {
+    return false;
+  }
+
+  let inProjectSection = false;
+  for (const rawLine of pyprojectToml.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+    if (/^\[[^\]]+\]$/.test(line)) {
+      inProjectSection = line === "[project]";
+      continue;
+    }
+    if (!inProjectSection) {
+      continue;
+    }
+    if (/^name\s*=\s*(["'])ai-novelist\1\s*(?:#.*)?$/.test(line)) {
+      return true;
+    }
+    if (/^name\s*=/.test(line)) {
+      return false;
+    }
+  }
+  return false;
+}
+
 export function createDefaultA1ProofDeps(env: NodeJS.ProcessEnv = process.env): A1ProofDeps {
   const webProcesses = new Map<number, ChildProcess>();
 
@@ -128,7 +236,7 @@ export function createDefaultA1ProofDeps(env: NodeJS.ProcessEnv = process.env): 
         return false;
       }
     },
-    isExpectedAiNovelistRepo: isExpectedAiNovelistDefaultRepo,
+    isExpectedAiNovelistRepo: isExpectedAiNovelistRepoPath,
     cloneLocalRepo: async (sourcePath, mirrorPath) => {
       await mkdir(dirname(mirrorPath), { recursive: true });
       await runTextCommand("git", ["clone", "--no-hardlinks", sourcePath, mirrorPath], dirname(mirrorPath));
@@ -149,19 +257,10 @@ export function createDefaultA1ProofDeps(env: NodeJS.ProcessEnv = process.env): 
     deepseekConfigured: () => Boolean(env.DEEPSEEK_API_KEY?.trim()),
     startWeb: async (input) => {
       const secretValues = deepseekSecretValues(env);
-      const child = spawn(".venv/bin/ai-novelist", [
-        "web",
-        "--host",
-        input.host,
-        "--port",
-        String(input.port),
-        "--provider",
-        input.provider,
-      ], {
-        cwd: input.cwd,
+      const spec = buildA1AiNovelistWebStartSpec(input);
+      const child = spawn(spec.command, spec.args, {
+        ...spec.options,
         env,
-        shell: false,
-        stdio: ["ignore", "pipe", "pipe"],
       });
       let output = "";
       child.stdout?.on("data", (chunk: unknown) => {
@@ -235,27 +334,6 @@ async function runTextCommand(file: string, args: readonly string[], cwd?: strin
   }
   const { stdout } = await execFileAsync(file, args, options);
   return stdout;
-}
-
-async function isExpectedAiNovelistDefaultRepo(path: string): Promise<boolean> {
-  const packageJson = await readLocalIdentityFile(join(path, "package.json"));
-  if (packageJson) {
-    try {
-      const metadata = JSON.parse(packageJson) as { name?: unknown };
-      if (typeof metadata.name === "string" && metadata.name.includes("ai-novelist")) {
-        return true;
-      }
-    } catch {
-      // Ignore malformed package metadata; other local identity hints may still match.
-    }
-  }
-
-  const pyproject = await readLocalIdentityFile(join(path, "pyproject.toml"));
-  if (pyproject && /\bname\s*=\s*["']ai-novelist["']/.test(pyproject)) {
-    return true;
-  }
-
-  return (await pathExistsDefault(join(path, "ai_novelist"))) || (await pathExistsDefault(join(path, "src", "ai_novelist")));
 }
 
 async function readLocalIdentityFile(path: string): Promise<string | undefined> {
@@ -334,17 +412,11 @@ function waitForConfirmedExit(child: ChildProcess, timeoutMs: number): Promise<b
 }
 
 async function observeTargetDefault(input: { targetUrl: string }): Promise<{ httpStatus: number; responseType: string }> {
-  const target = new URL(input.targetUrl);
-  if (target.protocol !== "http:" && target.protocol !== "https:") {
-    throw new Error("A1 target observation only supports HTTP(S) URLs.");
-  }
-  if (!isLoopbackHost(target.hostname)) {
-    throw new Error("A1 target observation is limited to loopback URLs.");
-  }
-
-  const transport = target.protocol === "https:" ? httpsRequest : httpRequest;
+  const spec = buildA1TargetObservationRequestSpec(input.targetUrl);
+  const target = new URL(spec.targetUrl);
+  const transport = spec.protocol === "https:" ? httpsRequest : httpRequest;
   return new Promise((resolve, reject) => {
-    const request = transport(target, { method: "GET", timeout: DEFAULT_TARGET_OBSERVATION_TIMEOUT_MS }, (response) => {
+    const request = transport(target, { method: spec.method, timeout: spec.timeoutMs }, (response) => {
       const contentType = response.headers["content-type"];
       const responseType = Array.isArray(contentType) ? contentType.join(", ") : contentType ?? "";
       response.resume();
