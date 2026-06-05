@@ -266,6 +266,19 @@ const SAFE_BLOCKER_DETAIL_KEYS = new Set([
   "resourceType",
 ]);
 
+const SAFE_EVIDENCE_DETAIL_KEYS = new Set([
+  "summary",
+  "status",
+  "statusCode",
+  "url",
+  "path",
+  "resourceId",
+  "artifactId",
+  "count",
+  "operation",
+  "gate",
+]);
+
 const JWT_LIKE_DETAIL_PATTERN = /^[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$/;
 const BARE_BEARER_DETAIL_PATTERN = /^Bearer\s+\S+/i;
 
@@ -276,10 +289,43 @@ function sanitizeBlockerDetails(details: Record<string, unknown> | undefined, en
       .filter(([, entry]) => entry !== undefined)
       .map(([key, entry]) => [
         key,
-        isSafeBlockerDetailName(key) ? sanitizeBlockerDetailValue(entry, env) : REDACTED,
+        isSafeBlockerDetailName(key) ? sanitizeSafeBlockerDetail(key, entry, env) : REDACTED,
       ]),
   );
   return Object.keys(sanitized).length > 0 ? sanitized : undefined;
+}
+
+function sanitizeSafeBlockerDetail(key: string, value: unknown, env: IntegrationEnv): unknown {
+  return key === "evidence" ? sanitizeEvidenceDetail(value, env) : sanitizeBlockerDetailValue(value, env);
+}
+
+function sanitizeEvidenceDetail(value: unknown, env: IntegrationEnv): unknown {
+  const redacted = redactValue(value, env);
+
+  if (!redacted || typeof redacted !== "object" || Array.isArray(redacted)) {
+    return sanitizeScalarEvidenceValue(redacted);
+  }
+
+  return Object.fromEntries(
+    Object.entries(redacted as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .map(([key, entry]) => [
+        key,
+        isSafeEvidenceDetailName(key) ? sanitizeScalarEvidenceValue(entry) : REDACTED,
+      ]),
+  );
+}
+
+function sanitizeScalarEvidenceValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    return isUnsafeBlockerDetailText(value) ? REDACTED : value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean" || value === null) {
+    return value;
+  }
+
+  return REDACTED;
 }
 
 function sanitizeBlockerDetailValue(value: unknown, env: IntegrationEnv): unknown {
@@ -309,6 +355,10 @@ function sanitizeBlockerDetailValue(value: unknown, env: IntegrationEnv): unknow
 
 function isSafeBlockerDetailName(name: string): boolean {
   return SAFE_BLOCKER_DETAIL_KEYS.has(name);
+}
+
+function isSafeEvidenceDetailName(name: string): boolean {
+  return SAFE_EVIDENCE_DETAIL_KEYS.has(name);
 }
 
 function isUnsafeBlockerDetailName(name: string): boolean {
@@ -448,14 +498,52 @@ export function disabledRealResult<TName extends IntegrationName, TOutputs exten
   });
 }
 
+type ManualActionBlockerReason = "missing_transport" | "network_gate_disabled" | "missing_transport_and_network_gate" | "operation_gate_disabled";
+
+function inferTransportGateReason(input: { transport?: unknown; gates?: { allowNetwork?: boolean } }): ManualActionBlockerReason {
+  const missingTransport = !input.transport;
+  const networkGateDisabled = input.gates?.allowNetwork !== true;
+
+  if (missingTransport && networkGateDisabled) {
+    return "missing_transport_and_network_gate";
+  }
+
+  if (missingTransport) {
+    return "missing_transport";
+  }
+
+  if (networkGateDisabled) {
+    return "network_gate_disabled";
+  }
+
+  return "missing_transport_and_network_gate";
+}
+
+function manualActionBlockerMessage<TName extends IntegrationName>(
+  integrationDefinition: IntegrationDefinition<TName>,
+  reason: ManualActionBlockerReason,
+): string {
+  switch (reason) {
+    case "missing_transport":
+      return `Manual action required: ${integrationDefinition.externalName} real mode needs an injected transport; no network call was made.`;
+    case "network_gate_disabled":
+      return `Manual action required: ${integrationDefinition.externalName} real mode needs gates.allowNetwork=true; no network call was made.`;
+    case "operation_gate_disabled":
+      return `Manual action required: ${integrationDefinition.externalName} real mode needs an explicit operation gate; no network call was made.`;
+    case "missing_transport_and_network_gate":
+      return `Manual action required: ${integrationDefinition.externalName} real mode needs an injected transport and gates.allowNetwork=true; no network call was made.`;
+  }
+}
+
 export function missingTransportResult<TName extends IntegrationName, TOutputs extends object>(
   integrationDefinition: IntegrationDefinition<TName>,
-  input: { env?: IntegrationEnv; now?: string | (() => string) },
+  input: { env?: IntegrationEnv; now?: string | (() => string); transport?: unknown; gates?: { allowNetwork?: boolean } },
   outputs: TOutputs,
+  options: { reason?: ManualActionBlockerReason } = {},
 ): IntegrationRealResult<TName, TOutputs> {
   return buildRealResult(integrationDefinition, input, {
     decision: "manual_action",
-    message: `Manual action required: ${integrationDefinition.externalName} real mode needs an injected transport and allowNetwork gate; no network call was made.`,
+    message: manualActionBlockerMessage(integrationDefinition, options.reason ?? inferTransportGateReason(input)),
     outputs,
     safeToRun: false,
   });
@@ -568,7 +656,7 @@ export async function runGitHubReal(input: GitHubRealInput = {}): Promise<GitHub
 
   if (input.gates.allowPushBranch !== true && input.gates.allowCreatePullRequest !== true) {
     manualActions.push("Set an explicit GitHub operation gate such as allowPushBranch or allowCreatePullRequest.");
-    return missingTransportResult(definition, input, initialOutputs);
+    return missingTransportResult(definition, input, initialOutputs, { reason: "operation_gate_disabled" });
   }
 
   const owner = env.GITHUB_OWNER as string;

@@ -569,6 +569,8 @@ describe("gated real integration adapters", () => {
     });
 
     expect(result.decision).toBe("manual_action");
+    expect(result.message).toContain("operation gate");
+    expect(result.message).not.toContain("transport");
     expect(result.realNetworkCall).toBe(false);
     expect(result.blockers).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -616,6 +618,8 @@ describe("gated real integration adapters", () => {
     const result = await run(transport);
 
     expect(result.decision).toBe("manual_action");
+    expect(result.message).toContain("allowNetwork");
+    expect(result.message).not.toContain("transport");
     expect(result.realNetworkCall).toBe(false);
     expect(result.blockers).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -716,6 +720,18 @@ describe("gated real integration adapters", () => {
             operation: "createPullRequest",
             evidence: {
               summary: "provider returned a validation error",
+              status: "failed",
+              statusCode: 422,
+              url: "https://evidence.example.test/log?safe=visible",
+              path: "artifacts/mission-001/qa-report.md",
+              resourceId: "mission-001",
+              artifactId: "artifact-001",
+              count: 1,
+              operation: "createPullRequest",
+              gate: "allowNetwork",
+              raw: { token: "nested-raw-secret" },
+              result: { body: "nested-result-secret" },
+              providerResponse: { message: "nested-provider-response-secret" },
               headers: { authorization: "Bearer nested-header-secret" },
               payload: { body: "nested-payload-secret" },
               links: ["https://evidence.example.test/log?safe=visible"],
@@ -750,9 +766,21 @@ describe("gated real integration adapters", () => {
       operation: "createPullRequest",
       evidence: {
         summary: "provider returned a validation error",
+        status: "failed",
+        statusCode: 422,
+        url: "https://evidence.example.test/log?safe=visible",
+        path: "artifacts/mission-001/qa-report.md",
+        resourceId: "mission-001",
+        artifactId: "artifact-001",
+        count: 1,
+        operation: "createPullRequest",
+        gate: "allowNetwork",
+        raw: "[REDACTED]",
+        result: "[REDACTED]",
+        providerResponse: "[REDACTED]",
         headers: "[REDACTED]",
         payload: "[REDACTED]",
-        links: ["https://evidence.example.test/log?safe=visible"],
+        links: "[REDACTED]",
       },
       action: "manual-review",
       resourceId: "mission-001",
@@ -767,6 +795,9 @@ describe("gated real integration adapters", () => {
     expect(text).not.toContain("raw-body-secret");
     expect(text).not.toContain("raw-response-secret");
     expect(text).not.toContain("provider-response-secret");
+    expect(text).not.toContain("nested-raw-secret");
+    expect(text).not.toContain("nested-result-secret");
+    expect(text).not.toContain("nested-provider-response-secret");
     expect(text).not.toContain("request-body-secret");
     expect(text).not.toContain("data-secret");
     expect(text).not.toContain("nested-header-secret");
